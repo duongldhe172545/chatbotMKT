@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin — Em Linh MKT</title>
+  <link rel="stylesheet" href="/static/admin.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">Em Linh MKT — Admin</div>
+    <nav>
+      <a href="#profiles" class="tab active" data-tab="profiles">Profiles đã CONFIRMED</a>
+      <a href="#sessions" class="tab" data-tab="sessions">Sessions (RAW)</a>
+      <a href="/" class="link-out">← Về trang chat</a>
+    </nav>
+  </header>
+
+  <main class="container">
+    <section id="panel-profiles" class="panel">
+      <div class="toolbar">
+        <h2>Dealer Profiles</h2>
+        <div class="meta" id="profilesMeta">đang tải...</div>
+        <button id="exportSelectedBtn" class="btn-secondary" disabled>
+          ⬇️ Xuất đã chọn (0)
+        </button>
+        <a id="exportAllBtn" href="/api/admin/profiles/export.md" class="btn-secondary" download>
+          ⬇️ Xuất tất cả
+        </a>
+        <button id="reloadProfiles" class="btn-secondary">Tải lại</button>
+      </div>
+      <div class="table-wrap">
+        <table id="profilesTable">
+          <thead>
+            <tr>
+              <th class="col-check"><input type="checkbox" id="selectAllProfiles" title="Chọn tất cả"/></th>
+              <th>Tên đại lý</th>
+              <th>Người phụ trách</th>
+              <th>Zalo/SĐT</th>
+              <th>Khu vực</th>
+              <th>Ngành chính</th>
+              <th>Khách cũ</th>
+              <th>Đau nhất</th>
+              <th>Ưu tiên</th>
+              <th>Flags</th>
+              <th>Confirm</th>
+              <th>Review</th>
+              <th>Tạo lúc</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="panel-sessions" class="panel hidden">
+      <div class="toolbar">
+        <h2>Sessions hội thoại</h2>
+        <div class="meta" id="sessionsMeta">đang tải...</div>
+        <button id="reloadSessions" class="btn-secondary">Tải lại</button>
+      </div>
+      <div class="table-wrap">
+        <table id="sessionsTable">
+          <thead>
+            <tr>
+              <th>Session ID</th>
+              <th>Tên dealer (đang nhập)</th>
+              <th>Zalo/SĐT</th>
+              <th>Stage</th>
+              <th>Số tin nhắn</th>
+              <th>Cập nhật</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <!-- Modal chi tiết session -->
+  <div id="modal" class="modal hidden">
+    <div class="modal-box">
+      <div class="modal-head">
+        <strong id="modalTitle">Chi tiết phiên</strong>
+        <a id="modalExportBtn" class="btn-secondary" href="#" download>⬇️ Xuất .md</a>
+        <button id="modalClose" class="btn-secondary">Đóng</button>
+      </div>
+      <div class="modal-body">
+        <div class="modal-section">
+          <h3>Profile RAW</h3>
+          <pre id="modalProfile"></pre>
+        </div>
+        <div class="modal-section">
+          <h3>Confidence</h3>
+          <pre id="modalConfidence"></pre>
+        </div>
+        <div class="modal-section">
+          <h3>Hội thoại</h3>
+          <div id="modalMessages" class="transcript"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/admin.js"></script>
+</body>
+</html>

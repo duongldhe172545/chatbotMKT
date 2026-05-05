@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Em Linh MKT — Chatbot Dealer</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <div class="title">Em Linh MKT</div>
+      <div class="subtitle">Trợ lý số — Cộng Đồng Thợ 4.0 (MVP)</div>
+    </header>
+
+    <main id="chat" class="chat" aria-live="polite"></main>
+
+    <form id="form" class="composer">
+      <button type="button" id="micBtn" class="mic" title="Bấm để nói">
+        <span class="mic-icon">🎤</span>
+      </button>
+      <input
+        id="input"
+        type="text"
+        placeholder="Gõ tin nhắn hoặc bấm mic để nói..."
+        autocomplete="off"
+        required
+      />
+      <button type="submit" id="sendBtn" class="send">Gửi</button>
+    </form>
+
+    <div id="status" class="status"></div>
+  </div>
+
+  <script src="/static/chat.js"></script>
+</body>
+</html>

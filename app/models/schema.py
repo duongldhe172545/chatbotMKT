@@ -1,0 +1,90 @@
+"""Pydantic schemas — mirror mục 10 và 11 trong tài liệu MVP."""
+from __future__ import annotations
+
+from datetime import datetime
+from enum import Enum
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+ConfidenceLevel = Literal["LOW", "MEDIUM", "HIGH"]
+
+
+class DealerProfileRaw(BaseModel):
+    """Schema mục 10 — bản profile RAW chưa human review."""
+    dealer_name: str | None = None
+    owner_name: str | None = None
+    phone_or_zalo: str | None = None
+    province: str | None = None
+    district: str | None = None
+    main_category: str | None = None
+    dealer_type: str | None = None
+    customer_base_estimate: str | None = None
+    pain_points: list[str] = Field(default_factory=list)
+    dl0_priority: list[str] = Field(default_factory=list)
+    recommended_group: str | None = None
+    confirmation_status: Literal["PENDING", "CONFIRMED", "EDITED"] = "PENDING"
+    review_status: Literal["RAW", "UNDER_REVIEW", "APPROVED", "REJECTED"] = "RAW"
+    flags: list[str] = Field(default_factory=list)
+
+
+class ExtractResult(BaseModel):
+    """Output extractor mục 11 — voice_intake_result với 3 lớp:
+    raw_transcript / cleaned_summary / extracted_fields + confidence + missing + confirm.
+    """
+    raw_transcript: str = ""  # Toàn bộ tin nhắn dealer ghép lại (không qua LLM)
+    cleaned_summary: str = ""
+    extracted_fields: dict = Field(default_factory=dict)
+    confidence: dict[str, ConfidenceLevel] = Field(default_factory=dict)
+    missing_fields: list[str] = Field(default_factory=list)
+    confirm_questions: list[str] = Field(default_factory=list)
+
+
+class Stage(str, Enum):
+    GREETING = "GREETING"
+    ASKING = "ASKING"
+    CONFIRMING = "CONFIRMING"
+    DONE = "DONE"
+
+
+class ChatRole(str, Enum):
+    BOT = "bot"
+    DEALER = "dealer"
+
+
+class ChatMessage(BaseModel):
+    role: ChatRole
+    content: str
+    ts: datetime = Field(default_factory=datetime.utcnow)
+
+
+class Session(BaseModel):
+    session_id: str
+    stage: Stage = Stage.GREETING
+    messages: list[ChatMessage] = Field(default_factory=list)
+    profile_raw: DealerProfileRaw = Field(default_factory=DealerProfileRaw)
+    confidence: dict[str, ConfidenceLevel] = Field(default_factory=dict)
+    missing_fields: list[str] = Field(default_factory=list)
+    current_question_idx: int = 0
+    # Track số lần đã hỏi mỗi field — sau MAX_RETRY thì skip để không loop vô tận
+    field_attempts: dict[str, int] = Field(default_factory=dict)
+    skipped_fields: list[str] = Field(default_factory=list)
+    # Cờ tích luỹ qua các turn (abuse, prompt injection, escalation, ...)
+    flag_history: list[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+# API request/response
+class ChatRequest(BaseModel):
+    session_id: str | None = Field(default=None, max_length=64)
+    message: str = Field(max_length=2000)
+
+
+class ChatResponse(BaseModel):
+    session_id: str
+    bot_message: str
+    stage: Stage
+    profile_snapshot: DealerProfileRaw
+    messages: list[ChatMessage] = Field(default_factory=list)
+    done: bool = False
