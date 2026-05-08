@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 from app.core.chat_replier import ChatReplier
 from app.core.conversation import ConversationService
 from app.core.extractor import Extractor
+from app.core.replier import Replier
 from app.llm.base import LLMProvider
 from app.llm.claude import ClaudeProvider
 from app.storage.base import StorageAdapter
@@ -63,14 +64,25 @@ def get_storage() -> StorageAdapter:
     return _storage
 
 
+def use_replier() -> bool:
+    """Bước 1 refactor flag — bật để dùng Replier mới (tách khỏi Extractor).
+
+    Mặc định FALSE (giữ nguyên flow cũ) để A/B test an toàn. Đặt
+    USE_REPLIER=true trong .env để bật path mới.
+    """
+    return _env("USE_REPLIER", "false").lower() in ("1", "true", "yes", "on")
+
+
 def get_conversation_service() -> ConversationService:
     global _conversation
     if _conversation is None:
         llm = get_llm()
+        replier = Replier(llm=llm) if use_replier() else None
         _conversation = ConversationService(
             extractor=Extractor(llm=llm),
             storage=get_storage(),
             chat_replier=ChatReplier(llm=llm),
+            replier=replier,
         )
     return _conversation
 
