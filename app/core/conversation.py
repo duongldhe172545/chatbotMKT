@@ -704,18 +704,51 @@ class ConversationService:
         ):
             target_refused = weak_after[0]
             address = session.address_form or "anh"
-            # Skip field này
+            # Skip field này — ghi nhận count để re-ask logic biết khi nào
+            # dealer đã hợp tác trở lại (sau ≥2 field mới fill).
             if target_refused not in session.skipped_fields:
                 session.skipped_fields.append(target_refused)
+                session.skipped_at_filled_count[target_refused] = (
+                    self._count_filled_required(session)
+                )
             weak_after = self._weak_required_fields(session)
+
+            # Hết field weak → confirming ngay (vẫn cần ack ngắn trước card)
+            if not weak_after:
+                ack = (
+                    f"Dạ em tôn trọng quyết định của {address} ạ — phần đó "
+                    f"em tạm bỏ qua, không ép {address}. "
+                )
+                return ack + self._go_to_confirming(session)
+
+            next_target = weak_after[0]
+
+            # ===== PATH MỚI — Replier xử HANDLE_REFUSAL =====
+            # Route qua Replier để tránh triple-prefix mess (template ack +
+            # bridge + fallback question với prefix riêng).
+            if self.replier is not None:
+                goal = Goal(
+                    kind="HANDLE_REFUSAL",
+                    skipped_field=target_refused,
+                    next_field=next_target,
+                    forbidden_opener_group=session.last_opener_group,
+                )
+                try:
+                    return self.replier.reply(
+                        messages=session.messages,
+                        goal=goal,
+                        profile=session.profile_raw,
+                        address=address,
+                    )
+                except Exception:
+                    # Replier fail → fallback path cũ
+                    pass
+
+            # ===== PATH CŨ — template hardcoded =====
             ack = (
                 f"Dạ em tôn trọng quyết định của {address} ạ — phần đó "
                 f"em tạm bỏ qua, không ép {address}. "
             )
-            if not weak_after:
-                # Hết field weak → confirming với data hiện có
-                return ack + self._go_to_confirming(session)
-            next_target = weak_after[0]
             return ack + "À tiện đây em hỏi xíu nhé — " + self._fallback_question_for(next_target)
 
         if weak_after:
@@ -731,13 +764,35 @@ class ConversationService:
             if session.field_attempts.get(target, 0) > MAX_FIELD_ATTEMPTS:
                 if target not in session.skipped_fields:
                     session.skipped_fields.append(target)
+                    session.skipped_at_filled_count[target] = (
+                        self._count_filled_required(session)
+                    )
                 weak_after = self._weak_required_fields(session)
                 if not weak_after:
                     return self._go_to_confirming(session)
                 target = weak_after[0]
 
+            # Re-ask logic: nếu target là field đã từng skip mà nay đủ điều
+            # kiện hỏi lại → mark retried (chỉ retry 1 lần) + thêm hint cho
+            # Replier để tone nhẹ ("nếu vẫn không tiện thì bỏ qua").
+            is_reask = (
+                target in session.skipped_fields
+                and target not in session.skipped_retried
+            )
+            if is_reask:
+                session.skipped_retried.append(target)
+
             # ===== PATH MỚI (Bước 1 refactor) — Replier sinh reply =====
             if self.replier is not None:
+                # Re-ask hint chỉ áp dụng cho ASK_FIELD — defensive/tâm sự
+                # ưu tiên trả lời/engage trước, re-ask vibe sẽ confuse.
+                reask_hint = (
+                    "Đây là lần hỏi lại nhẹ field dealer trước đó đã từ chối. "
+                    "Tone NHẸ NHÀNG, KHÔNG ép. Chèn câu 'nếu anh vẫn không "
+                    "tiện thì mình bỏ qua cũng được ạ'. Không hỏi lại lần "
+                    "thứ hai nếu dealer tiếp tục từ chối."
+                ) if is_reask else None
+
                 if defensive:
                     goal = Goal(
                         kind="ANSWER_DEFENSIVE",
@@ -755,6 +810,7 @@ class ConversationService:
                         kind="ASK_FIELD",
                         target_field=target,
                         forbidden_opener_group=session.last_opener_group,
+                        extra_hint=reask_hint,
                     )
                 try:
                     return self.replier.reply(
@@ -976,23 +1032,62 @@ class ConversationService:
                 session.confidence["dl0_priority"] = "HIGH"
                 break
 
-    def _weak_required_fields(self, session: Session) -> list[str]:
-        """Field bắt buộc còn null hoặc confidence chưa đủ tin cậy (đã loại field bị skip).
+    @staticmethod
+    def _count_filled_required(session: Session) -> int:
+        """Đếm số REQUIRED_FIELDS đã có giá trị thật (HIGH/MEDIUM, không LOW).
 
-        Sau khi relax: tất cả field — empty hoặc LOW → weak.
-        INTENT field giờ accept MEDIUM nhờ rule-based regex bù.
+        Dùng làm thước đo "dealer đang hợp tác mức nào" cho re-ask logic.
         """
-        weak = []
         profile_dict = session.profile_raw.model_dump()
+        count = 0
+        for field in REQUIRED_FIELDS:
+            value = profile_dict.get(field)
+            if value in (None, "", []):
+                continue
+            conf = session.confidence.get(field)
+            if conf == "LOW":
+                continue
+            count += 1
+        return count
+
+    # Sau khi dealer fill thêm ≥ N field NEW so với lúc skip → field skip
+    # được retry 1 lần. N=2 = "dealer trả lời 2 câu hỏi sau đó coi như cooperation".
+    REASK_COOPERATION_THRESHOLD = 2
+
+    def _weak_required_fields(self, session: Session) -> list[str]:
+        """Field bắt buộc còn null hoặc confidence chưa đủ tin cậy.
+
+        Logic skip:
+        - Field trong skipped_fields → KHÔNG vào weak NẾU chưa đủ điều kiện re-ask.
+        - Field đủ điều kiện re-ask (dealer đã fill thêm ≥2 field, chưa retry) →
+          đẩy xuống CUỐI list (low priority — chỉ hỏi sau khi field ưu tiên hết).
+
+        INTENT field accept MEDIUM nhờ rule-based regex bù.
+        """
+        weak: list[str] = []
+        reaskable: list[str] = []  # field skip nhưng đủ điều kiện hỏi lại
+        profile_dict = session.profile_raw.model_dump()
+        filled_now = self._count_filled_required(session)
+
         for field in REQUIRED_FIELDS:
             if field in session.skipped_fields:
+                # Đã retry rồi → bỏ luôn, không hỏi nữa
+                if field in session.skipped_retried:
+                    continue
+                # Đủ điều kiện cooperation → đưa vào reaskable
+                skipped_at = session.skipped_at_filled_count.get(field, filled_now)
+                if filled_now - skipped_at >= self.REASK_COOPERATION_THRESHOLD:
+                    reaskable.append(field)
                 continue
+
             value = profile_dict.get(field)
             empty = value in (None, "", [])
             conf = session.confidence.get(field)
             if empty or conf == "LOW":
                 weak.append(field)
-        return weak
+
+        # Re-askable đẩy xuống cuối — ưu tiên field chưa từng hỏi trước
+        return weak + reaskable
 
     @staticmethod
     def _tam_su_engagement(text: str) -> str:

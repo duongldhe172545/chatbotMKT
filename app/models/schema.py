@@ -69,6 +69,11 @@ class Session(BaseModel):
     # Track số lần đã hỏi mỗi field — sau MAX_RETRY thì skip để không loop vô tận
     field_attempts: dict[str, int] = Field(default_factory=dict)
     skipped_fields: list[str] = Field(default_factory=list)
+    # Re-ask logic: khi field bị skip, lưu count field đã fill tại thời điểm skip.
+    # Sau khi dealer fill thêm ≥2 field NEW (signal cooperation) → field skip
+    # được phép hỏi lại 1 lần (ghi vào skipped_retried để không loop).
+    skipped_at_filled_count: dict[str, int] = Field(default_factory=dict)
+    skipped_retried: list[str] = Field(default_factory=list)
     # Cờ tích luỹ qua các turn (abuse, prompt injection, escalation, ...)
     flag_history: list[str] = Field(default_factory=list)
     # Nhóm cụm mở đầu của turn bot gần nhất (A/B/C/D/X) — dùng để inject
