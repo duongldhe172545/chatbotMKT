@@ -23,11 +23,18 @@ def log_call(
     duration_ms: int,
     input_tokens: int | None = None,
     output_tokens: int | None = None,
+    cache_creation_input_tokens: int | None = None,
+    cache_read_input_tokens: int | None = None,
     success: bool,
     error: str | None = None,
     retry_count: int = 0,
 ) -> None:
-    """Append 1 dòng JSON vào log file. Best-effort, không raise nếu fail."""
+    """Append 1 dòng JSON vào log file. Best-effort, không raise nếu fail.
+
+    Prompt caching tokens:
+    - cache_creation_input_tokens: tokens được WRITE vào cache (lần đầu, 1.25× giá)
+    - cache_read_input_tokens: tokens đọc từ cache (0.1× giá → tiết kiệm ~90%)
+    """
     try:
         LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
         entry = {
@@ -37,6 +44,8 @@ def log_call(
             "duration_ms": duration_ms,
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
+            "cache_creation_input_tokens": cache_creation_input_tokens,
+            "cache_read_input_tokens": cache_read_input_tokens,
             "success": success,
             "retry_count": retry_count,
         }

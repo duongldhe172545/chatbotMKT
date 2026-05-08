@@ -34,3 +34,10 @@ class StorageAdapter(ABC):
     def list_sessions(self, limit: int = 50) -> list[dict]:
         """Liệt kê session gần nhất (kể cả chưa hoàn thành)."""
         ...
+
+    def find_profile_by_phone(self, phone: str) -> DealerProfileRaw | None:
+        """Tìm profile CONFIRMED có cùng phone_or_zalo. Default: None.
+
+        Subclass có thể override để hỗ trợ cross-session memory.
+        """
+        return None

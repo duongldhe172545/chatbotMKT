@@ -48,7 +48,7 @@ class ClaudeProvider(LLMProvider):
             try:
                 with Timer() as t:
                     response = fn()
-                # Lấy token usage nếu có
+                # Lấy token usage — gồm cache tokens cho prompt caching tracking
                 usage = getattr(response, "usage", None)
                 log_call(
                     method=method,
@@ -56,6 +56,8 @@ class ClaudeProvider(LLMProvider):
                     duration_ms=t.elapsed_ms,
                     input_tokens=getattr(usage, "input_tokens", None) if usage else None,
                     output_tokens=getattr(usage, "output_tokens", None) if usage else None,
+                    cache_creation_input_tokens=getattr(usage, "cache_creation_input_tokens", None) if usage else None,
+                    cache_read_input_tokens=getattr(usage, "cache_read_input_tokens", None) if usage else None,
                     success=True,
                     retry_count=attempt,
                 )
@@ -97,8 +99,18 @@ class ClaudeProvider(LLMProvider):
         def _do():
             return self._get_client().messages.create(
                 model=self.model,
-                max_tokens=2048,
-                system=system_prompt,
+                # 768 đủ cho extract output ~500 tokens — cap thấp để dừng sớm.
+                max_tokens=768,
+                # Prompt caching: system prompt 13-14K tokens (persona + playbook)
+                # cache 5 phút. Lần đầu 1.25× giá, các call sau 0.1× giá.
+                # Tiết kiệm ~70% input cost.
+                system=[
+                    {
+                        "type": "text",
+                        "text": system_prompt,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ],
                 messages=[{"role": "user", "content": conversation_text}],
                 tools=[{
                     "name": tool_name,
@@ -135,7 +147,14 @@ class ClaudeProvider(LLMProvider):
             return self._get_client().messages.create(
                 model=self.model,
                 max_tokens=max_tokens,
-                system=system_prompt,
+                # Prompt caching cho chat replier — chung cache key với extractor.
+                system=[
+                    {
+                        "type": "text",
+                        "text": system_prompt,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ],
                 messages=messages,
             )
 

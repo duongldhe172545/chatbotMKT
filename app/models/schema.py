@@ -71,6 +71,14 @@ class Session(BaseModel):
     skipped_fields: list[str] = Field(default_factory=list)
     # Cờ tích luỹ qua các turn (abuse, prompt injection, escalation, ...)
     flag_history: list[str] = Field(default_factory=list)
+    # Nhóm cụm mở đầu của turn bot gần nhất (A/B/C/D/X) — dùng để inject
+    # directive "TURN NÀY CẤM nhóm X" vào extractor prompt, ép luân phiên.
+    last_opener_group: str | None = None
+    # True nếu phone của dealer match profile cũ → bot greet kiểu returning.
+    is_returning_dealer: bool = False
+    # Xưng hô: "anh" (mặc định) hoặc "chị" (sau khi detect dealer là nữ).
+    # Một khi chốt → giữ nhất quán suốt phiên.
+    address_form: str = "anh"
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 

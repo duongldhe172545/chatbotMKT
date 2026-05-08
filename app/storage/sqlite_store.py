@@ -133,6 +133,44 @@ class SQLiteStore(StorageAdapter):
             return None
         return Session.model_validate_json(row["data_json"])
 
+    def find_profile_by_phone(self, phone: str) -> DealerProfileRaw | None:
+        """Tìm profile RAW gần nhất có cùng phone_or_zalo (đã CONFIRMED hay chưa).
+
+        Dùng cho cross-session memory: dealer cũ chat lại → resume context.
+        Normalize phone (chỉ chữ số) để match dù user gõ "0901-234-567" hay "0901 234 567".
+        """
+        # Normalize input: chỉ giữ chữ số
+        digits = "".join(c for c in (phone or "") if c.isdigit())
+        if len(digits) < 9:
+            return None
+
+        with self._conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM dealer_profile_raw
+                WHERE phone_or_zalo IS NOT NULL AND phone_or_zalo != ''
+                ORDER BY created_at DESC
+                """,
+            ).fetchall()
+        for r in rows:
+            stored_digits = "".join(c for c in (r["phone_or_zalo"] or "") if c.isdigit())
+            if stored_digits == digits:
+                d = dict(r)
+                for key in ("dl0_priority", "flags", "pain_points"):
+                    try:
+                        d[key] = json.loads(d.get(key) or "[]")
+                    except (TypeError, ValueError):
+                        d[key] = []
+                if not d.get("pain_points") and d.get("main_pain_point"):
+                    d["pain_points"] = [d["main_pain_point"]]
+                # Strip fields không thuộc DealerProfileRaw schema
+                profile_kwargs = {
+                    k: v for k, v in d.items()
+                    if k in DealerProfileRaw.model_fields
+                }
+                return DealerProfileRaw(**profile_kwargs)
+        return None
+
     def list_profiles(self) -> list[dict]:
         with self._conn() as conn:
             rows = conn.execute(
