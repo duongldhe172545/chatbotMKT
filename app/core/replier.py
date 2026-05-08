@@ -237,8 +237,11 @@ class Replier:
             )
             if next_desc:
                 base += (
-                    f"  Câu 3: Chuyển sang hỏi field khác: {next_desc}. "
-                    f"Có cụm bắc cầu nhẹ ('À tiện đây', 'Còn 1 ý em hỏi xíu')."
+                    f"  Câu 3: Chuyển sang hỏi field khác: {next_desc}.\n"
+                    f"  Cụm bắc cầu — CHỌN ĐA DẠNG, KHÔNG lặp 'tiện đây':\n"
+                    f"    'À mà anh ơi' / 'Còn 1 ý em hỏi anh' / 'Em tò mò xíu' /\n"
+                    f"    'Nhân tiện em hỏi luôn' / 'Quay lại chuyện cửa hàng' /\n"
+                    f"    hoặc vào thẳng câu hỏi không cần bridge."
                 )
             else:
                 base += "  Câu 3: Hỏi nhẹ liệu mình có thể hỗ trợ gì khác không."

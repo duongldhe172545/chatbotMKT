@@ -643,6 +643,11 @@ class ConversationService:
         weak_before_list = self._weak_required_fields(session)
         weak_before = set(weak_before_list)
 
+        # Snapshot profile TRƯỚC merge để diff field MỚI turn này (Q1 fix:
+        # tránh enforce_min_length prepend compliment lạc quẻ về tên/shop
+        # đã có từ turn trước).
+        profile_before_dump = session.profile_raw.model_dump()
+
         # C3: Skip LLM extractor khi dealer message tầm thường ("ok"/"yes"/"k"...)
         # → tiết kiệm 1 LLM call cho ~10-15% turn. Dùng fallback question.
         latest_dealer = next(
@@ -676,12 +681,14 @@ class ConversationService:
                 is_tam_su=tam_su,
                 is_defensive=defensive,
             )
-        # Snapshot data NEW this turn (trước merge để biết turn này extract gì)
-        self._last_extracted_this_turn = {
-            k: v for k, v in (result.extracted_fields or {}).items()
-            if v not in (None, "", [])
-        }
+        # Merge trước, sau đó diff với profile_before_dump để lấy field
+        # THỰC SỰ MỚI turn này (Q1 fix). Khác với cũ — chỉ snapshot
+        # extracted_fields, không phân biệt field cũ vs mới.
         self._merge_extraction(session, result)
+        profile_after_dump = session.profile_raw.model_dump()
+        self._last_extracted_this_turn = self._diff_new_fields(
+            profile_before_dump, profile_after_dump
+        )
         # Detect xưng hô — sau khi đã có owner_name potentially mới
         detected = detect_address_form(latest_dealer, session.profile_raw.owner_name)
         if detected == "chị" and session.address_form != "chị":
@@ -1031,6 +1038,37 @@ class ConversationService:
                 session.profile_raw.dl0_priority = priorities
                 session.confidence["dl0_priority"] = "HIGH"
                 break
+
+    @staticmethod
+    def _diff_new_fields(before: dict, after: dict) -> dict:
+        """Trả dict các field THỰC SỰ MỚI fill ở turn này (Q1 fix).
+
+        Quy tắc:
+        - Scalar field: trống → có giá trị → coi là MỚI.
+        - Scalar field: giá trị thay đổi (vd dealer correct) → coi là MỚI.
+        - List field (pain_points/dl0_priority): list dài hơn → MỚI (item bổ sung).
+        - Field giữ nguyên → KHÔNG MỚI, không vào dict.
+
+        Mục đích: chống enforce_min_length prepend compliment khen field cũ
+        (vd dealer vừa cho phone, bot đột ngột "Tên Dương đẹp quá!").
+        """
+        new_fields: dict = {}
+        for field, after_val in after.items():
+            before_val = before.get(field)
+            # List field: chỉ coi là mới khi có item bổ sung
+            if isinstance(after_val, list):
+                before_list = before_val if isinstance(before_val, list) else []
+                if len(after_val) > len(before_list):
+                    new_fields[field] = after_val
+                continue
+            # Scalar: empty → filled, hoặc value thay đổi
+            after_empty = after_val in (None, "", [])
+            before_empty = before_val in (None, "", [])
+            if after_empty:
+                continue
+            if before_empty or before_val != after_val:
+                new_fields[field] = after_val
+        return new_fields
 
     @staticmethod
     def _count_filled_required(session: Session) -> int:

@@ -91,7 +91,9 @@ class Session(BaseModel):
 # API request/response
 class ChatRequest(BaseModel):
     session_id: str | None = Field(default=None, max_length=64)
-    message: str = Field(max_length=2000)
+    # Max 1000 chars/message — chống spam tốn token. Pydantic reject với
+    # 422 nếu vượt. Dealer chat tự nhiên hiếm khi vượt 500 chars/turn.
+    message: str = Field(max_length=1000)
 
 
 class ChatResponse(BaseModel):
