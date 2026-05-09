@@ -1,6 +1,11 @@
-"""FastAPI entrypoint. Chạy: python -m app.main"""
+"""FastAPI entrypoint. Chạy: python -m app.main
+
+Production (Railway): set UVICORN_RELOAD=false để tắt watch.
+Dev local: mặc định reload=true để auto-restart khi sửa code.
+"""
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import uvicorn
@@ -43,7 +48,10 @@ def health() -> dict:
 
 def main() -> None:
     host, port = get_server_config()
-    uvicorn.run("app.main:app", host=host, port=port, reload=True)
+    # Reload watcher: dev=true (auto-restart khi sửa code), prod=false.
+    # Railway deploy phải set UVICORN_RELOAD=false (hoặc không set).
+    reload = os.getenv("UVICORN_RELOAD", "true").lower() in ("1", "true", "yes")
+    uvicorn.run("app.main:app", host=host, port=port, reload=reload)
 
 
 if __name__ == "__main__":

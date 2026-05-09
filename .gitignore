@@ -63,6 +63,17 @@ tools/
 *.zip
 
 # ============================================================
-# Plan files (cá nhân)
+# Tài liệu mật / nội bộ — KHÔNG push public
 # ============================================================
+# Plan files cá nhân
 KE_HOACH_RA_SOAT_v*.md
+KE_HOACH_HOAN_THIEN_v*.md
+GIAI_THICH_*.md
+
+# Spec & kịch bản nội bộ
+EM_LINH_MKT_MVP_VOICE_INTAKE_DEALER_*.md
+KICH_BAN_CHATBOT_*.md
+KỊCH BẢN CHATBOT*.docx
+
+# Threat model / bảo mật nội bộ
+SECURITY.md

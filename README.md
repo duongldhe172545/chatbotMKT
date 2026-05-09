@@ -1,13 +1,13 @@
 # Em Linh MKT — Chatbot Dealer MVP
 
-Chatbot voice/text thu data dealer ngành cửa/VLXD, theo workflow trong [EM_LINH_MKT_MVP_VOICE_INTAKE_DEALER_v01-1_1.md](EM_LINH_MKT_MVP_VOICE_INTAKE_DEALER_v01-1_1.md).
+Chatbot voice/text thu data dealer ngành cửa/tủ bếp/VLXD cho Cộng Đồng Thợ 4.0.
 
-**Trạng thái:** ~40% scope MVP. Có intake voice/text + extract LLM + Confirmation Card + admin viewer.
-**Chưa có:** Zalo OA, M365 Lists, Mini App + Community Routing, First Mission, KPI tracking. Xem [KE_HOACH_RA_SOAT_v01.md](KE_HOACH_RA_SOAT_v01.md) cho roadmap.
+**Trạng thái:** ~55% scope MVP. Có intake voice/text + extract LLM + Confirmation Card + admin + spam protection 4 layer + scope guard chống prompt injection.
+**Chưa có:** Zalo OA, M365 Lists, Mini App + Community Routing, First Mission, KPI tracking.
 
 ---
 
-## 1. Cài đặt
+## 1. Cài đặt local
 
 ```powershell
 # 1. Tạo virtual environment
@@ -24,7 +24,7 @@ copy .env.example .env
 
 Lấy API key tại https://console.anthropic.com/ (cần nạp tối thiểu $5).
 
-## 2. Chạy
+## 2. Chạy local
 
 ```powershell
 python -m app.main
@@ -34,7 +34,8 @@ python -m app.main
 |-------------|-----|
 | Cùng máy chạy server | http://127.0.0.1:8000 |
 | Máy khác cùng WiFi (cần `HOST=0.0.0.0`) | http://<lan-ip>:8000 |
-| Public HTTPS (mic work mọi nơi) | dùng ngrok — xem mục 7 dưới |
+| Public HTTPS (mic work mọi nơi) | dùng ngrok — xem mục 7 |
+| Production cloud | Railway — xem mục 8 |
 
 Mở Chrome hoặc Edge (Web Speech API yêu cầu).
 
@@ -51,31 +52,33 @@ app/
 │   ├── admin.py           GET /api/admin/* — list profiles, sessions
 │   └── labels_route.py    GET /api/labels — frontend fetch labels
 ├── core/
-│   ├── conversation.py    State machine 4 stage
-│   ├── extractor.py       LLM extract DealerProfileRaw
+│   ├── conversation.py    State machine 4 stage + ConversationService
+│   ├── extractor.py       LLM extract DealerProfileRaw (chỉ trích field)
+│   ├── replier.py         LLM sinh reply (Performer) — tách khỏi Extractor
 │   ├── chat_replier.py    Free-form chat sau DONE
 │   ├── card_renderer.py   Render Confirmation Card
 │   ├── edit_parser.py     Regex parse "sửa X thành Y" — tiết kiệm LLM call
-│   ├── red_flags.py       Rule-based detect SĐT giả, abuse, prompt injection...
+│   ├── red_flags.py       Detect SĐT giả, abuse, prompt injection
+│   ├── intent_detect.py   is_tam_su / is_defensive / is_refusal
+│   ├── address_form.py    Detect xưng hô anh/chị
+│   ├── opener_enforcer.py Đa dạng cụm mở đầu (4 nhóm A/B/C/D)
+│   ├── reply_guards.py    enforce_min_length + enforce_defensive_answer
+│   ├── spam_guard.py      Layer 1+3+4+5 — quota / injection / trivial / mode
 │   └── prompts.py         Greeting + system prompts (load playbook)
 ├── models/schema.py       Pydantic DealerProfileRaw + Session + flags
 ├── llm/
 │   ├── base.py            LLMProvider interface
 │   ├── claude.py          Anthropic + retry + logging
-│   └── call_logger.py     Append logs/llm_calls.jsonl (timing + token)
+│   ├── gemini.py          Google Gemini (tương đương)
+│   └── call_logger.py     Append logs/llm_calls.jsonl
 ├── storage/
 │   ├── base.py            StorageAdapter interface
-│   └── sqlite_store.py    SQLite + migration check tường minh
-└── playbook/              9 file .md nạp vào system prompt LLM
-    ├── 00_persona.md      Vai trò + xưng hô + cấm tiếng Anh
-    ├── 01_principles.md   9 nguyên tắc vàng (ACK + WHY + ASK)
-    ├── 01_scenarios.md    Edge cases A-N
-    ├── 02_intake_flow.md  5 numbered steps
-    ├── 02_red_flags.md    Hướng dẫn xử lý flag
-    ├── 03_examples.md     Hội thoại mẫu
-    ├── 04_vn_language.md  Bẫy chính tả + cụm chuẩn
-    ├── 06_abbreviations_slang.md  Viết tắt + lóng VN
-    └── 07_unknown_cases.md  Framework 6 nhóm A-F cho input lạ
+│   └── sqlite_store.py    SQLite + migration
+└── playbook/              Domain knowledge load vào system prompt
+    ├── 02_red_flags.md
+    ├── 04_vn_language.md
+    ├── 06_abbreviations_slang.md
+    └── _legacy/           File cũ không load (giữ làm reference)
 
 static/
 ├── index.html
@@ -93,44 +96,26 @@ logs/llm_calls.jsonl       Auto-append mỗi LLM call (cho cost tracking)
 
 | Việc | Thêm file | Đổi env |
 |------|-----------|---------|
-| Đổi LLM sang Gemini | `app/llm/gemini.py` | `LLM_PROVIDER=gemini` |
-| Đổi sang Haiku (rẻ hơn) | (đã sẵn) | `LLM_MODEL=claude-haiku-4-5-20251001` |
-| Lưu sang M365 List qua Power Automate | `app/storage/power_automate_store.py` | `STORAGE_ADAPTER=power_automate` |
+| Đổi sang Gemini (đã có) | — | `LLM_PROVIDER=gemini` |
+| Đổi sang Haiku (rẻ hơn) | — | `LLM_MODEL=claude-haiku-4-5-20251001` |
+| Lưu sang M365 List | `app/storage/power_automate_store.py` | `STORAGE_ADAPTER=power_automate` |
+| Lưu Postgres | `app/storage/postgres_store.py` | `STORAGE_ADAPTER=postgres` |
 | Nối Zalo OA | `app/channels/zalo.py` + endpoint webhook | thêm env Zalo token |
-| STT server-side (Whisper) | `app/stt/whisper_local.py` | `STT_PROVIDER=whisper_local` |
 
 Logic `ConversationService` không thay đổi.
 
-## 5. Luật khóa MVP (mục 26 file gốc) — đã tuân
+## 5. Edit playbook
 
-- ✅ Không tạo `Dealer_ID` chính thức — chỉ ghi `review_status='RAW'`
-- ✅ Không lưu profile nếu chưa `confirmation_status='CONFIRMED'`
-- ✅ Tối đa 5 cụm câu intake, skip sau 2 lần hỏi không trả lời
-- ✅ Không bắt gõ form dài — voice/chat tự nhiên
-- ✅ Red flags rule-based: SĐT giả, abuse, prompt injection, escalation
-
-## 6. Edit playbook
-
-Team product/marketing edit `.md` trong `app/playbook/` để chỉnh tone/scenarios. Sau khi edit:
+Team product edit `.md` trong `app/playbook/` để chỉnh domain knowledge. Sau khi edit:
 
 ```powershell
 # Restart server để load playbook mới
-# Ctrl+C dừng, rồi:
 python -m app.main
 ```
 
 LLM tự cập nhật hành vi.
 
-## 7. Public HTTPS qua ngrok (cho test trên iPhone/Android)
-
-```powershell
-.\tools\ngrok.exe config add-authtoken <YOUR_TOKEN>
-.\tools\ngrok.exe http 8000
-```
-
-URL HTTPS hiện ra → dùng cho mic work mọi nơi (iOS Safari WebKit hơi chập chờn nhưng OK).
-
-## 8. Cost tracking
+## 6. Cost tracking
 
 Mọi LLM call log vào `logs/llm_calls.jsonl`:
 
@@ -138,26 +123,78 @@ Mọi LLM call log vào `logs/llm_calls.jsonl`:
 {"ts":"2026-05-05T...","method":"extract_structured","model":"claude-sonnet-4-6","duration_ms":3421,"input_tokens":12345,"output_tokens":456,"success":true,"retry_count":0}
 ```
 
-Tính cost (Sonnet 4.6: $3/1M input, $15/1M output):
+Đổi sang Haiku tiết kiệm ~3x cost (hiệu quả khi pilot >100 dealer).
+
+## 7. Public HTTPS qua ngrok (test trên iPhone/Android)
+
 ```powershell
-# Quick check trong PowerShell
-type logs\llm_calls.jsonl | ConvertFrom-Json | Measure-Object input_tokens -Sum
+.\tools\ngrok.exe config add-authtoken <YOUR_TOKEN>
+.\tools\ngrok.exe http 8000
 ```
 
-Đổi sang Haiku tiết kiệm ~3x cost (hiệu quả khi pilot >100 dealer).
+URL HTTPS hiện ra → dùng cho mic work mọi nơi.
+
+## 8. Deploy production qua Railway
+
+### 8.1. Setup lần đầu
+
+1. Tạo account tại https://railway.com
+2. **New Project** → **Deploy from GitHub repo** → chọn repo này
+3. Railway tự detect Python (qua `requirements.txt` + `Procfile`)
+
+### 8.2. Cấu hình ENV variables (Railway dashboard → Variables)
+
+```
+ANTHROPIC_API_KEY=sk-ant-...
+LLM_PROVIDER=claude
+LLM_MODEL=claude-sonnet-4-6
+STORAGE_ADAPTER=sqlite
+SQLITE_PATH=data/dealers.db
+HOST=0.0.0.0
+USE_REPLIER=true
+UVICORN_RELOAD=false
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=<your-secret-password>
+```
+
+⚠️ **Lưu ý:**
+- `HOST=0.0.0.0` bắt buộc cho Railway (mặc định 127.0.0.1 chỉ bind localhost trong container).
+- KHÔNG set `PORT` — Railway tự inject `$PORT` env.
+- KHÔNG bật `UVICORN_RELOAD=true` ở production.
+
+### 8.3. Deploy
+
+- `git push origin main` → Railway tự build + deploy
+- Logs: Railway dashboard → service → Logs
+- URL: Settings → Networking → "Generate domain" → cấp `*.up.railway.app`
+- Custom domain: Settings → Networking → "Custom Domain" → trỏ CNAME
+
+### 8.4. Lưu ý về data
+
+⚠️ **Mặc định Railway KHÔNG có persistent volume.** Mỗi deploy mới = filesystem reset = `data/dealers.db` mất hết.
+
+**3 cách giải quyết:**
+
+**A) Chấp nhận fresh start (test phase):**
+- Bỏ qua, đợi sau pilot mới quan tâm.
+
+**B) Persistent Volume ($0.25/GB/tháng):**
+- Railway dashboard → Service → Settings → Volumes → Mount `/app/data`
+- Set `SQLITE_PATH=/app/data/dealers.db`
+
+**C) Postgres add-on (free tier 1GB):**
+- Railway dashboard → New → Database → PostgreSQL
+- Tạo `app/storage/postgres_store.py` (chưa code)
+- Set `STORAGE_ADAPTER=postgres`
 
 ## 9. Logs PII
 
-Logger có filter tự động redact SĐT thành `[PHONE]` và email thành `xxx***@domain` trong stderr. Xem [app/logging_setup.py](app/logging_setup.py).
+Logger có filter tự động redact SĐT thành `[PHONE]` và email thành `xxx***@domain` trong stderr.
 
 ## 10. Test thủ công
 
 1. Mở browser, app tự chào.
-2. Trả lời tự nhiên 5 cụm câu (gõ hoặc bấm 🎤).
+2. Trả lời tự nhiên (gõ hoặc bấm 🎤).
 3. Bot gửi Confirmation Card → gõ "đúng" để chốt.
-4. Mở `/admin` xem profile mới + flag.
-5. (Tuỳ chọn) Sửa info bằng "sửa SĐT thành 0901234567" — regex parse, không tốn LLM.
-
-## 11. Bảo mật
-
-Xem [SECURITY.md](SECURITY.md) — threat model, rotate API key, checklist trước khi share LAN.
+4. Mở `/admin` (login: admin / `<password trong .env>`) xem profile mới.
+5. Sửa info bằng "sửa SĐT thành 0901234567" — regex parse, không tốn LLM.
