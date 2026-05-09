@@ -886,16 +886,29 @@ class ConversationService:
             return ", ".join(str(x) for x in v) if v else "(trống)"
         return str(v) if v not in (None, "") else "(trống)"
 
-    @staticmethod
-    def _is_affirmative(msg: str) -> bool:
+    # Pattern khẳng định mở rộng — bắt thêm cụm dealer hay nói tự do.
+    # Negative lookahead `(?!\s+(không|khong))` chống false positive cho
+    # "đúng không em", "chuẩn không nhỉ" (câu hỏi, không phải xác nhận).
+    _AFFIRMATIVE_PATTERNS = [
+        r"^đúng(?!\s+(không|khong))\b",       # đúng, đúng rồi, đúng đó
+        r"^dung(?!\s+(khong))\b",              # không dấu
+        r"^chu[aẩ]n(?!\s+(không|khong))\b",   # chuẩn, chuẩn r, chuẩn rồi
+        r"^ph[aả]i(?!\s+(không|khong))\b",    # phải, phải rồi
+        r"^ok(ay|ê|e)?\b", r"^oke+\b",        # ok, oke, okê, okkkk
+        r"^chốt\b", r"^chot\b",
+        r"^xác nhận\b", r"^xac nhan\b",
+        r"^đồng ý\b", r"^dong y\b",
+        r"^ye?p?\b",                           # y, yes, yep, yup
+        r"^[ừờ]m?\b", r"^um?\b",              # ừ, ừm, ờ, um
+        r"^được\b", r"^duoc\b", r"^đc\b",
+    ]
+
+    @classmethod
+    def _is_affirmative(cls, msg: str) -> bool:
         if not msg:
             return False
-        patterns = [
-            r"^đúng\b", r"^dung\b", r"^ok\b", r"^okay\b",
-            r"^chốt\b", r"^chot\b", r"^xác nhận\b", r"^xac nhan\b",
-            r"^đồng ý\b", r"^dong y\b", r"^yes\b", r"^y\b",
-        ]
-        return any(re.search(p, msg) for p in patterns)
+        normalized = msg.strip().lower()
+        return any(re.search(p, normalized) for p in cls._AFFIRMATIVE_PATTERNS)
 
     # ---------- helpers ----------
     def _load_or_create(self, session_id: str | None) -> Session:

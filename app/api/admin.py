@@ -1,4 +1,8 @@
-"""Admin endpoints — read-only, dành cho Reviewer ADG (mục 25)."""
+"""Admin endpoints — read-only, dành cho Reviewer ADG (mục 25).
+
+Bảo vệ bằng HTTP Basic Auth (xem app/api/auth.py).
+Browser sẽ popup hỏi user/pass khi truy cập lần đầu.
+"""
 from __future__ import annotations
 
 from datetime import datetime
@@ -6,11 +10,17 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 
+from app.api.auth import require_admin
 from app.config import get_storage
 from app.core.md_exporter import render_bulk_md, render_profile_md, safe_filename
 from app.storage.base import StorageAdapter
 
-router = APIRouter(prefix="/api/admin", tags=["admin"])
+# Áp `require_admin` cho TẤT CẢ route trong router này.
+router = APIRouter(
+    prefix="/api/admin",
+    tags=["admin"],
+    dependencies=[Depends(require_admin)],
+)
 
 
 @router.get("/profiles")

@@ -9,11 +9,12 @@ import os
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.admin import router as admin_router
+from app.api.auth import require_admin
 from app.api.chat import router as chat_router
 from app.api.labels_route import router as labels_router
 from app.config import get_server_config
@@ -37,7 +38,8 @@ def index() -> FileResponse:
 
 
 @app.get("/admin")
-def admin_page() -> FileResponse:
+def admin_page(_: str = Depends(require_admin)) -> FileResponse:
+    """Admin viewer — yêu cầu HTTP Basic Auth (xem ADMIN_PASSWORD trong .env)."""
     return FileResponse(STATIC_DIR / "admin.html")
 
 

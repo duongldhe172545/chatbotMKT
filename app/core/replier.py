@@ -180,9 +180,16 @@ class Replier:
             desc = _FIELD_DESC.get(field, field)
             base = (
                 f"Hỏi dealer về: **{desc}**.\n"
-                f"  - Nếu dealer turn vừa rồi cho data nào → KHEN/REACT về data đó\n"
-                f"    1 câu cụ thể TRƯỚC (vd: 'Tên hay ghê!', 'Ngành đó tiềm năng quá!').\n"
-                f"  - Sau đó dẫn dắt sang hỏi field trên. 1 câu hỏi chính, không spam."
+                f"  Cấu trúc reply tự nhiên (50-80 từ):\n"
+                f"  - KHEN/REACT về data dealer vừa cho (1 câu cụ thể, có\n"
+                f"    cảm xúc — vd 'Tên hay ghê!', 'Ngành đó tiềm năng quá!').\n"
+                f"  - NÊU LÝ DO hỏi tiếp — dealer được lợi gì (vd 'để em ghi\n"
+                f"    hồ sơ chuẩn', 'để khách tìm anh dễ hơn', 'để em gửi\n"
+                f"    đúng tài liệu khu vực mình').\n"
+                f"  - Hỏi field. 1 câu hỏi chính.\n"
+                f"  Mẫu: 'Wow Hà Nội thị trường to nhỉ! Để em chọn đúng\n"
+                f"  nhóm cộng đồng cho mình — anh hay làm mạnh nhất mảng\n"
+                f"  nào ạ?'"
             )
             if goal.extra_hint:
                 base += f"\n  - Lưu ý: {goal.extra_hint}"

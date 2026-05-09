@@ -99,6 +99,9 @@ class ChatRequest(BaseModel):
     # Max 1000 chars/message — chống spam tốn token. Pydantic reject với
     # 422 nếu vượt. Dealer chat tự nhiên hiếm khi vượt 500 chars/turn.
     message: str = Field(max_length=1000)
+    # Idempotency key (frontend tự sinh UUID) — chống double-submit do
+    # network retry / multi-tab. Optional vì client cũ không có vẫn chạy.
+    message_id: str | None = Field(default=None, max_length=64)
 
 
 class ChatResponse(BaseModel):

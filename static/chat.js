@@ -87,11 +87,22 @@ function createTypingBubble() {
 }
 
 // ---------- API call ----------
+// Idempotency key: UUID per gửi → backend cache 5 phút. Network retry /
+// multi-tab gửi trùng → backend trả cached response, không gọi LLM 2 lần.
+function genMessageId() {
+  if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+  return "msg-" + Date.now() + "-" + Math.random().toString(36).slice(2, 10);
+}
+
 async function postChat(message) {
   const res = await fetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ session_id: sessionId, message }),
+    body: JSON.stringify({
+      session_id: sessionId,
+      message,
+      message_id: genMessageId(),
+    }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));

@@ -104,11 +104,38 @@ def _build_compliment(extracted_data: dict, address: str) -> str:
             f"Em note số rồi {address} ơi, em chỉ nhắn khi có việc thật sự nhé."
         )
 
+    if data.get("dealer_type"):
+        dt = data["dealer_type"]
+        dt_options = {
+            "tho_doi": [
+                f"Thợ trực tiếp tay nghề mới quý đó {address}!",
+                f"Em phục thật, {address} đi thực địa suốt mới hiểu nghề!",
+            ],
+            "chu_xuong": [
+                f"Chủ xưởng — {address} là gốc rễ ngành đó, em phục!",
+            ],
+            "dai_ly": [
+                f"Đại lý là cầu nối chính rồi {address}, quan trọng lắm!",
+            ],
+            "nha_thau_nho": [
+                f"Nhà thầu nhỏ — {address} quản nhiều mặt một lúc, vất vả thật!",
+            ],
+        }
+        if dt in dt_options:
+            eligible.extend(dt_options[dt])
+
+    if data.get("dl0_priority"):
+        eligible.extend([
+            f"Lựa chọn chuẩn rồi {address}, cái đó em làm cho ổn nhất!",
+            f"Hay đó {address}, đúng cái nhiều anh chọn!",
+        ])
+
     if eligible:
         return random.choice(eligible)
 
-    # Fallback — không có field mới nào
-    return f"Dạ {address} ơi, em hỏi tiếp xíu nhé —"
+    # Empty eligible — KHÔNG prepend gì (để Replier reply tự đứng, tránh
+    # 2 prefix chồng "Dạ anh ơi... em ghi nhận..." kiểu loạn ngôn).
+    return ""
 
 
 # ============================================================
@@ -137,10 +164,14 @@ def enforce_min_length(
         return text
 
     low = text.lower()
+    # Mở rộng markers — bắt thêm "em ghi nhận", "em hiểu rồi", "em note rồi"
+    # vì Replier hay dùng các cụm này (trước đó coi là không engage → bị
+    # prepend compliment lạc quẻ).
     has_engagement = any(marker in low for marker in (
         "wow", "uầy", "tên ", "hay quá", "em phục", "em hiểu mà",
         "em đồng cảm", "đỉnh", "khủng", "nét", "em mê", "em thích",
-        "em note", "ngầu", "tuyệt", "đẹp ghê", "mê quá",
+        "em note", "em ghi nhận", "em hiểu rồi", "em rõ rồi", "dạ em hiểu",
+        "ngầu", "tuyệt", "đẹp ghê", "mê quá",
     ))
 
     word_count = _word_count_vn(text)
@@ -156,6 +187,10 @@ def enforce_min_length(
         return text
 
     compliment = _build_compliment(extracted_data or {}, address)
+    # _build_compliment trả "" khi không có template phù hợp với data mới
+    # → KHÔNG prepend gì (Replier reply đã có thể OK).
+    if not compliment:
+        return text
 
     # Tránh double-Dạ
     if text.lower().startswith("dạ") and compliment.startswith("Dạ"):
