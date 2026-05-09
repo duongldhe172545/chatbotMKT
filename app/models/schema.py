@@ -84,6 +84,11 @@ class Session(BaseModel):
     # Xưng hô: "anh" (mặc định) hoặc "chị" (sau khi detect dealer là nữ).
     # Một khi chốt → giữ nhất quán suốt phiên.
     address_form: str = "anh"
+    # Spam protection — Layer 1+5
+    llm_call_count: int = 0  # tổng số LLM call đã dùng trong session
+    quota_warned: bool = False  # đã cảnh báo tại ngưỡng 30 chưa
+    mode: Literal["normal", "template_only", "soft_ended"] = "normal"
+    consecutive_clean_messages: int = 0  # đếm clean msg để recovery template_only
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
