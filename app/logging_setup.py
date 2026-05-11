@@ -38,13 +38,21 @@ class PIIRedactionFilter(logging.Filter):
 
 
 def setup_logging(level: int = logging.INFO) -> None:
-    """Cấu hình logging cho toàn app — gọi 1 lần ở main.py."""
+    """Cấu hình logging cho toàn app — gọi 1 lần ở main.py.
+
+    Format có request_id (8 ký tự) — debug production: dealer báo lỗi kèm
+    header X-Request-ID, anh grep log thấy ngay full flow.
+    """
+    # Import muộn để tránh circular import (middleware import logging_setup)
+    from app.middleware import RequestIDLogFilter
+
     logging.basicConfig(
         level=level,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        format="%(asctime)s [%(request_id)s] %(levelname)s %(name)s: %(message)s",
     )
-    # Add PII redaction filter to root logger
     root = logging.getLogger()
     pii_filter = PIIRedactionFilter()
+    rid_filter = RequestIDLogFilter()
     for handler in root.handlers:
         handler.addFilter(pii_filter)
+        handler.addFilter(rid_filter)

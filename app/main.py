@@ -10,6 +10,7 @@ from pathlib import Path
 
 import uvicorn
 from fastapi import Depends, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -19,6 +20,7 @@ from app.api.chat import router as chat_router
 from app.api.labels_route import router as labels_router
 from app.config import get_server_config
 from app.logging_setup import setup_logging
+from app.middleware import RequestIDMiddleware
 
 setup_logging()
 
@@ -26,6 +28,29 @@ ROOT = Path(__file__).resolve().parent.parent
 STATIC_DIR = ROOT / "static"
 
 app = FastAPI(title="Em Linh MKT — Chatbot Dealer MVP")
+
+# CORS: cho phép frontend deploy khác domain gọi API. Mặc định "*" cho dev,
+# production NÊN whitelist domain cụ thể qua env CORS_ALLOWED_ORIGINS (CSV).
+import os as _os
+_cors_origins_raw = _os.getenv("CORS_ALLOWED_ORIGINS", "*").strip()
+_cors_origins = (
+    [o.strip() for o in _cors_origins_raw.split(",") if o.strip()]
+    if _cors_origins_raw != "*"
+    else ["*"]
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+    expose_headers=["X-Request-ID"],
+)
+
+# X-Request-ID: middleware sinh UUID cho mỗi request, propagate qua logger
+# context, trả qua response header. Debug production nhanh.
+app.add_middleware(RequestIDMiddleware)
+
 app.include_router(chat_router)
 app.include_router(admin_router)
 app.include_router(labels_router)
@@ -37,9 +62,26 @@ def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
 
 
+def _serve_admin(_: str = Depends(require_admin)) -> FileResponse:
+    """Serve admin.html — JS đọc URL pathname để hiện đúng tab."""
+    return FileResponse(STATIC_DIR / "admin.html")
+
+
+# /admin → mặc định redirect sang /admin/profiles để URL rõ ràng.
+# /admin/profiles và /admin/sessions là 2 trang logic riêng (cùng HTML +
+# JS detect URL để show panel đúng).
 @app.get("/admin")
-def admin_page(_: str = Depends(require_admin)) -> FileResponse:
-    """Admin viewer — yêu cầu HTTP Basic Auth (xem ADMIN_PASSWORD trong .env)."""
+def admin_root(_: str = Depends(require_admin)) -> FileResponse:
+    return FileResponse(STATIC_DIR / "admin.html")
+
+
+@app.get("/admin/profiles")
+def admin_profiles(_: str = Depends(require_admin)) -> FileResponse:
+    return FileResponse(STATIC_DIR / "admin.html")
+
+
+@app.get("/admin/sessions")
+def admin_sessions(_: str = Depends(require_admin)) -> FileResponse:
     return FileResponse(STATIC_DIR / "admin.html")
 
 

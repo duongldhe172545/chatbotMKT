@@ -46,23 +46,43 @@ function syncSelectAllCheckbox() {
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
 
-// ---------- Tabs ----------
-$$(".tab").forEach((tab) => {
-  tab.addEventListener("click", (e) => {
-    e.preventDefault();
-    $$(".tab").forEach((t) => t.classList.remove("active"));
-    tab.classList.add("active");
-    const id = tab.dataset.tab;
-    $$(".panel").forEach((p) => p.classList.add("hidden"));
-    $(`#panel-${id}`).classList.remove("hidden");
+// ---------- Tabs / Routing ----------
+// 2 trang logic /admin/profiles và /admin/sessions chia sẻ cùng admin.html.
+// JS detect URL để show panel đúng — bookmark-friendly, browser back/forward
+// hoạt động tự nhiên. Click tab navigate qua URL (anchor href thật, không
+// preventDefault) → browser xử full page transition (giữ Basic Auth credentials).
+
+function activateTabFromUrl() {
+  const path = window.location.pathname;
+  // Default = profiles (cho /admin và /admin/)
+  let active = "profiles";
+  if (path.endsWith("/sessions")) active = "sessions";
+
+  $$(".tab").forEach((t) => {
+    t.classList.toggle("active", t.dataset.tab === active);
   });
-});
+  $$(".panel").forEach((p) => {
+    p.classList.toggle("hidden", p.id !== `panel-${active}`);
+  });
+  return active;
+}
+
+const ACTIVE_TAB = activateTabFromUrl();
 
 // ---------- Helpers ----------
 function fmtDate(iso) {
   if (!iso) return "";
-  const d = new Date(iso);
-  return d.toLocaleString("vi-VN", { hour12: false });
+  // Backend dùng datetime.utcnow() → naive ISO (không có Z/timezone offset).
+  // Browser sẽ parse nhầm thành local time → sai 7 giờ với VN.
+  // Fix: nếu ISO không có Z hoặc ±HH:MM, append 'Z' để force UTC parse,
+  // sau đó format theo Asia/Ho_Chi_Minh (UTC+7).
+  const hasTz = iso.endsWith("Z") || /[+-]\d{2}:?\d{2}$/.test(iso);
+  const utcIso = hasTz ? iso : iso + "Z";
+  const d = new Date(utcIso);
+  return d.toLocaleString("vi-VN", {
+    hour12: false,
+    timeZone: "Asia/Ho_Chi_Minh",
+  });
 }
 
 function escape(s) {
@@ -292,8 +312,9 @@ $("#exportSelectedBtn").addEventListener("click", () => {
 });
 
 // ---------- Init ----------
+// Chỉ load data của panel đang active — không cần fetch cả 2 tabs vô ích.
 (async () => {
   await loadLabels();
-  loadProfiles();
-  loadSessions();
+  if (ACTIVE_TAB === "profiles") loadProfiles();
+  else if (ACTIVE_TAB === "sessions") loadSessions();
 })();

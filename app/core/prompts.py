@@ -32,10 +32,13 @@ QUESTIONS = [
     "Mình muốn em hỗ trợ trước nhất cái gì hả anh — bộ mặt số, QR gửi khách cũ, bài đăng, hay trợ lý tư vấn ạ?",
 ]
 
-# Field nào BẮT BUỘC để chuyển sang Confirmation Card
+# Field nào BẮT BUỘC để chuyển sang Confirmation Card.
+# THỨ TỰ ƯU TIÊN HỎI = thứ tự trong list này (cái đầu hỏi trước).
+# owner_name ĐỨNG TRƯỚC dealer_name vì greeting message hỏi "tên anh" trước
+# "tên cửa hàng" — giữ nhất quán giữa greeting và follow-up question.
 REQUIRED_FIELDS = [
-    "dealer_name",
     "owner_name",
+    "dealer_name",
     "phone_or_zalo",
     "province",
     "main_category",
@@ -93,6 +96,14 @@ Quy tắc:
 - pain_points: mảng 1-5 nỗi đau dealer nói rõ.
 - phone_or_zalo: HIGH chỉ khi dealer gõ/đọc đủ chữ số.
 - Confidence: HIGH (rõ) / MEDIUM (cần xác nhận) / LOW (mơ hồ, KHÔNG merge).
+
+⚠️ owner_name — CỰC KỲ NGHIÊM:
+- CHỈ điền khi dealer XƯNG TÊN CỤ THỂ về NGƯỜI ("anh tên X", "tôi là X",
+  "em Y nè", "gọi anh là Z").
+- TUYỆT ĐỐI KHÔNG suy luận từ tên cửa hàng. Vd "cửa hàng Cường cửa thép"
+  → dealer_name="Cường cửa thép", owner_name=NULL (có thể Cường là tên
+  thương hiệu / tên cũ / tên ai đó khác, không phải dealer đang chat).
+- Nếu chưa rõ → null + đưa "owner_name" vào missing_fields để bot hỏi lại.
 
 INTENT FIELD (pain_points + dl0_priority): chỉ HIGH khi dealer TRỰC TIẾP
 trả lời câu hỏi pain hoặc priority. Suy diễn từ context mơ hồ → null/LOW.
