@@ -60,11 +60,75 @@ _OFFENSIVE_WORDS = (
     "ngu", "ngu ngốc",
 )
 
+# Lãnh tụ / lãnh đạo CỤ THỂ — cấm xưng hô (rủi ro crisis PR + Luật An ninh
+# mạng Điều 8 + xúc phạm danh dự lãnh tụ). CHỈ block khi tên gắn duy nhất 1
+# người, KHÔNG block chức danh chung (Thủ tướng/CTN/TBT… anh em trêu nhau OK).
+_SENSITIVE_FIGURES = (
+    # Lãnh tụ lịch sử
+    "bác hồ", "bac ho",
+    "hồ chí minh", "ho chi minh",
+    "lê duẩn", "le duan",
+    "võ nguyên giáp", "vo nguyen giap",
+    "trường chinh", "truong chinh",
+    "tôn đức thắng", "ton duc thang",
+    "phạm văn đồng", "pham van dong",
+    "trần phú", "tran phu",
+    "lê hồng phong", "le hong phong",
+    "nguyễn ái quốc", "nguyen ai quoc",
+    # Lãnh đạo đương nhiệm
+    "tô lâm", "to lam",
+    "lương cường", "luong cuong",
+    "phạm minh chính", "pham minh chinh",
+    "trần thanh mẫn", "tran thanh man",
+    # Lãnh đạo gần đây (vừa miễn nhiệm / từ trần — vẫn nhạy cảm)
+    "nguyễn phú trọng", "nguyen phu trong",
+    "nguyễn xuân phúc", "nguyen xuan phuc",
+    "võ văn thưởng", "vo van thuong",
+    "vương đình huệ", "vuong dinh hue",
+    "nguyễn tấn dũng", "nguyen tan dung",
+)
+
+# Tôn giáo CỤ THỂ — cấm xưng hô (xúc phạm tín ngưỡng).
+# CHỈ block các danh xưng GẮN 1 vị duy nhất; KHÔNG block "phật"/"chúa"/"thánh"
+# alone (chung chung).
+_RELIGIOUS_TITLES = (
+    "đức phật", "duc phat",
+    "phật tổ", "phat to",
+    "bồ tát", "bo tat",
+    "đức chúa", "duc chua",
+    "chúa giê", "chua gie", "chúa jesus", "chua jesus",
+    "đức mẹ", "duc me",
+    "đức thánh cha", "duc thanh cha",
+    "thượng đế", "thuong de",
+    "allah",
+    "đạt lai lạt ma", "dat lai lat ma",
+    "thánh ala", "thanh ala",
+)
+
+# Phân biệt vùng miền — cấm xưng.
+_REGIONAL_SLURS = (
+    "bắc kỳ", "bac ky",
+    "nam kỳ", "nam ky",
+    "ba que", "ba quẻ",
+    "phản động", "phan dong",
+)
+
+# Gộp tất cả blacklist để check 1 lần.
+# CHÚ Ý: KHÔNG có _POLITICAL_TITLES — chức danh chính trị generic (Thủ tướng,
+# CTN, Bộ trưởng, TBT…) được PHÉP xưng hô vì anh em trêu nhau bình thường.
+_ADDRESS_BLACKLIST = (
+    _OFFENSIVE_WORDS
+    + _SENSITIVE_FIGURES
+    + _RELIGIOUS_TITLES
+    + _REGIONAL_SLURS
+)
+
 
 def _is_offensive(candidate: str) -> bool:
-    """True nếu candidate chứa từ tục."""
+    """True nếu candidate chứa từ tục / lãnh tụ / chức danh chính trị / tôn
+    giáo / phân biệt vùng miền — KHÔNG cho phép xưng hô."""
     low = f" {candidate.lower()} "
-    return any(bad in low for bad in _OFFENSIVE_WORDS)
+    return any(bad in low for bad in _ADDRESS_BLACKLIST)
 
 
 def detect_explicit_address(text: str) -> str | None:
