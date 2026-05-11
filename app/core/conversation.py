@@ -886,29 +886,64 @@ class ConversationService:
             return ", ".join(str(x) for x in v) if v else "(trống)"
         return str(v) if v not in (None, "") else "(trống)"
 
-    # Pattern khẳng định mở rộng — bắt thêm cụm dealer hay nói tự do.
-    # Negative lookahead `(?!\s+(không|khong))` chống false positive cho
-    # "đúng không em", "chuẩn không nhỉ" (câu hỏi, không phải xác nhận).
-    _AFFIRMATIVE_PATTERNS = [
-        r"^đúng(?!\s+(không|khong))\b",       # đúng, đúng rồi, đúng đó
-        r"^dung(?!\s+(khong))\b",              # không dấu
-        r"^chu[aẩ]n(?!\s+(không|khong))\b",   # chuẩn, chuẩn r, chuẩn rồi
-        r"^ph[aả]i(?!\s+(không|khong))\b",    # phải, phải rồi
-        r"^ok(ay|ê|e)?\b", r"^oke+\b",        # ok, oke, okê, okkkk
-        r"^chốt\b", r"^chot\b",
-        r"^xác nhận\b", r"^xac nhan\b",
-        r"^đồng ý\b", r"^dong y\b",
-        r"^ye?p?\b",                           # y, yes, yep, yup
-        r"^[ừờ]m?\b", r"^um?\b",              # ừ, ừm, ờ, um
-        r"^được\b", r"^duoc\b", r"^đc\b",
-    ]
+    # Affirmative detection — LUẬT TỔNG, không chặn case:
+    #
+    # 1) Có keyword negation/edit → REJECT (là edit, không phải affirmative)
+    # 2) Có keyword positive (whole word match) → ACCEPT
+    # 3) Message rất ngắn (≤3 chars) + không có negation → ACCEPT
+    #    (fallback cho mọi interjection ngắn: "ừ", "ờ", "u", "y", "à"...)
+    #
+    # Thêm cụm mới → thêm 1 từ vào set, KHÔNG cần thêm regex pattern.
+    _NEGATION_OR_EDIT_WORDS = {
+        # Negation
+        "không", "khong", "k", "ko", "kh", "chưa", "chua",
+        # Edit/correction
+        "sai", "sửa", "sua", "đổi", "doi", "nhầm", "nham",
+        "thay", "chỉnh", "chinh", "đính", "dinh", "cập",
+        "nhưng", "nhung",  # turn-around: "nhưng tôi không..."
+    }
+
+    _AFFIRMATIVE_WORDS = {
+        # OK family
+        "ok", "okay", "oke", "okê", "okie", "okk", "okkk", "okkkk",
+        # Vietnamese interjection
+        "u", "uh", "uhm", "umm", "um",
+        "ừ", "ừm", "ừa",
+        "ờ", "ờm", "ợ",
+        "à", "ạ",
+        # Đúng/chuẩn family
+        "đúng", "dung", "chuẩn", "chuan",
+        "phải", "phai",
+        # Yes
+        "yes", "y", "yep", "yup",
+        # Rồi/được
+        "rồi", "roi", "được", "duoc", "đc",
+        # Formal
+        "chốt", "chot", "xác", "đồng",
+    }
 
     @classmethod
     def _is_affirmative(cls, msg: str) -> bool:
         if not msg:
             return False
-        normalized = msg.strip().lower()
-        return any(re.search(p, normalized) for p in cls._AFFIRMATIVE_PATTERNS)
+        normalized = msg.strip().lower().rstrip(".!?,;:'\"")
+        if not normalized:
+            return False
+        # Tokenize — chỉ lấy word chars (loại punct)
+        words = re.findall(r"\w+", normalized, flags=re.UNICODE)
+        if not words:
+            return False
+        # Rule 1: bất kỳ word negation/edit → REJECT (là edit)
+        if any(w in cls._NEGATION_OR_EDIT_WORDS for w in words):
+            return False
+        # Rule 2: có word positive rõ ràng → ACCEPT
+        if any(w in cls._AFFIRMATIVE_WORDS for w in words):
+            return True
+        # Rule 3: message rất ngắn (≤3 chars sau strip) + đã qua rule 1 →
+        # ACCEPT (fallback cho mọi interjection chưa enumerate)
+        if len(normalized) <= 3:
+            return True
+        return False
 
     # ---------- helpers ----------
     def _load_or_create(self, session_id: str | None) -> Session:
