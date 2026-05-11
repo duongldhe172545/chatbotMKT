@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime
 
 from app.core import red_flags, spam_guard
-from app.core.address_form import detect_address_form
+from app.core.address_form import detect_address_form, detect_explicit_address
 from app.core.card_renderer import render_card
 from app.core.chat_replier import ChatReplier
 from app.core.edit_parser import parse_edit_command
@@ -291,9 +291,27 @@ class ConversationService:
             profile_before_dump, profile_after_dump
         )
         # Detect xưng hô — sau khi đã có owner_name potentially mới
-        detected = detect_address_form(latest_dealer, session.profile_raw.owner_name)
-        if detected == "chị" and session.address_form != "chị":
-            session.address_form = "chị"
+        # Lớp 1: Explicit request từ dealer ("gọi tao là đại ca", "xưng ngài"...)
+        # → LUÔN honor request mới nhất, override cả "anh"/"chị" hiện tại.
+        explicit = detect_explicit_address(latest_dealer)
+        if explicit:
+            session.address_form = explicit
+            # Safety net: nếu Extractor wrongly set owner_name = explicit
+            # address word (vd "đại ca", "huynh"...) → reset null để bot
+            # hỏi lại tên thật.
+            current_owner = (session.profile_raw.owner_name or "").strip().lower()
+            if current_owner == explicit.lower():
+                session.profile_raw.owner_name = None
+                session.confidence.pop("owner_name", None)
+        else:
+            # Lớp 2: Default anh/chị — chỉ flip "anh" → "chị" 1 lần khi có
+            # signal female. KHÔNG override explicit address ở session.
+            if session.address_form == "anh":
+                detected = detect_address_form(
+                    latest_dealer, session.profile_raw.owner_name
+                )
+                if detected == "chị":
+                    session.address_form = "chị"
 
         # Cross-session memory: nếu vừa cho phone và phone match dealer cũ,
         # auto-fill các field còn thiếu từ profile cũ.
@@ -423,12 +441,21 @@ class ConversationService:
                     )
                 try:
                     session.llm_call_count += 1
-                    return self.replier.reply(
+                    replier_text = self.replier.reply(
                         messages=session.messages,
                         goal=goal,
                         profile=session.profile_raw,
                         address=session.address_form or "anh",
                     )
+                    # Output guard — CHỈ cho ASK_FIELD. Defensive/tâm sự skip
+                    # vì reply ưu tiên trả lời/engage trước, chưa chắc match
+                    # keyword field. Nếu Replier drift sang hỏi field khác
+                    # (vd target=owner_name mà LLM hỏi role) → fallback template.
+                    if goal.kind == "ASK_FIELD" and not self._llm_question_matches_target(
+                        replier_text, target
+                    ):
+                        replier_text = self._fallback_question_for(target)
+                    return replier_text
                 except Exception:
                     # Replier fail → fallback path cũ (template + chém gió)
                     pass
@@ -510,6 +537,16 @@ class ConversationService:
                 old_val = getattr(profile, key)
                 old_conf = session.confidence.get(key)
                 new_conf = confidence.get(key)
+                # Normalize-equal check: nếu chỉ khác case/space → KHÔNG setattr
+                # (chống Haiku/Sonnet re-extract với normalize khác làm
+                # _diff_new_fields false-positive "field thay đổi" → prepend
+                # compliment lệch turn).
+                if (
+                    isinstance(val, str)
+                    and isinstance(old_val, str)
+                    and val.strip().lower() == old_val.strip().lower()
+                ):
+                    continue  # cùng giá trị logical, giữ original
                 if (
                     old_val not in (None, "", [])
                     and old_val != val
@@ -644,16 +681,18 @@ class ConversationService:
 
     @staticmethod
     def _diff_new_fields(before: dict, after: dict) -> dict:
-        """Trả dict các field THỰC SỰ MỚI fill ở turn này (Q1 fix).
+        """Trả dict các field THỰC SỰ MỚI fill ở turn này.
 
         Quy tắc:
         - Scalar field: trống → có giá trị → coi là MỚI.
         - Scalar field: giá trị thay đổi (vd dealer correct) → coi là MỚI.
-        - List field (pain_points/dl0_priority): list dài hơn → MỚI (item bổ sung).
+          NORMALIZED compare (strip + lower) → bỏ qua thay đổi case/space
+          do model variation (Haiku/Sonnet đôi khi normalize khác).
+        - List field (pain_points/dl0_priority): list dài hơn → MỚI.
         - Field giữ nguyên → KHÔNG MỚI, không vào dict.
 
-        Mục đích: chống enforce_min_length prepend compliment khen field cũ
-        (vd dealer vừa cho phone, bot đột ngột "Tên Dương đẹp quá!").
+        Mục đích: chống enforce_min_length prepend compliment lệch turn
+        do model re-extract với case/space khác nhau.
         """
         new_fields: dict = {}
         for field, after_val in after.items():
@@ -664,12 +703,20 @@ class ConversationService:
                 if len(after_val) > len(before_list):
                     new_fields[field] = after_val
                 continue
-            # Scalar: empty → filled, hoặc value thay đổi
+            # Scalar empty check
             after_empty = after_val in (None, "", [])
             before_empty = before_val in (None, "", [])
             if after_empty:
                 continue
-            if before_empty or before_val != after_val:
+            # Empty → filled = MỚI
+            if before_empty:
+                new_fields[field] = after_val
+                continue
+            # Cả 2 đều filled: so sánh normalized (str case-insensitive + strip)
+            if isinstance(after_val, str) and isinstance(before_val, str):
+                if after_val.strip().lower() == before_val.strip().lower():
+                    continue  # cùng giá trị logical, chỉ khác case/space
+            if before_val != after_val:
                 new_fields[field] = after_val
         return new_fields
 

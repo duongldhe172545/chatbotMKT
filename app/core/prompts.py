@@ -98,11 +98,21 @@ Quy tắc:
 - Confidence: HIGH (rõ) / MEDIUM (cần xác nhận) / LOW (mơ hồ, KHÔNG merge).
 
 ⚠️ owner_name — CỰC KỲ NGHIÊM:
-- CHỈ điền khi dealer XƯNG TÊN CỤ THỂ về NGƯỜI ("anh tên X", "tôi là X",
-  "em Y nè", "gọi anh là Z").
-- TUYỆT ĐỐI KHÔNG suy luận từ tên cửa hàng. Vd "cửa hàng Cường cửa thép"
-  → dealer_name="Cường cửa thép", owner_name=NULL (có thể Cường là tên
-  thương hiệu / tên cũ / tên ai đó khác, không phải dealer đang chat).
+- ACCEPT HIGH khi dealer XƯNG TÊN về NGƯỜI:
+  • Trực tiếp: "anh tên X", "tôi là X", "em Y nè", "tôi tên X".
+  • Hỏi tên + tên đứng độc lập đầu câu (kể cả khi có phụ chú về shop sau):
+    Vd dealer được hỏi "anh tên gì + cửa hàng tên gì?" mà trả lời
+    "Quốc Vinh, tên cửa hàng cũng cùng tên đó luôn" → owner_name="Quốc Vinh"
+    HIGH + dealer_name="Quốc Vinh" HIGH (tên đứng riêng trước phần phụ chú
+    "tên cửa hàng cũng cùng tên" = dealer xưng tên người, đồng thời thông
+    báo shop trùng tên).
+- REJECT (null) khi tên CHỈ xuất hiện trong cụm tên shop:
+  • "cửa hàng Cường cửa thép" → dealer_name="Cường cửa thép",
+    owner_name=NULL (Cường gắn cứng vào tên shop, không phải xưng tên).
+  • "shop tên Hoa Mai" → owner_name=NULL.
+- REJECT (null) khi là ADDRESS REQUEST ("gọi tao là X", "xưng X", "kêu là X").
+  X là cách XƯNG HÔ, KHÔNG phải tên người. Vd "gọi tao là đại ca" → null,
+  "xưng huynh đi" → null.
 - Nếu chưa rõ → null + đưa "owner_name" vào missing_fields để bot hỏi lại.
 
 INTENT FIELD (pain_points + dl0_priority): chỉ HIGH khi dealer TRỰC TIẾP

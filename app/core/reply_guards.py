@@ -141,55 +141,65 @@ def _build_compliment(extracted_data: dict, address: str) -> str:
 # ============================================================
 # ENFORCE MIN LENGTH — chống reply cộc lốc, prepend compliment nếu cần
 # ============================================================
+def _extract_new_values(extracted_data: dict) -> list[str]:
+    """Lấy tất cả VALUE string của field mới (cả scalar lẫn item của list)."""
+    out: list[str] = []
+    for v in (extracted_data or {}).values():
+        if isinstance(v, str) and v.strip():
+            out.append(v.strip().lower())
+        elif isinstance(v, list):
+            for item in v:
+                if isinstance(item, str) and item.strip():
+                    out.append(item.strip().lower())
+    return out
+
+
 def enforce_min_length(
     text: str,
     extracted_data: dict | None = None,
     address: str = "anh",
     min_words: int = 35,
 ) -> str:
-    """Pre-send safety net.
+    """Pre-send safety net — prepend compliment cho field MỚI nếu Replier
+    chưa engage value field đó.
 
-    Trigger condition (rộng để đảm bảo compliment khi cần):
-    - Reply < min_words (35 từ), HOẶC
-    - Reply không có dấu hiệu compliment/cảm xúc (Wow/Tên/em phục/...)
-      MÀ có data mới extract turn này → prepend compliment
+    Logic mới (đơn giản, tổng quát cho mọi field):
+    1. Không có field mới → return text (Replier tự xử).
+    2. Có field mới + Replier reply đã ĐỀ CẬP value field đó → return text
+       (đã engage rồi, không cần prepend).
+    3. Có field mới + Replier chưa đề cập → prepend compliment template.
 
-    Skip nếu:
-    - Reply đã đủ dài + có engagement marker → Replier tự xử OK
-    - Reply đủ dài + không có data mới → LLM tự xử OK
+    So với version cũ:
+    - BỎ check `has_engagement` markers chung chung ("wow"/"em ghi nhận"/
+      "tên "...) — quá lỏng, false positive (Replier engage owner_name
+      nhưng có field mới = dealer_name → skip nhầm).
+    - BỎ check `word_count` — không liên quan tới engagement.
+    - Logic mới: check Replier có mention VALUE thực tế của field mới không.
 
-    Mục tiêu: 0% câu fallback template trần trụi không engagement.
+    `min_words` giữ làm parameter backward compat nhưng không dùng nữa.
     """
     if not text:
         return text
 
-    low = text.lower()
-    # Mở rộng markers — bắt thêm "em ghi nhận", "em hiểu rồi", "em note rồi"
-    # vì Replier hay dùng các cụm này (trước đó coi là không engage → bị
-    # prepend compliment lạc quẻ).
-    has_engagement = any(marker in low for marker in (
-        "wow", "uầy", "tên ", "hay quá", "em phục", "em hiểu mà",
-        "em đồng cảm", "đỉnh", "khủng", "nét", "em mê", "em thích",
-        "em note", "em ghi nhận", "em hiểu rồi", "em rõ rồi", "dạ em hiểu",
-        "ngầu", "tuyệt", "đẹp ghê", "mê quá",
-    ))
+    # Lấy danh sách value string của field mới
+    new_values = _extract_new_values(extracted_data or {})
 
-    word_count = _word_count_vn(text)
-    has_new_data = bool(extracted_data and any(
-        v not in (None, "", []) for v in extracted_data.values()
-    ))
-
-    # Skip nếu reply đã đủ engagement
-    if word_count >= min_words and has_engagement:
-        return text
-    # Skip nếu reply dài và KHÔNG có data mới (LLM tự xử)
-    if word_count >= min_words and not has_new_data:
+    # Rule 1: không có field mới → skip (Replier không cần khen ai)
+    if not new_values:
         return text
 
+    # Rule 2: Replier reply đã đề cập value field mới ở đầu reply → skip
+    # (check 200 ký tự đầu — đủ cover compliment opening + intro)
+    head_low = text.lower()[:200]
+    already_engaged = any(v in head_low for v in new_values)
+    if already_engaged:
+        return text
+
+    # Rule 3: Replier chưa engage value field mới → prepend compliment
     compliment = _build_compliment(extracted_data or {}, address)
-    # _build_compliment trả "" khi không có template phù hợp với data mới
-    # → KHÔNG prepend gì (Replier reply đã có thể OK).
     if not compliment:
+        # _build_compliment không có template cho field mới này → skip
+        # (KHÔNG prepend fallback generic — chống loạn ngôn)
         return text
 
     # Tránh double-Dạ
