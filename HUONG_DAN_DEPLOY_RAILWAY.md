@@ -96,7 +96,7 @@ Nếu chưa connect:
 2. Tab **Variables** (icon `{}`)
 3. Click **+ New Variable**
 
-### 3.2. Điền 8 biến (copy + paste theo bảng)
+### 3.2. Điền 11 biến (copy + paste theo bảng)
 
 | Variable | Value | Giải thích |
 |---|---|---|
