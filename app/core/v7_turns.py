@@ -28,6 +28,23 @@ class V7Turn:
 
 
 # ============================================================
+# TURN 0 — Greeting confirm (chờ dealer "ok" sau greeting)
+# ============================================================
+# Greeting đã được render trong handle_message khi stage GREETING → ASKING.
+# Dealer chỉ cần phản hồi ngắn ("Ok em làm đi" / "ờ" / "vâng" / "yes")
+# → advance sang T1.1 → bot hỏi tên.
+TURN_0 = V7Turn(
+    turn_id="0",
+    theme="greeting",
+    description="Greeting confirm (dealer ok bắt đầu)",
+    expected_fields=(),
+    is_required=False,
+    instruction="(Đã render greeting trước đó — chờ dealer confirm.)",
+    next_turn="1.1",
+)
+
+
+# ============================================================
 # CHỦ ĐỀ 1 — DANH THIẾP (3 turn)
 # ============================================================
 TURN_1_1 = V7Turn(
@@ -351,6 +368,7 @@ TURN_4_2 = V7Turn(
 # ============================================================
 V7_TURNS: dict[str, V7Turn] = {
     t.turn_id: t for t in [
+        TURN_0,
         TURN_1_1, TURN_1_2, TURN_1_3,
         TURN_2_1, TURN_2_2, TURN_2_3, TURN_2_4, TURN_2_5, TURN_2_6,
         TURN_3_1, TURN_3_2, TURN_3_3, TURN_3_4,
@@ -358,8 +376,9 @@ V7_TURNS: dict[str, V7Turn] = {
     ]
 }
 
-# Turn đầu tiên (sau greeting)
-FIRST_TURN_ID = "1.1"
+# Turn đầu tiên — sau greeting bot, state machine ở "T0" chờ dealer confirm,
+# dealer reply ngắn ("Ok") → advance T0 → T1.1 → bot hỏi tên.
+FIRST_TURN_ID = "0"
 
 # Số lần retry tối đa cho turn KHÔNG required khi dealer refuse/skip.
 # Sau MAX_TURN_RETRIES → skip turn, qua next_turn.

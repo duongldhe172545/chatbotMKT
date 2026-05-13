@@ -94,9 +94,12 @@ class ConversationService:
         session = self._load_or_create(session_id)
         msg_clean = dealer_message.strip()
 
-        # Lần đầu kết nối (frontend gửi message rỗng) → trả greeting
+        # Lần đầu kết nối (frontend gửi message rỗng) → trả greeting + set
+        # v7_turn = "0" (T0: chờ dealer confirm bắt đầu). Khi dealer reply
+        # "Ok em" / "vâng" / etc., advance T0 → T1.1 → bot hỏi tên.
         if session.stage == Stage.GREETING and not msg_clean:
             session.stage = Stage.ASKING
+            session.v7_turn = FIRST_TURN_ID  # "0"
             bot_msg = GREETING
             session.messages.append(self._bot(bot_msg))
             self.storage.save_session(session)
