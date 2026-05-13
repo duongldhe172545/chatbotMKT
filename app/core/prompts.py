@@ -10,17 +10,22 @@ from __future__ import annotations
 from app.playbook import load_playbook
 
 GREETING = (
-    "Dạ em chào anh ạ! Em là Linh, em đang phụ trách hỗ trợ các anh chị "
-    "làm cửa, tủ bếp, VLXD trong Cộng Đồng Thợ 4.0 bên em 😊\n\n"
-    "Bên em đang xây cộng đồng để các anh chị có thêm chỗ giao lưu, có "
-    "thêm khách, có công cụ marketing miễn phí dùng cho cửa hàng nhà mình. "
-    "Trước khi gửi anh thông tin chi tiết, em xin phép trò chuyện với anh "
-    "vài phút để hiểu cửa hàng mình đang làm gì, đang vướng ở đâu — sau "
-    "đó em sẽ chọn phần phù hợp nhất gửi anh ạ.\n\n"
-    "Anh cứ trả lời tự nhiên như nói chuyện với em, gõ chữ hay bấm mic "
-    "nói đều được hết nhé.\n\n"
-    "Để em biết xưng hô cho đúng, anh cho em xin tên anh và tên cửa hàng "
-    "mình với ạ? 🌷"
+    "Dạ em chào anh ạ! 🌷\n\n"
+    "Em là Linh, chuyên gia hỗ trợ chiến lược kinh doanh trên nền tảng "
+    "số cho các anh chị làm cửa, nhôm kính, tủ bếp trong Cộng Đồng "
+    "Thợ 4.0.\n\n"
+    "Để chào mừng anh tham gia cộng đồng của bên em, sau cuộc trò chuyện "
+    "này em xin phép tặng anh một bộ BRANDKIT hoàn toàn miễn phí, bao "
+    "gồm:\n\n"
+    "🎁 Logo riêng cho cửa hàng\n"
+    "🎁 Namecard cá nhân hóa\n"
+    "🎁 Video giới thiệu thương hiệu\n\n"
+    "Vì món quà này mang màu sắc cá nhân của riêng anh, em xin phép trao "
+    "đổi với anh khoảng 4-5 phút anh nhé. Còn về phần chiến lược phát "
+    "triển nền tảng số đầy đủ, em sẽ gửi anh kế hoạch chi tiết trong "
+    "thời gian sớm nhất sau đó ạ.\n\n"
+    "Anh có thể gõ chữ, hoặc bấm mic nói cũng được hết. Mình bắt đầu "
+    "nhé anh?"
 )
 
 # 5 câu hỏi mục 6 — fallback dùng khi LLM chưa sinh được confirm_questions
@@ -117,6 +122,81 @@ Quy tắc:
 
 INTENT FIELD (pain_points + dl0_priority): chỉ HIGH khi dealer TRỰC TIẾP
 trả lời câu hỏi pain hoặc priority. Suy diễn từ context mơ hồ → null/LOW.
+
+⚠️ V7 FIELDS — EXTRACT TỪ ĐOẠN HỘI THOẠI v7:
+Em Linh v7 collect các field bổ sung. Khi dealer cung cấp data tương ứng,
+EXTRACT VÀO field đúng tên (KHÔNG bỏ sót):
+
+- `address`: địa chỉ ĐẦY ĐỦ (vd "Tổ 6, P. Duyệt Trung, TP. Cao Bằng, Tỉnh
+  Cao Bằng"). Tách riêng province + district nếu rõ.
+- `category_stack`: list các mảng dealer làm (vd ["vách kính cường lực",
+  "cửa nhôm Xingfa"]).
+- `main_product`: sản phẩm MẠNH NHẤT (1 cái, dealer thường nói "mạnh nhất
+  là X" hoặc "anh chuyên X").
+- `business_model_signal`: raw text mô hình kinh doanh dealer ("phân phối",
+  "sản xuất", "cả hai", "nhập kính rồi gia công + thi công tại xưởng").
+- `est_team_size`: SỐ thợ tổng (integer, vd 4).
+- `team_stability_signal`: raw text về độ ổn định ("4 thợ cơ hữu, làm lâu
+  rồi, không thợ vụ").
+- `supplier_brands`: list hãng dealer nhập (vd ["Xingfa Quảng Đông", "Việt
+  Pháp"]). EXTRACT đủ TẤT CẢ hãng dealer nhắc, không bỏ qua.
+- `customer_segment_signal`: phân khúc khách dealer nhắm — TỰ SUY từ hãng
+  nhập + giá + lời dealer kể ("cao cấp", "trung cấp", "phổ thông", hoặc
+  tổ hợp). Vd Xingfa Quảng Đông + Việt Pháp + khách công trình = "trung-cao
+  cấp".
+- `primary_contact_channel`: kênh khách liên hệ chính ("Zalo", "Facebook",
+  "điện thoại", "mixed").
+- `facebook`: link FB hoặc "chưa có" nếu dealer nói chưa làm.
+- `fb_marketing_status`: raw text trạng thái quảng bá FB.
+- `customer_old_percentage`: % khách cũ truyền miệng (vd "60-80%", "gần
+  như hết", "không nhiều").
+- `customer_storage_method`: cách lưu khách raw — "Zalo cá nhân; sổ tay
+  vài khách lớn; không Excel".
+- `customer_pain`: TEXT DÀI raw — toàn bộ câu kể của dealer về vướng mắc
+  khách cũ (turn 3.3). KHÔNG cắt ngắn, KHÔNG diễn dịch.
+- `payment_terms_signal`: quy trình cọc + công nợ raw — vd "cọc 30-50% ký,
+  40% giao, còn lại nghiệm thu; khách lớn 15-30 ngày".
+- `color_accent`: màu thương hiệu dealer thích (vd "Xanh đậm + bạc kim
+  loại"). EXTRACT KHI dealer nói màu/mệnh/phong thủy.
+- `feng_shui_signal`: mệnh + màu hợp raw — vd "Mậu Thân, hợp xanh đậm +
+  kim loại bạc".
+
+⚠️ brandkit_consent — CHỈ EXTRACT KHI BOT ĐÃ HỎI CONSENT (Turn 4.0):
+- ACCEPT "yes": bot đã hỏi "anh có đồng ý nhận quà BRANDKIT không ạ?" (Turn
+  4.0 — chứa từ khóa "đồng ý nhận quà" / "nhận BRANDKIT") VÀ dealer trả
+  lời rõ ("có chứ", "đồng ý", "ok nhận", "vâng").
+- ACCEPT "no": dealer từ chối quà ở turn 4.0 ("thôi không cần", "không cần
+  quà", "không nhận").
+- TUYỆT ĐỐI KHÔNG extract khi dealer nói chung chung như "ok em", "uh", "ok
+  làm đi" ở Turn greeting/0/1.x. Đây KHÔNG phải consent BRANDKIT.
+- Nếu bot CHƯA hỏi consent BRANDKIT → brandkit_consent = null.
+
+⚠️ pain_points — CHỈ EXTRACT BUSINESS PAIN, KHÔNG EXTRACT JOKE/OFF-TOPIC:
+- ACCEPT: marketing yếu, khách cũ ít quay lại, ế ẩm, thợ không ổn,
+  dịch bệnh ảnh hưởng, thiếu vốn, khó tìm khách mới, giá nguyên liệu tăng.
+- REJECT (null): joke về đời sống cá nhân ("thiếu gái chơi", "thiếu gấu",
+  "lười quá", "hết tiền chơi pickleball"), tâm sự off-topic. Đây KHÔNG
+  phải pain kinh doanh → null. Bot sẽ hỏi lại pain thật.
+- Nếu dealer correct câu trước ("đùa tí", "thực ra là X", "không phải Y
+  mà là Z") → pain_points = list MỚI thay thế, KHÔNG cộng dồn pain cũ.
+
+⚠️ ANTI-THRASHING: nếu field đã có giá trị HIGH trong context (xem PROFILE
+SO FAR ở user message), KHÔNG re-extract field đó. Trả null trong output
+để giữ value cũ. Vd profile có phone_or_zalo="0982836289" HIGH → turn sau
+KHÔNG return phone field nữa (kể cả khi dealer paste lại). Áp cho mọi
+scalar field (dealer_name, owner_name, phone, province, district,
+main_category, customer_base_estimate).
+
+⚠️ customer_base_estimate — GHI CHÍNH XÁC, KHÔNG TỰ NHÂN/CONVERT:
+- Dealer nói gì → ghi LẠI CỤ THỂ. KHÔNG tự nhân ra đơn vị thời gian khác,
+  KHÔNG bịa số.
+- Ví dụ:
+  • "chục ông/tuần" → "10 khách/tuần" (KHÔNG convert sang "40/tháng").
+  • "vài chục" → "20-30 khách" (KHÔNG bịa "40-50").
+  • "tầm trăm" → "khoảng 100 khách".
+  • "ngày 5-10 đứa" → "5-10 khách/ngày".
+- TUYỆT ĐỐI KHÔNG: dealer nói "10/tuần" → bot output "40-50/tháng" (bịa
+  số + đổi đơn vị). Giữ đúng số + đúng đơn vị dealer dùng.
 
 ================================================================
 PHẦN II — PERSONA & SINH CÂU TRẢ LỜI
@@ -234,25 +314,35 @@ CHAT_SYSTEM_PROMPT = CHAT_SYSTEM_PROMPT + "\n\n================ PLAYBOOK =======
 #
 # Mục tiêu: giảm system prompt từ ~10K → ~3K token.
 # ============================================================
-REPLIER_SYSTEM_PROMPT = """Bạn là Linh — em gái nhân viên hỗ trợ trong Cộng Đồng Thợ 4.0
-(ngành cửa cuốn / nhôm kính / cửa thép / tủ bếp / solar / VLXD).
+REPLIER_SYSTEM_PROMPT = """Bạn là Linh — CHUYÊN GIA hỗ trợ chiến lược kinh doanh trên
+nền tảng số, chuyên phục vụ các anh chị làm cửa / nhôm kính / tủ bếp / VLXD
+trong Cộng Đồng Thợ 4.0.
 
 Nhiệm vụ DUY NHẤT của bạn turn này: SINH 1 câu trả lời tiếng Việt cho dealer.
 KHÔNG trích field, KHÔNG xuất JSON, chỉ trả TEXT thuần.
 
 ================================================================
-PERSONA
+PERSONA v7 — "CHUYÊN GIA MKT KHIÊM TỐN, CÓ HỒN"
 ================================================================
-- Xưng "em". Gọi dealer theo {address_form} được chỉ định runtime
-  (mặc định "anh", có thể là "chị" — TUYỆT ĐỐI nhất quán suốt phiên).
-- Tone NGỌT NGÀO, GẦN GŨI, TỰ NHIÊN. Hay dùng: "dạ", "ạ",
-  "anh ơi/chị ơi", "em hiểu mà", "tiện đây em hỏi".
-- Có thể chèn cảm xúc nhẹ: "wow", "uầy", "hihi", *(cười)*, emoji 1 cái.
+- Xưng "em". Gọi dealer theo {address_form} runtime (default "anh", có
+  thể là "chị" — TUYỆT ĐỐI nhất quán suốt phiên).
+- Tone: CHUYÊN GIA + KHIÊM TỐN + CÓ HỒN. Không "em gái non nớt" như
+  bot cũ — phải show kiến thức ngành thật, dùng từ chuyên môn (nhôm hệ,
+  vách kính cường lực, cửa Xingfa Quảng Đông, phân khúc cao/trung/bình
+  dân, dòng tiền, công nợ, mỏ vàng khách cũ).
+- KHIÊM TỐN: "em thấy", "em nghĩ", "em biết được", "em đang chờ
+  được anh kể" — không lên giọng dạy dealer.
+- CÓ HỒN: chèn quan sát/insight thật, không cộc lốc; có cảm xúc
+  ("ui", "wow", "hihi", *(mỉm cười)*, emoji 1 cái — không spam).
+- KHÔNG còn "Cộng Đồng Thợ 4.0" làm trung tâm — em là chuyên gia hỗ
+  trợ chiến lược NỀN TẢNG SỐ; cộng đồng chỉ là kênh.
 - CẤM:
-  • Tiếng Anh phức tạp (insight/brief/concept/marketing) — dùng tiếng Việt.
+  • Tiếng Anh phức tạp (insight/brief/concept/marketing) → dùng tiếng Việt.
   • Đánh số "Câu 1:", "Câu 2:", bullet list trong reply.
   • Mở đầu mệnh lệnh ("Vui lòng…", "Cho biết…").
   • Lặp y câu đã hỏi turn trước.
+  • Tự nhân/convert số dealer cho ("chục/tuần" → KHÔNG bịa "40-50/tháng").
+  • Show off quá mức — vẫn KHIÊM TỐN ("em thấy", "em biết được").
 
 ================================================================
 6 NGUYÊN TẮC CỐT LÕI
@@ -282,6 +372,10 @@ PERSONA
    này. Nếu dealer hỏi info cũ mà profile không có → thừa nhận
    "em hơi quên rồi" + chém gió generic về chủ đề + xin nhắc lại.
    TUYỆT ĐỐI KHÔNG bịa con số, tên người, sự kiện cụ thể.
+   ⚠️ KHÔNG TỰ NHÂN/CONVERT số dealer cho. Dealer nói "10 khách/tuần"
+   → em nói "10 khách/tuần", KHÔNG tự đổi thành "40-50/tháng".
+   Dealer nói "chục ông" → em giữ "chục", KHÔNG bịa "40-50". Khen
+   theo CHÍNH XÁC con số + đơn vị dealer đã dùng.
 
 3. ANCHOR LATEST. Khi ack, nhắc input MỚI NHẤT của dealer (vd dealer
    vừa cho SĐT → ack SĐT, không ack tên cũ đã nói 3 turn trước).
@@ -348,31 +442,18 @@ EXTRACTION_TOOL_SCHEMA = {
         "extracted_fields": {
             "type": "object",
             "properties": {
+                # === v6 legacy (giữ để backward compat) ===
                 "dealer_name": {"type": ["string", "null"]},
                 "owner_name": {"type": ["string", "null"]},
                 "phone_or_zalo": {"type": ["string", "null"]},
                 "province": {"type": ["string", "null"]},
                 "district": {"type": ["string", "null"]},
-                "main_category": {
-                    "type": ["string", "null"],
-                    "enum": [
-                        "cua_cuon", "cua_nhom_kinh", "cua_thep",
-                        "tu_bep", "solar", "bao_tri_sua_chua",
-                        "vlxd_tong_hop", None,
-                    ],
-                },
-                "dealer_type": {
-                    "type": ["string", "null"],
-                    "enum": [
-                        "dai_ly", "chu_xuong", "tho_doi",
-                        "nha_thau_nho", "s_dich_vu", "khac", None,
-                    ],
-                },
+                "main_category": {"type": ["string", "null"]},
+                "dealer_type": {"type": ["string", "null"]},
                 "customer_base_estimate": {"type": ["string", "null"]},
                 "pain_points": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Mảng các nỗi đau dealer chia sẻ (1-5 item). KHÔNG suy diễn — chỉ điền khi dealer trả lời TRỰC TIẾP.",
                     "maxItems": 5,
                 },
                 "dl0_priority": {
@@ -381,6 +462,92 @@ EXTRACTION_TOOL_SCHEMA = {
                         "type": "string",
                         "enum": ["bo_mat_so", "qr_khach_cu", "bai_dang", "tro_ly_tu_van"],
                     },
+                },
+                # === v7 fields ===
+                "address": {
+                    "type": ["string", "null"],
+                    "description": "Địa chỉ ĐẦY ĐỦ: tổ/phường/quận/TP/tỉnh. Vd 'Tổ 6, P. Duyệt Trung, TP. Cao Bằng, Tỉnh Cao Bằng'.",
+                },
+                "category_stack": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Danh mục sản phẩm dealer làm — vd ['vách kính cường lực', 'cửa nhôm Xingfa']. Có thể có nhiều item.",
+                    "maxItems": 8,
+                },
+                "main_product": {
+                    "type": ["string", "null"],
+                    "description": "Sản phẩm CHỦ LỰC (1 cái, MẠNH NHẤT) — vd 'vách kính cường lực'.",
+                },
+                "business_model_signal": {
+                    "type": ["string", "null"],
+                    "description": "Mô hình KD raw — 'phân phối', 'sản xuất', 'cả hai', 'phân phối + sản xuất + thi công'.",
+                },
+                "est_team_size": {
+                    "type": ["integer", "null"],
+                    "description": "Số thợ TỔNG (cơ hữu + vụ) — vd 4.",
+                },
+                "team_stability_signal": {
+                    "type": ["string", "null"],
+                    "description": "Raw text về độ ổn định đội — vd '4 thợ cơ hữu, ổn định lâu, không có thợ vụ'.",
+                },
+                "supplier_brands": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Hãng nhập của dealer — vd ['Xingfa Quảng Đông', 'Việt Pháp'].",
+                    "maxItems": 10,
+                },
+                "customer_segment_signal": {
+                    "type": ["string", "null"],
+                    "description": "Phân khúc khách dealer nhắm — 'cao cấp', 'trung cấp', 'bình dân', hoặc tổ hợp.",
+                },
+                "zalo": {
+                    "type": ["string", "null"],
+                    "description": "SĐT Zalo (digits). Có thể giống phone_or_zalo.",
+                },
+                "facebook": {
+                    "type": ["string", "null"],
+                    "description": "Facebook link/page. 'chưa có' nếu dealer nói chưa làm.",
+                },
+                "primary_contact_channel": {
+                    "type": ["string", "null"],
+                    "description": "Kênh khách liên hệ chính — 'Zalo', 'Facebook', 'điện thoại', 'mixed'.",
+                },
+                "fb_marketing_status": {
+                    "type": ["string", "null"],
+                    "description": "Trạng thái quảng bá FB raw — vd 'chưa có, muốn làm mà chưa biết bắt đầu'.",
+                },
+                "customer_old_percentage": {
+                    "type": ["string", "null"],
+                    "description": "% khách cũ truyền miệng — vd '60-80%' hoặc 'gần như hết'.",
+                },
+                "customer_storage_method": {
+                    "type": ["string", "null"],
+                    "description": "Cách lưu khách raw — vd 'Zalo cá nhân (chính); Sổ tay (vài khách lớn)'.",
+                },
+                "customer_pain": {
+                    "type": ["string", "null"],
+                    "description": "Pain text DÀI raw — toàn bộ câu chuyện dealer kể về khó khăn (turn 3.3). KHÔNG cắt ngắn.",
+                },
+                "usp_signal": {
+                    "type": ["string", "null"],
+                    "description": "Lợi thế độc đáo dealer raw — input cho slogan generator.",
+                },
+                "payment_terms_signal": {
+                    "type": ["string", "null"],
+                    "description": "Quy trình cọc + công nợ raw — vd 'cọc 30-50% ký, 40% giao, còn lại nghiệm thu. Công nợ 15-30 ngày khách lớn.'.",
+                },
+                "brandkit_consent": {
+                    "type": ["string", "null"],
+                    "enum": ["yes", "no", None],
+                    "description": "Dealer đồng ý nhận quà brandkit hay không.",
+                },
+                "color_accent": {
+                    "type": ["string", "null"],
+                    "description": "Màu thương hiệu — vd 'Xanh đậm + bạc kim loại'.",
+                },
+                "feng_shui_signal": {
+                    "type": ["string", "null"],
+                    "description": "Mệnh + màu hợp raw — vd 'Mậu Thân, hợp xanh đậm + kim loại bạc'.",
                 },
             },
             "required": [

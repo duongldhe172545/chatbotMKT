@@ -31,7 +31,8 @@ HISTORY_WINDOW = 12
 
 
 GoalKind = Literal[
-    "ASK_FIELD",          # hỏi field cụ thể (target_field)
+    "ASK_FIELD",          # hỏi field cụ thể (target_field) — legacy v6
+    "V7_TURN",            # đi theo flow v7 — instruction load từ v7_turns.py
     "ANSWER_DEFENSIVE",   # dealer hỏi ngược → trả lời thẳng + dẫn về field
     "ENGAGE_TAM_SU",      # dealer kể chuyện đời → engage + dẫn về field
     "HANDLE_REFUSAL",     # dealer từ chối field → respect + skip + hỏi field khác
@@ -44,6 +45,7 @@ class Goal:
     """Mô tả mục tiêu turn này — Conductor chọn, Replier thực thi."""
     kind: GoalKind
     target_field: str | None = None       # field cần hỏi (cho ASK_FIELD)
+    v7_turn_id: str | None = None         # turn id v7 (cho V7_TURN) — vd "2.3"
     skipped_field: str | None = None      # field vừa bị refuse (cho HANDLE_REFUSAL)
     next_field: str | None = None         # field tiếp theo (cho HANDLE_REFUSAL/ENGAGE_TAM_SU)
     forbidden_opener_group: str | None = None  # nhóm A/B/C/D bị cấm
@@ -133,22 +135,46 @@ class Replier:
     def _build_instruction(goal: Goal, profile: DealerProfileRaw, address: str) -> str:
         """Sinh instruction block inject cuối user message.
 
-        Bao gồm: PROFILE SO FAR + ADDRESS_FORM + GOAL cụ thể.
+        Bao gồm: PROFILE SO FAR (v6+v7 fields) + ADDRESS_FORM + GOAL cụ thể.
         """
         parts = []
 
         # 1. PROFILE SNAPSHOT — anchor để LLM không bịa
         prof_lines = []
-        for field in ("dealer_name", "owner_name", "phone_or_zalo",
-                      "province", "district", "main_category",
-                      "customer_base_estimate"):
+        # Scalar fields — v6 + v7
+        scalar_fields = (
+            # v6 core
+            "dealer_name", "owner_name", "phone_or_zalo",
+            "province", "district", "main_category",
+            "customer_base_estimate",
+            # v7 identity
+            "address", "province_specialty",
+            # v7 business
+            "main_product", "business_model_signal",
+            "est_team_size", "team_stability_signal",
+            "customer_segment_signal",
+            # v7 channels
+            "zalo", "facebook", "primary_contact_channel",
+            "fb_marketing_status",
+            # v7 mỏ vàng
+            "customer_old_percentage", "customer_storage_method",
+            "customer_pain", "usp_signal", "payment_terms_signal",
+            # v7 brandkit
+            "brandkit_consent", "color_accent", "feng_shui_signal",
+        )
+        for field in scalar_fields:
             val = getattr(profile, field, None)
             if val not in (None, "", []):
                 prof_lines.append(f"  - {field}: {val}")
+        # List fields
         if profile.pain_points:
             prof_lines.append(f"  - pain_points: {', '.join(profile.pain_points)}")
         if profile.dl0_priority:
             prof_lines.append(f"  - dl0_priority: {', '.join(profile.dl0_priority)}")
+        if profile.category_stack:
+            prof_lines.append(f"  - category_stack: {', '.join(profile.category_stack)}")
+        if profile.supplier_brands:
+            prof_lines.append(f"  - supplier_brands: {', '.join(profile.supplier_brands)}")
         if prof_lines:
             parts.append("PROFILE SO FAR (chỉ nhắc số/tên có trong list này, KHÔNG bịa):\n"
                          + "\n".join(prof_lines))
@@ -175,6 +201,34 @@ class Replier:
     @staticmethod
     def _format_goal(goal: Goal) -> str:
         """Convert Goal struct → instruction text rõ ràng cho LLM."""
+        if goal.kind == "V7_TURN":
+            # Import muộn để tránh circular (v7_turns → ... → replier)
+            from app.core.v7_turns import get_turn
+            t = get_turn(goal.v7_turn_id or "")
+            if not t:
+                return (
+                    "Tự do trả lời theo persona chuyên gia MKT. "
+                    "Hỏi tiếp theo flow nếu hợp lý."
+                )
+            base = (
+                f"=== TURN {t.turn_id} ({t.theme}) — {t.description} ===\n\n"
+                f"{t.instruction}\n\n"
+                f"🚨 BẮT BUỘC STRICT — KHÔNG ĐƯỢC DRIFT:\n"
+                f"1. CHỈ hỏi đúng câu hỏi của TURN {t.turn_id} ở trên — KHÔNG\n"
+                f"   tự đoán flow + hỏi câu khác (vd: turn này hỏi địa chỉ\n"
+                f"   thì TUYỆT ĐỐI KHÔNG hỏi sđt; turn 4.0 hỏi consent thì\n"
+                f"   KHÔNG hỏi pain/tool; turn 4.2 hỏi màu+phong thủy thì\n"
+                f"   KHÔNG xin consent lại).\n"
+                f"2. KHÔNG gộp nhiều turn vào 1 reply — mỗi reply CHÍ 1 ý hỏi.\n"
+                f"3. Cấu trúc reply: ACK data dealer vừa cho (1 câu) → LÝ DO\n"
+                f"   hỏi tiếp (nếu có) → CHÍNH XÁC câu hỏi của turn này.\n"
+                f"4. Độ dài: 2-5 câu, 40-120 từ. Tone CHUYÊN GIA KHIÊM TỐN.\n"
+                f"5. KHÔNG bịa data ngoài PROFILE SO FAR. KHÔNG mở đầu mệnh lệnh."
+            )
+            if goal.extra_hint:
+                base += f"\n\n📎 Lưu ý thêm: {goal.extra_hint}"
+            return base
+
         if goal.kind == "ASK_FIELD":
             field = goal.target_field or ""
             desc = _FIELD_DESC.get(field, field)

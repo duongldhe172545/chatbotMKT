@@ -31,6 +31,11 @@ from typing import Any
 _session_locks: dict[str, threading.Lock] = {}
 _locks_dict_lock = threading.Lock()  # bảo vệ thao tác trên _session_locks
 
+# Cap để dict không grow vô hạn theo session_id unique (bao gồm cả _new_<uuid>
+# tạm cho request lần đầu — sau khi có session_id thật, lock cũ thành orphan).
+# Khi vượt cap → evict theo thứ tự INSERT (oldest first). 10K = ~320KB memory.
+_MAX_LOCKS = 10000
+
 
 def get_session_lock(session_id: str) -> threading.Lock:
     """Lấy (hoặc tạo mới) Lock cho session_id.
@@ -45,8 +50,13 @@ def get_session_lock(session_id: str) -> threading.Lock:
     # Slow path: cần tạo mới — bảo vệ bằng dict-level lock
     with _locks_dict_lock:
         # Re-check sau khi acquire (có thể request khác đã tạo trong lúc đợi)
-        if session_id not in _session_locks:
-            _session_locks[session_id] = threading.Lock()
+        if session_id in _session_locks:
+            return _session_locks[session_id]
+        # Evict oldest nếu vượt cap (Python 3.7+ dict giữ insertion order)
+        while len(_session_locks) >= _MAX_LOCKS:
+            oldest_key = next(iter(_session_locks))
+            del _session_locks[oldest_key]
+        _session_locks[session_id] = threading.Lock()
         return _session_locks[session_id]
 
 

@@ -6,13 +6,16 @@ LLM chỉ làm extractor. Đây là kỷ luật trong tài liệu MVP
 """
 from __future__ import annotations
 
+import logging
 import re
 import uuid
 from datetime import datetime
 
+logger = logging.getLogger(__name__)
+
 from app.core import red_flags, spam_guard
 from app.core.address_form import detect_address_form, detect_explicit_address
-from app.core.card_renderer import render_card
+from app.core.card_renderer import render_card, render_closing
 from app.core.chat_replier import ChatReplier
 from app.core.edit_parser import parse_edit_command
 from app.core.extractor import Extractor
@@ -26,7 +29,15 @@ from app.core.opener_enforcer import (
     enforce_opener_variety,
 )
 from app.core.prompts import FIELD_LABEL, GREETING, QUESTIONS, REQUIRED_FIELDS
+from app.core.province_specialty import lookup_specialty
 from app.core.replier import Goal, Replier
+from app.core.v7_turns import (
+    FIRST_TURN_ID,
+    MAX_TURN_RETRIES,
+    get_turn,
+    is_turn_complete,
+    render_turn_question,
+)
 from app.core.reply_guards import (
     enforce_defensive_answer,
     enforce_min_length,
@@ -101,6 +112,13 @@ class ConversationService:
             return session, last_bot
 
         address = session.address_form or "anh"
+
+        # Reset state per-turn — `_last_extracted_this_turn` chỉ có nghĩa cho
+        # field MỚI fill ở turn hiện tại. Nếu không reset, compliment ở
+        # enforce_min_length sẽ "lạc quẻ" — prepend compliment cho field
+        # turn trước vào reply CONFIRMING/edit (vd "Lựa chọn chuẩn rồi anh"
+        # đè lên reply "Dạ em chưa rõ ý anh ơi...").
+        self._last_extracted_this_turn = {}
 
         # === SPAM GUARD PRECHECK (Layer 1.1, 1.2, 3.B, soft_ended) ===
         # Chạy TRƯỚC khi append message + flow chính → tiết kiệm LLM call.
@@ -183,16 +201,9 @@ class ConversationService:
         if spam_guard.detect_output_leak(bot_msg):
             bot_msg = spam_guard.template_output_leak_blocked(address)
 
-        # B3: Post-process safety net — nếu Haiku vẫn lặp nhóm bị cấm dù
-        # đã có directive trong prompt, code strip prefix + thay opener khác.
-        # Chỉ apply cho ASKING (CONFIRMING+DONE đa phần dùng template hardcoded).
-        if session.stage == Stage.ASKING:
-            bot_msg, opener_group = enforce_opener_variety(
-                bot_msg, session.last_opener_group
-            )
-        else:
-            opener_group = classify_opener_group(bot_msg)
-
+        # H4 fix: Defensive answer CHẠY TRƯỚC opener variety. Nếu chạy sau,
+        # defensive prepend "Dạ em không vòng vo..." sẽ chồng lên prefix vừa
+        # được opener variety thay → 2 prefix loạn ngôn.
         # Layer 2 — Defensive answer guarantee: nếu dealer hỏi ngược mà bot
         # không trả lời thẳng, code prepend đáp trực tiếp.
         if session.stage in (Stage.ASKING, Stage.CONFIRMING):
@@ -203,6 +214,16 @@ class ConversationService:
             )
             bot_msg = enforce_defensive_answer(bot_msg, latest_dealer_msg, address)
 
+        # B3: Post-process safety net — nếu Haiku vẫn lặp nhóm bị cấm dù
+        # đã có directive trong prompt, code strip prefix + thay opener khác.
+        # Chỉ apply cho ASKING (CONFIRMING+DONE đa phần dùng template hardcoded).
+        if session.stage == Stage.ASKING:
+            bot_msg, opener_group = enforce_opener_variety(
+                bot_msg, session.last_opener_group
+            )
+        else:
+            opener_group = classify_opener_group(bot_msg)
+
         # Layer 1 — Pre-send validation: chống câu cộc lốc / quá ngắn.
         # Áp dụng cho ASKING + CONFIRMING (không áp dụng greeting/done).
         if session.stage in (Stage.ASKING, Stage.CONFIRMING):
@@ -212,6 +233,7 @@ class ConversationService:
                 extracted_data=extracted_this_turn,
                 address=session.address_form or "anh",
                 min_words=25,
+                confidence=session.confidence,
             )
 
         # Track nhóm opener turn này → cấm nhóm này ở turn sau.
@@ -237,24 +259,20 @@ class ConversationService:
             "Anh cho em xin số Zalo / SĐT cuối cùng để team gọi đúng số nha?"
         )
 
-    # ---------- ASKING ----------
+    # ---------- ASKING (v7 turn-based flow) ----------
     def _handle_asking(self, session: Session) -> str:
-        # Đếm số field đã fill TRƯỚC khi extract turn này (để biết có tiến triển không)
-        weak_before_list = self._weak_required_fields(session)
-        weak_before = set(weak_before_list)
+        # Init v7 turn nếu session chưa có
+        if session.v7_turn is None:
+            session.v7_turn = FIRST_TURN_ID
 
-        # Snapshot profile TRƯỚC merge để diff field MỚI turn này (Q1 fix:
-        # tránh enforce_min_length prepend compliment lạc quẻ về tên/shop
-        # đã có từ turn trước).
+        # Snapshot profile TRƯỚC merge để diff field MỚI turn này
         profile_before_dump = session.profile_raw.model_dump()
 
-        # C3: Skip LLM extractor khi dealer message tầm thường ("ok"/"yes"/"k"...)
-        # → tiết kiệm 1 LLM call cho ~10-15% turn. Dùng fallback question.
         latest_dealer = next(
             (m.content for m in reversed(session.messages) if m.role == ChatRole.DEALER),
             "",
         )
-        # Phân loại intent — dùng cho cả Extractor (cũ) và Replier (mới).
+        # Phân loại intent (defensive/tâm sự) — v7 vẫn xử intent này
         defensive = is_defensive_message(latest_dealer) if latest_dealer else False
         tam_su = (
             is_tam_su_message(latest_dealer) and not defensive
@@ -264,16 +282,257 @@ class ConversationService:
         if _is_trivial_message(latest_dealer):
             result = ExtractResult()
         else:
-            # KHÔNG inject target_field hint khi defensive/tâm sự — để LLM tự do
-            # trả lời câu hỏi / engage theo persona, không bị ép hỏi field.
+            session.llm_call_count += 1
+            # v7: Extractor extract TỰ DO mọi field theo schema — không target.
+            # Bot Replier hỏi đúng turn, Extractor đọc reply dealer + extract field.
+            result = self.extractor.extract(
+                session.messages,
+                forbidden_opener_group=session.last_opener_group,
+                target_field=None,
+                is_tam_su=tam_su,
+                is_defensive=defensive,
+            )
+        self._merge_extraction(session, result)
+
+        # v7 hook: address vừa được fill → lookup specialty cho hook Turn 1.3
+        if (
+            session.profile_raw.address
+            and not session.profile_raw.province_specialty
+        ):
+            specialty = lookup_specialty(session.profile_raw.address)
+            if specialty:
+                session.profile_raw.province_specialty = specialty
+
+        profile_after_dump = session.profile_raw.model_dump()
+        self._last_extracted_this_turn = self._diff_new_fields(
+            profile_before_dump, profile_after_dump
+        )
+
+        # Detect xưng hô (giữ như cũ — không thay đổi cho v7)
+        explicit = detect_explicit_address(latest_dealer)
+        if explicit:
+            session.address_form = explicit
+            current_owner = (session.profile_raw.owner_name or "").strip().lower()
+            if current_owner == explicit.lower():
+                session.profile_raw.owner_name = None
+                session.confidence.pop("owner_name", None)
+        else:
+            if session.address_form == "anh":
+                detected = detect_address_form(
+                    latest_dealer, session.profile_raw.owner_name
+                )
+                if detected == "chị":
+                    session.address_form = "chị"
+
+        # Cross-session memory
+        if session.profile_raw.confirmation_status != "CONFIRMED":
+            self._maybe_load_returning_dealer(session)
+
+        # === V7 FLOW LOGIC ===
+        return self._handle_v7_turn(session, latest_dealer, defensive, tam_su)
+
+    # Escape hatch: nếu tổng số dealer turn vượt cap → force CONFIRMING
+    # (chống loop vô tận khi Replier drift / Extractor miss field).
+    V7_MAX_DEALER_TURNS = 20
+
+    def _handle_v7_turn(
+        self,
+        session: Session,
+        latest_dealer: str,
+        defensive: bool,
+        tam_su: bool,
+    ) -> str:
+        """Quản 16 micro-turn cố định v7 — advance/retry/skip theo expected_fields."""
+        address = session.address_form or "anh"
+
+        # Escape hatch: count dealer messages, nếu vượt cap → CONFIRMING.
+        dealer_msg_count = sum(
+            1 for m in session.messages if m.role == ChatRole.DEALER
+        )
+        if dealer_msg_count >= self.V7_MAX_DEALER_TURNS:
+            logger.info(
+                "v7 escape hatch: dealer_msgs=%d >= cap=%d → CONFIRMING",
+                dealer_msg_count, self.V7_MAX_DEALER_TURNS,
+            )
+            return self._go_to_confirming(session)
+
+        current_turn = get_turn(session.v7_turn or "")
+        if current_turn is None:
+            logger.warning("Invalid v7_turn id: %s — fallback CONFIRMING", session.v7_turn)
+            return self._go_to_confirming(session)
+
+        # --- DEFENSIVE: dealer hỏi ngược / dò xét ---
+        # KHÔNG advance turn — trả lời defensive trước rồi hỏi lại câu turn cũ.
+        if defensive:
+            goal = Goal(
+                kind="ANSWER_DEFENSIVE",
+                forbidden_opener_group=session.last_opener_group,
+                extra_hint=(
+                    f"Sau khi đáp câu hỏi của dealer, dẫn về turn "
+                    f"{current_turn.turn_id} ({current_turn.description})."
+                ),
+            )
+            return self._call_replier_v7(session, goal, address)
+
+        # --- TÂM SỰ: dealer kể chuyện đời ---
+        if tam_su:
+            goal = Goal(
+                kind="ENGAGE_TAM_SU",
+                forbidden_opener_group=session.last_opener_group,
+                extra_hint=(
+                    f"Sau khi engage 1-2 nhịp, dẫn về turn "
+                    f"{current_turn.turn_id} ({current_turn.description})."
+                ),
+            )
+            return self._call_replier_v7(session, goal, address)
+
+        # --- TRIVIAL ("ok"/"vâng"/"uh") trên turn 4.1 (logo) — advance ngay ---
+        # T4.1 chỉ là thông báo "em chọn logo", dealer reply ngắn (vd "Ok em")
+        # là OK đủ để qua T4.2.
+        # Với các turn khác trivial → cũng advance (dealer đã trả lời, dù ngắn).
+
+        # --- REFUSAL: dealer từ chối ---
+        if is_refusal_message(latest_dealer) and not defensive:
+            if current_turn.is_required:
+                # Turn bắt buộc (1.1, 4.0) — không skip, ask lại nhẹ
+                goal = Goal(
+                    kind="V7_TURN",
+                    v7_turn_id=current_turn.turn_id,
+                    forbidden_opener_group=session.last_opener_group,
+                    extra_hint=(
+                        "Dealer vừa từ chối nhưng TURN NÀY BẮT BUỘC để tiếp "
+                        "tục. Ack tôn trọng + ask lại nhẹ."
+                    ),
+                )
+                return self._call_replier_v7(session, goal, address)
+            # Turn không bắt buộc → ack + skip + advance
+            return self._advance_v7_turn(
+                session, current_turn, refused=True, address=address,
+            )
+
+        # --- DEFAULT: mỗi dealer message → ADVANCE 1 turn (deterministic) ---
+        # Đảm bảo flow 16-turn chạy đúng theo file md, KHÔNG kẹt loop.
+        # Trade-off: nếu dealer trả lời lệch hẳn, vẫn advance — Extractor cố
+        # gắng catch field; field miss thì card hiện "(chưa có)".
+        return self._advance_v7_turn(
+            session, current_turn, refused=False, address=address,
+        )
+
+    def _advance_v7_turn(
+        self,
+        session: Session,
+        current_turn,
+        refused: bool,
+        address: str,
+        hint: str | None = None,
+    ) -> str:
+        """Mark turn complete + advance to next; nếu hết flow → CONFIRMING."""
+        if current_turn.turn_id not in session.v7_completed_turns:
+            session.v7_completed_turns.append(current_turn.turn_id)
+        next_id = current_turn.next_turn
+        if next_id is None:
+            # Hết flow → render Confirmation Card
+            return self._go_to_confirming(session)
+        session.v7_turn = next_id
+        # Reset attempts cho turn cũ (đã xong)
+        session.v7_turn_attempts.pop(current_turn.turn_id, None)
+        # Build goal cho turn mới
+        if refused:
+            extra_hint = (
+                f"Dealer vừa từ chối phần trước ({current_turn.description}). "
+                f"Mở đầu bằng ACK TÔN TRỌNG nhẹ ('dạ không sao anh ạ, em tạm "
+                f"bỏ qua phần đó') rồi chuyển sang câu hỏi turn {next_id} "
+                f"tự nhiên, không lặp câu hỏi cũ."
+            )
+        elif hint:
+            extra_hint = hint
+        else:
+            extra_hint = None
+        goal = Goal(
+            kind="V7_TURN",
+            v7_turn_id=next_id,
+            forbidden_opener_group=session.last_opener_group,
+            extra_hint=extra_hint,
+        )
+        return self._call_replier_v7(session, goal, address)
+
+    def _call_replier_v7(self, session: Session, goal: Goal, address: str) -> str:
+        """Sinh reply v7. Strategy:
+        - V7_TURN: dùng HARDCODED template per turn (deterministic, không
+          drift) — LLM Replier không follow strict instruction.
+        - ANSWER_DEFENSIVE / ENGAGE_TAM_SU: vẫn dùng LLM Replier (cần ngữ
+          cảnh + tự nhiên).
+        """
+        # V7_TURN → template hardcoded (đảm bảo bot hỏi đúng câu mỗi turn).
+        if goal.kind == "V7_TURN" and goal.v7_turn_id:
+            template_text = render_turn_question(
+                goal.v7_turn_id, session.profile_raw, address
+            )
+            if template_text:
+                # Nếu có extra_hint (vd dealer vừa refuse → ack tôn trọng) →
+                # prepend hint ngắn trước template.
+                if goal.extra_hint and "từ chối" in goal.extra_hint.lower():
+                    return (
+                        f"Dạ em tôn trọng {address} ạ, phần đó em tạm bỏ "
+                        f"qua nhé. {template_text}"
+                    )
+                return template_text
+            # Không có template (turn id sai) → fallback
+            return self._v7_fallback_question(session)
+
+        # Other goals (defensive / tâm sự) → LLM Replier
+        if self.replier is None:
+            return self._v7_fallback_question(session)
+        try:
+            session.llm_call_count += 1
+            reply = self.replier.reply(
+                messages=session.messages,
+                goal=goal,
+                profile=session.profile_raw,
+                address=address,
+            )
+            return reply
+        except Exception as exc:
+            logger.warning("Replier v7 fail: %s — fallback template", exc)
+            return self._v7_fallback_question(session)
+
+    def _v7_fallback_question(self, session: Session) -> str:
+        """Fallback template khi Replier không sinh được — generic theo turn."""
+        t = get_turn(session.v7_turn or "")
+        if t is None:
+            return "Dạ anh ơi, em xin hỏi tiếp một câu nữa nhé?"
+        return (
+            f"Dạ {session.address_form or 'anh'} ơi, em xin phép hỏi tiếp một "
+            f"câu nữa nhé — phần {t.description}, mình cho em biết với ạ?"
+        )
+
+    # === LEGACY v6 helpers — giữ cho code khác ref, KHÔNG dùng trong v7 flow ===
+    def _handle_asking_legacy_v6(self, session: Session) -> str:
+        """[DEPRECATED] v6 flow flexible — tham khảo, không dùng nữa.
+
+        Giữ để dễ rollback nếu v7 demo fail. Không gọi từ handle_message.
+        """
+        weak_before_list = self._weak_required_fields(session)
+        weak_before = set(weak_before_list)
+        profile_before_dump = session.profile_raw.model_dump()
+        latest_dealer = next(
+            (m.content for m in reversed(session.messages) if m.role == ChatRole.DEALER),
+            "",
+        )
+        defensive = is_defensive_message(latest_dealer) if latest_dealer else False
+        tam_su = (
+            is_tam_su_message(latest_dealer) and not defensive
+            if latest_dealer else False
+        )
+
+        if _is_trivial_message(latest_dealer):
+            result = ExtractResult()
+        else:
             target_for_extract = (
                 weak_before_list[0]
                 if weak_before_list and not (defensive or tam_su)
                 else None
             )
-            # Khi USE_REPLIER bật: Extractor chỉ trích field (confirm_questions
-            # sẽ bị ignore phía dưới). Vẫn truyền is_tam_su/is_defensive cho
-            # Extractor vì nó dùng cùng prompt — sẽ refactor ở Bước sau.
             session.llm_call_count += 1
             result = self.extractor.extract(
                 session.messages,
@@ -282,40 +541,26 @@ class ConversationService:
                 is_tam_su=tam_su,
                 is_defensive=defensive,
             )
-        # Merge trước, sau đó diff với profile_before_dump để lấy field
-        # THỰC SỰ MỚI turn này (Q1 fix). Khác với cũ — chỉ snapshot
-        # extracted_fields, không phân biệt field cũ vs mới.
         self._merge_extraction(session, result)
         profile_after_dump = session.profile_raw.model_dump()
         self._last_extracted_this_turn = self._diff_new_fields(
             profile_before_dump, profile_after_dump
         )
-        # Detect xưng hô — sau khi đã có owner_name potentially mới
-        # Lớp 1: Explicit request từ dealer ("gọi tao là đại ca", "xưng ngài"...)
-        # → LUÔN honor request mới nhất, override cả "anh"/"chị" hiện tại.
         explicit = detect_explicit_address(latest_dealer)
         if explicit:
             session.address_form = explicit
-            # Safety net: nếu Extractor wrongly set owner_name = explicit
-            # address word (vd "đại ca", "huynh"...) → reset null để bot
-            # hỏi lại tên thật.
             current_owner = (session.profile_raw.owner_name or "").strip().lower()
             if current_owner == explicit.lower():
                 session.profile_raw.owner_name = None
                 session.confidence.pop("owner_name", None)
         else:
-            # Lớp 2: Default anh/chị — chỉ flip "anh" → "chị" 1 lần khi có
-            # signal female. KHÔNG override explicit address ở session.
             if session.address_form == "anh":
                 detected = detect_address_form(
                     latest_dealer, session.profile_raw.owner_name
                 )
                 if detected == "chị":
                     session.address_form = "chị"
-
-        # Cross-session memory: nếu vừa cho phone và phone match dealer cũ,
-        # auto-fill các field còn thiếu từ profile cũ.
-        if not session.profile_raw.confirmation_status == "CONFIRMED":
+        if session.profile_raw.confirmation_status != "CONFIRMED":
             self._maybe_load_returning_dealer(session)
 
         weak_after = self._weak_required_fields(session)
@@ -323,8 +568,12 @@ class ConversationService:
 
         # REFUSAL handling — user nói "đéo cho" / "không cho" cho field hiện tại.
         # Acknowledge respect + skip field, không spam lại câu hỏi cũ.
+        # H1 fix: nếu dealer đang DEFENSIVE (hỏi ngược/dò xét), KHÔNG xử như
+        # refusal — vì có overlap keyword (vd "miễn phí thật à?" match cả 2).
+        # Defensive priority: trả lời câu hỏi dealer trước, không skip field oan.
         if (
             weak_after
+            and not defensive
             and is_refusal_message(latest_dealer)
             and not progress_made
         ):
@@ -456,9 +705,12 @@ class ConversationService:
                     ):
                         replier_text = self._fallback_question_for(target)
                     return replier_text
-                except Exception:
-                    # Replier fail → fallback path cũ (template + chém gió)
-                    pass
+                except Exception as exc:
+                    # H3 fix: log warning để dev biết Replier fail (API key sai
+                    # / rate limit / network) thay vì silent → fallback path cũ.
+                    logger.warning(
+                        "Replier failed, falling back to template: %s", exc
+                    )
 
             # ===== PATH CŨ — dùng confirm_questions[0] từ Extractor =====
             # Field order guard — kiểm tra LLM có hỏi đúng target không.
@@ -506,17 +758,12 @@ class ConversationService:
 
     def _go_to_confirming(self, session: Session) -> str:
         session.stage = Stage.CONFIRMING
-        prefix = ""
-        if session.is_returning_dealer:
-            prefix = (
-                "Dạ em nhớ anh đã đăng ký bên em hôm trước rồi ạ 🌷. Em xin "
-                "xác nhận lại thông tin để chắc chắn không có gì thay đổi nhé:\n\n"
-            )
-        elif session.skipped_fields:
-            prefix = (
-                "Em hiểu là có vài thông tin mình chưa tiện chia sẻ ngay, không sao ạ. "
-                "Em xin tóm tắt phần đã có để mình xác nhận trước nhé:\n\n"
-            )
+        # v7: chuẩn render card với prefix "Em xin tóm tắt..." (không trigger
+        # returning dealer message — gây hiểu lầm khi cùng phone từ DB cũ).
+        prefix = (
+            "Dạ em cảm ơn anh đã chia sẻ rất thật cùng em ạ 🌷. Em xin tóm "
+            "tắt toàn bộ hồ sơ để anh xem có gì cần chỉnh không nhé:\n\n"
+        )
         return prefix + render_card(session.profile_raw)
 
     def _merge_extraction(self, session: Session, result: ExtractResult) -> None:
@@ -547,6 +794,17 @@ class ConversationService:
                     and val.strip().lower() == old_val.strip().lower()
                 ):
                     continue  # cùng giá trị logical, giữ original
+                # A2 fix: cho phone — so sánh digits-only (chống Haiku format
+                # khác "0982 836 289" vs "0982836289" → coi MỚI → compliment).
+                if (
+                    key == "phone_or_zalo"
+                    and isinstance(val, str)
+                    and isinstance(old_val, str)
+                ):
+                    digits_new = "".join(c for c in val if c.isdigit())
+                    digits_old = "".join(c for c in old_val if c.isdigit())
+                    if digits_new and digits_new == digits_old:
+                        continue  # cùng số, chỉ format khác → giữ original
                 if (
                     old_val not in (None, "", [])
                     and old_val != val
@@ -822,26 +1080,53 @@ class ConversationService:
     # ---------- CONFIRMING ----------
     def _handle_confirming(self, session: Session, dealer_message: str) -> str:
         msg = dealer_message.strip().lower()
+        address = session.address_form or "anh"
 
-        if self._is_affirmative(msg):
+        # C2 fix: classify 3 trạng thái thay vì binary affirmative/else.
+        # - "affirmative" → CONFIRMED + save + DONE
+        # - "edit"        → patch (regex/LLM)
+        # - "uncertain"   → KHÔNG đoán bừa, hỏi lại để dealer xác nhận rõ
+        intent = self._classify_confirm(msg)
+
+        # LLM fallback cho "uncertain" — rule whitelist không bắt được
+        # phonetic ("ô kê" → ok, "ốk" → ok...). LLM Haiku hiểu semantic,
+        # KHÔNG cần quây từng case. Cost ~$0.0002/call, latency ~1s, chỉ
+        # trigger 5-15% turn CONFIRMING.
+        if intent == "uncertain":
+            session.llm_call_count += 1
+            intent = self._llm_classify_confirm_intent(msg)
+
+        if intent == "affirmative":
             session.profile_raw.confirmation_status = "CONFIRMED"
             session.profile_raw.review_status = "RAW"
             session.profile_raw.flags = self._final_flags(session)
             self.storage.save_profile_raw(session.session_id, session.profile_raw)
             session.stage = Stage.DONE
-            return (
-                "Dạ em cảm ơn anh nhiều ạ! Em đã ghi nhận hồ sơ rồi nhé.\n"
-                "Team bên em sẽ xem qua và liên hệ lại với anh trong 24h ạ. "
-                "Có gì cần hỗ trợ thêm anh cứ nhắn em nhé! 🌷\n\n"
-                "(MVP: phần Mini App + cộng đồng em sẽ làm tiếp ở giai đoạn sau ạ)"
+            # Closing v7 — tặng quà + hẹn đặc sản tỉnh nếu có
+            return render_closing(
+                session.profile_raw,
+                address_form=session.address_form or "anh",
             )
 
+        if intent == "uncertain":
+            cap = address.capitalize()
+            return (
+                f"Dạ em chưa rõ ý {address} ơi — {cap} xem hồ sơ phía trên đã "
+                f"ổn chưa, có cần em sửa thông tin nào không ạ? Nếu OK rồi thì "
+                f"{address} gõ giúp em 'OK' / 'đúng rồi' để em chốt nhé."
+            )
+
+        # intent == "edit" — proceed to patch.
         # P1-7: thử parse "sửa X thành Y" bằng regex trước → tiết kiệm 1 LLM call
         regex_patch = parse_edit_command(dealer_message)
         if regex_patch:
             field, new_value = regex_patch
             setattr(session.profile_raw, field, new_value)
             session.profile_raw.confirmation_status = "EDITED"
+            # C3 fix: save profile_raw sau edit để admin/cross-session lookup
+            # thấy được. Trước đó chỉ save khi CONFIRMED → đóng tab giữa edit
+            # = mất data trong table dealer_profile_raw.
+            self.storage.save_profile_raw(session.session_id, session.profile_raw)
             return (
                 f"Dạ em đã cập nhật {FIELD_LABEL.get(field, field)} thành "
                 f"{new_value} rồi ạ, anh xem lại giúp em nhé:\n\n"
@@ -853,6 +1138,8 @@ class ConversationService:
         result = self.extractor.extract(session.messages)
         self._merge_extraction(session, result)
         session.profile_raw.confirmation_status = "EDITED"
+        # C3 fix: save profile_raw sau LLM edit (xem comment phía trên).
+        self.storage.save_profile_raw(session.session_id, session.profile_raw)
         return "Dạ em đã cập nhật rồi ạ, anh xem lại giúp em nhé:\n\n" + render_card(session.profile_raw)
 
     # ---------- DONE — chat tiếp + cho phép sửa ----------
@@ -970,27 +1257,82 @@ class ConversationService:
     }
 
     @classmethod
-    def _is_affirmative(cls, msg: str) -> bool:
+    def _classify_confirm(cls, msg: str) -> str:
+        """Classify confirm intent: 'affirmative' / 'edit' / 'uncertain'.
+
+        Luật:
+        1. Có negation/edit word → 'edit' (dealer muốn sửa)
+        2. Có affirmative word → 'affirmative' (dealer đồng ý)
+        3. Có substantive content (digit hoặc ≥4 từ) → 'edit' (dealer đang
+           cho data mới — vd "tên là Quốc Vinh", "sđt 0901234567")
+        4. Còn lại (gibberish/random ngắn không biết) → 'uncertain'
+           (KHÔNG đoán bừa — bot phải hỏi lại)
+        """
         if not msg:
-            return False
+            return "uncertain"
         normalized = msg.strip().lower().rstrip(".!?,;:'\"")
         if not normalized:
-            return False
-        # Tokenize — chỉ lấy word chars (loại punct)
+            return "uncertain"
         words = re.findall(r"\w+", normalized, flags=re.UNICODE)
         if not words:
-            return False
-        # Rule 1: bất kỳ word negation/edit → REJECT (là edit)
+            return "uncertain"
         if any(w in cls._NEGATION_OR_EDIT_WORDS for w in words):
-            return False
-        # Rule 2: có word positive rõ ràng → ACCEPT
+            return "edit"
         if any(w in cls._AFFIRMATIVE_WORDS for w in words):
-            return True
-        # Rule 3: message rất ngắn (≤3 chars sau strip) + đã qua rule 1 →
-        # ACCEPT (fallback cho mọi interjection chưa enumerate)
-        if len(normalized) <= 3:
-            return True
-        return False
+            return "affirmative"
+        # Substantive: có digit hoặc message dài ≥ 4 từ → coi là dealer cho
+        # data mới (intent edit), fallback LLM extract sẽ xử.
+        if any(c.isdigit() for c in normalized) or len(words) >= 4:
+            return "edit"
+        return "uncertain"
+
+    @classmethod
+    def _is_affirmative(cls, msg: str) -> bool:
+        """Backward compat — True khi clearly affirmative."""
+        return cls._classify_confirm(msg) == "affirmative"
+
+    def _llm_classify_confirm_intent(self, msg: str) -> str:
+        """LLM fallback khi rule-based _classify_confirm trả 'uncertain'.
+
+        Rule whitelist không bắt được phonetic/sai chính tả ("ô kê", "ô kây",
+        "ốk", "okệ"...). LLM Haiku hiểu nhờ semantic context. Cost ~30 token
+        output Haiku ~$0.0002/call, latency ~1s. CHỈ trigger khi rule fail
+        (5-15% turn CONFIRMING) → cost negligible.
+
+        Trả: 'affirmative' / 'edit' / 'uncertain'.
+        """
+        system_prompt = (
+            "Bạn là intent classifier. Trả lời CHÍNH XÁC 1 từ duy nhất: "
+            "AFFIRMATIVE / EDIT / UNCERTAIN. KHÔNG giải thích, KHÔNG thêm chữ."
+        )
+        user_prompt = (
+            "Dealer đang xem hồ sơ profile đã tóm tắt trên màn hình, và "
+            "vừa reply câu sau. Phân loại intent của dealer:\n\n"
+            "- AFFIRMATIVE: dealer xác nhận hồ sơ ĐÚNG / OK (vd: 'ok', "
+            "'đúng rồi', 'ổn', 'ô kê', 'okê', 'chuẩn', 'uhmm', 'được rồi', "
+            "'oki', 'oké', 'no problem').\n"
+            "- EDIT: dealer muốn SỬA thông tin (có từ 'sửa'/'đổi'/'không "
+            "phải' hoặc cung cấp data mới như tên/sđt/tỉnh).\n"
+            "- UNCERTAIN: không rõ ý / random / gibberish (vd: 'lol', "
+            "'haha', 'abc', single random char, off-topic).\n\n"
+            f"Reply dealer: \"{msg}\"\n\n"
+            "Trả 1 từ: AFFIRMATIVE / EDIT / UNCERTAIN."
+        )
+        try:
+            result = self.extractor.llm.chat(
+                system_prompt=system_prompt,
+                messages=[{"role": "user", "content": user_prompt}],
+                max_tokens=10,
+            )
+            result = (result or "").strip().upper()
+            if "AFFIRM" in result:
+                return "affirmative"
+            if "EDIT" in result:
+                return "edit"
+            return "uncertain"
+        except Exception as exc:
+            logger.warning("LLM confirm classify failed: %s", exc)
+            return "uncertain"  # safe fallback — ask back
 
     # ---------- helpers ----------
     def _load_or_create(self, session_id: str | None) -> Session:

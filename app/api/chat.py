@@ -7,6 +7,7 @@ Concurrency:
 from __future__ import annotations
 
 import logging
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -32,8 +33,10 @@ def chat(
             return cached
 
     # Per-session lock — chống race khi 2 request cùng session_id song song.
-    # Lock theo session_id (hoặc "new" nếu chưa có) — khác session KHÔNG block.
-    lock_key = payload.session_id or "_new_session"
+    # Khác session KHÔNG block.
+    # Request không có session_id (lần đầu mở chat) → mỗi request 1 lock UUID
+    # riêng để không serialize toàn bộ dealer mới qua 1 lock global.
+    lock_key = payload.session_id or f"_new_{uuid.uuid4().hex}"
     with get_session_lock(lock_key):
         try:
             session, bot_msg = service.handle_message(

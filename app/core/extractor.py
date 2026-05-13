@@ -6,11 +6,11 @@ from app.models.schema import ChatMessage, ChatRole, ExtractResult
 
 from . import prompts
 
-# Số message gần nhất gửi cho extractor. 30 messages = ~15 turn (1 turn = 1 user + 1 bot).
-# Cover được conversation tâm sự dài, vẫn cap để tránh cost grow turn².
-# Cost extra so với window=12: ~+1100 tokens × $1/M (Haiku) = ~$0.001/call,
-# 30-turn convo extra ~$0.03 (~750 VND) — chấp nhận được cho UX tốt hơn.
-HISTORY_WINDOW = 30
+# Số message gần nhất gửi cho extractor. v7 flow có 16 micro-turn = 32+
+# messages → 30 window cũ cut mất turn đầu. Tăng 50 để cover full v7 conv.
+# Cost extra: ~+1500 tokens × $1/M (Haiku) = ~$0.0015/call, full v7 convo
+# extra ~$0.05 (~1200 VND) — chấp nhận được.
+HISTORY_WINDOW = 50
 
 # Mô tả ngắn 4 nhóm opener — inject vào prompt để LLM hiểu directive cấm.
 _GROUP_DESC = {

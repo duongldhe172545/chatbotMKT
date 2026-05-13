@@ -95,7 +95,10 @@ _REFUSAL_KEYWORDS = (
     "đéo cho", "deo cho", "không cho", "khong cho",
     "không tiện", "khong tien", "ko tiện", "ko cho",
     "không nói", "khong noi", "đéo nói", "deo noi",
-    "miễn", "thôi không", "thoi khong", "không có",
+    # "miễn" alone overlap với "miễn phí thật?" (defensive). Bó cụm cụ thể:
+    "thôi miễn", "thoi mien", "xin miễn", "xin mien",
+    "miễn cho tôi", "miễn cho em", "miễn cho anh",
+    "thôi không", "thoi khong", "không có",
     "bỏ qua", "bo qua", "skip",
 )
 

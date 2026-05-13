@@ -16,6 +16,17 @@ config.local.*
 # ============================================================
 data/
 !data/.gitkeep
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+
+# Test / debug scripts tạm (không commit)
+test_audit.py
+test_live_chat.py
+debug_session.py
+check_db.py
+test_output.txt
 
 # ============================================================
 # Python

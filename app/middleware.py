@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import contextvars
 import logging
+import re
 import uuid
 
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -22,6 +23,10 @@ from starlette.requests import Request
 request_id_var: contextvars.ContextVar[str] = contextvars.ContextVar(
     "request_id", default="-"
 )
+
+# Whitelist format cho X-Request-ID client gửi — chỉ chấp nhận hex/UUID/short
+# alphanumeric. Tránh log bloat khi client gửi value dài 4-8KB.
+_RID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 
 def get_request_id() -> str:
@@ -39,7 +44,8 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
     """
 
     async def dispatch(self, request: Request, call_next):
-        rid = request.headers.get("X-Request-ID") or uuid.uuid4().hex[:8]
+        client_rid = request.headers.get("X-Request-ID", "")
+        rid = client_rid if _RID_RE.match(client_rid) else uuid.uuid4().hex[:8]
         token = request_id_var.set(rid)
         try:
             response = await call_next(request)

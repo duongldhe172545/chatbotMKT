@@ -99,8 +99,10 @@ class ClaudeProvider(LLMProvider):
         def _do():
             return self._get_client().messages.create(
                 model=self.model,
-                # 768 đủ cho extract output ~500 tokens — cap thấp để dừng sớm.
-                max_tokens=768,
+                # 2048: schema v7 có ~30 properties, output JSON khi nhiều
+                # field được điền có thể ~1200-1800 tokens. Cap cũ 768
+                # truncate tool_use → trả empty extraction.
+                max_tokens=2048,
                 # Prompt caching: system prompt 13-14K tokens (persona + playbook)
                 # cache 5 phút. Lần đầu 1.25× giá, các call sau 0.1× giá.
                 # Tiết kiệm ~70% input cost.

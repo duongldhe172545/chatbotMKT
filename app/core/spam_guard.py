@@ -31,8 +31,10 @@ from app.models.schema import ChatRole, Session
 # ============================================================
 
 MAX_MESSAGES_PER_SESSION = 80
-LLM_CALL_WARN_THRESHOLD = 30
-LLM_CALL_HARD_CAP = 40
+# v7 flow cần ~50 LLM call cho happy case (16 turn × 3 call: Extractor +
+# Replier + classify). Threshold cũ (30) cut flow giữa chừng.
+LLM_CALL_WARN_THRESHOLD = 90
+LLM_CALL_HARD_CAP = 120
 SAME_MESSAGE_REPEAT_THRESHOLD = 3
 TEMPLATE_RECOVERY_THRESHOLD = 2  # 2 clean message liên tiếp → switch back
 

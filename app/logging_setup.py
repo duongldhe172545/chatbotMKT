@@ -7,8 +7,11 @@ from __future__ import annotations
 import logging
 import re
 
-# Pattern SĐT VN: bắt đầu 0, 9-10 chữ số sau (tổng 10-11 chữ số)
-PHONE_RE = re.compile(r"\b0\d{8,10}\b")
+# Pattern SĐT VN: bắt đầu 0 (hoặc +84/84), tổng 9-11 chữ số, cho phép space/
+# dash/dot làm separator (dealer hay paste "0901 234 567" hoặc "0901-234-567").
+PHONE_RE = re.compile(
+    r"\b(?:\+?84|0)\s?\d(?:[\s.\-]?\d){8,10}\b"
+)
 # Pattern email (chỉ redact một phần để vẫn debug được)
 EMAIL_RE = re.compile(r"\b([A-Za-z0-9._%+-]{1,3})[A-Za-z0-9._%+-]*@([A-Za-z0-9.-]+\.[A-Za-z]{2,})\b")
 

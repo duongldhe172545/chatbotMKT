@@ -25,6 +25,11 @@ class SQLiteStore(StorageAdapter):
 
     def _init_schema(self) -> None:
         with self._conn() as conn:
+            # WAL mode: read/write song song không block nhau (H5 fix). Tạo
+            # thêm .db-wal + .db-shm files cạnh db chính — Railway volume
+            # mount cả folder nên không cần config thêm.
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=NORMAL")
             conn.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS sessions (
@@ -52,6 +57,12 @@ class SQLiteStore(StorageAdapter):
                     review_status TEXT NOT NULL,
                     created_at TEXT NOT NULL
                 );
+
+                -- H6 fix: index phone để find_profile_by_phone O(log n) thay vì
+                -- full table scan. phone_or_zalo lưu digits-only sau extractor
+                -- HIGH (xem prompts.py) → so sánh equality nhanh.
+                CREATE INDEX IF NOT EXISTS idx_dealer_phone
+                    ON dealer_profile_raw (phone_or_zalo);
                 """
             )
             self._run_migrations(conn)
@@ -101,6 +112,50 @@ class SQLiteStore(StorageAdapter):
                 logger.error("Migration pain_points fail: %s", exc)
                 raise
 
+        # Migration 3 (v7): thêm các cột mới cho Em Linh MKT v7.
+        # Tất cả nullable, không break data v6. Cột list (category_stack,
+        # supplier_brands) lưu JSON string.
+        v7_columns = [
+            # Identity
+            ("address", "TEXT"),
+            ("province_specialty", "TEXT"),
+            # Business
+            ("category_stack", "TEXT DEFAULT '[]'"),
+            ("main_product", "TEXT"),
+            ("product_portfolio_signal", "TEXT"),
+            ("business_model_signal", "TEXT"),
+            ("est_team_size", "INTEGER"),
+            ("team_stability_signal", "TEXT"),
+            ("supplier_brands", "TEXT DEFAULT '[]'"),
+            ("customer_segment_signal", "TEXT"),
+            # Channels
+            ("zalo", "TEXT"),
+            ("facebook", "TEXT"),
+            ("primary_contact_channel", "TEXT"),
+            ("fb_marketing_status", "TEXT"),
+            # Customer Gold Mine
+            ("customer_old_percentage", "TEXT"),
+            ("customer_storage_method", "TEXT"),
+            ("customer_pain", "TEXT"),
+            ("usp_signal", "TEXT"),
+            ("payment_terms_signal", "TEXT"),
+            # Brandkit
+            ("brandkit_consent", "TEXT"),
+            ("slogan", "TEXT"),
+            ("color_accent", "TEXT"),
+            ("feng_shui_signal", "TEXT"),
+        ]
+        for col_name, col_def in v7_columns:
+            if not self._column_exists(conn, "dealer_profile_raw", col_name):
+                try:
+                    conn.execute(
+                        f"ALTER TABLE dealer_profile_raw ADD COLUMN {col_name} {col_def}"
+                    )
+                    logger.info("Migration v7: added '%s' column", col_name)
+                except sqlite3.OperationalError as exc:
+                    logger.error("Migration v7 thêm cột '%s' fail: %s", col_name, exc)
+                    raise
+
     def save_session(self, session: Session) -> None:
         session.updated_at = datetime.utcnow()
         payload = session.model_dump_json()
@@ -134,10 +189,15 @@ class SQLiteStore(StorageAdapter):
         return Session.model_validate_json(row["data_json"])
 
     def find_profile_by_phone(self, phone: str) -> DealerProfileRaw | None:
-        """Tìm profile RAW gần nhất có cùng phone_or_zalo (đã CONFIRMED hay chưa).
+        """Tìm profile RAW đã CONFIRMED có cùng phone_or_zalo.
 
         Dùng cho cross-session memory: dealer cũ chat lại → resume context.
-        Normalize phone (chỉ chữ số) để match dù user gõ "0901-234-567" hay "0901 234 567".
+        - Filter status=CONFIRMED: profile EDITED (chưa duyệt xong) KHÔNG
+          trigger returning dealer flow để tránh greet sai khi dealer cũ
+          chưa hoàn tất profile.
+        - Index trên phone_or_zalo (xem _init_schema) → O(log n).
+        - phone_or_zalo lưu digits-only (extractor strict pattern) — match
+          equality nhanh.
         """
         # Normalize input: chỉ giữ chữ số
         digits = "".join(c for c in (phone or "") if c.isdigit())
@@ -145,31 +205,33 @@ class SQLiteStore(StorageAdapter):
             return None
 
         with self._conn() as conn:
-            rows = conn.execute(
+            row = conn.execute(
                 """
                 SELECT * FROM dealer_profile_raw
-                WHERE phone_or_zalo IS NOT NULL AND phone_or_zalo != ''
+                WHERE phone_or_zalo = ?
+                  AND confirmation_status = 'CONFIRMED'
                 ORDER BY created_at DESC
+                LIMIT 1
                 """,
-            ).fetchall()
-        for r in rows:
-            stored_digits = "".join(c for c in (r["phone_or_zalo"] or "") if c.isdigit())
-            if stored_digits == digits:
-                d = dict(r)
-                for key in ("dl0_priority", "flags", "pain_points"):
-                    try:
-                        d[key] = json.loads(d.get(key) or "[]")
-                    except (TypeError, ValueError):
-                        d[key] = []
-                if not d.get("pain_points") and d.get("main_pain_point"):
-                    d["pain_points"] = [d["main_pain_point"]]
-                # Strip fields không thuộc DealerProfileRaw schema
-                profile_kwargs = {
-                    k: v for k, v in d.items()
-                    if k in DealerProfileRaw.model_fields
-                }
-                return DealerProfileRaw(**profile_kwargs)
-        return None
+                (digits,),
+            ).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        # Parse JSON cho list fields (v6 + v7).
+        for key in ("dl0_priority", "flags", "pain_points", "category_stack", "supplier_brands"):
+            try:
+                d[key] = json.loads(d.get(key) or "[]")
+            except (TypeError, ValueError):
+                d[key] = []
+        if not d.get("pain_points") and d.get("main_pain_point"):
+            d["pain_points"] = [d["main_pain_point"]]
+        # Strip fields không thuộc DealerProfileRaw schema
+        profile_kwargs = {
+            k: v for k, v in d.items()
+            if k in DealerProfileRaw.model_fields
+        }
+        return DealerProfileRaw(**profile_kwargs)
 
     def list_profiles(self) -> list[dict]:
         with self._conn() as conn:
@@ -179,7 +241,7 @@ class SQLiteStore(StorageAdapter):
         result = []
         for r in rows:
             d = dict(r)
-            for key in ("dl0_priority", "flags", "pain_points"):
+            for key in ("dl0_priority", "flags", "pain_points", "category_stack", "supplier_brands"):
                 try:
                     d[key] = json.loads(d.get(key) or "[]")
                 except (TypeError, ValueError):
@@ -219,7 +281,10 @@ class SQLiteStore(StorageAdapter):
         return result
 
     def save_profile_raw(self, session_id: str, profile: DealerProfileRaw) -> None:
-        # main_pain_point cũ giữ NULL — schema mới dùng pain_points (JSON array)
+        """Persist profile RAW — gồm cả v6 fields (cũ) + v7 fields (mới).
+
+        main_pain_point cũ giữ NULL — schema mới dùng pain_points + customer_pain.
+        """
         with self._conn() as conn:
             conn.execute(
                 """
@@ -228,8 +293,22 @@ class SQLiteStore(StorageAdapter):
                     province, district, main_category, dealer_type,
                     customer_base_estimate, main_pain_point, pain_points, dl0_priority,
                     recommended_group, confirmation_status, review_status,
-                    flags, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    flags, created_at,
+                    -- v7 columns
+                    address, province_specialty,
+                    category_stack, main_product, product_portfolio_signal,
+                    business_model_signal, est_team_size, team_stability_signal,
+                    supplier_brands, customer_segment_signal,
+                    zalo, facebook, primary_contact_channel, fb_marketing_status,
+                    customer_old_percentage, customer_storage_method, customer_pain,
+                    usp_signal, payment_terms_signal,
+                    brandkit_consent, slogan, color_accent, feng_shui_signal
+                ) VALUES (
+                    ?, ?, ?, ?,  ?, ?, ?, ?,  ?, ?, ?, ?,  ?, ?, ?,  ?, ?,
+                    ?, ?,  ?, ?, ?,  ?, ?, ?,  ?, ?,
+                    ?, ?, ?, ?,  ?, ?, ?,  ?, ?,
+                    ?, ?, ?, ?
+                )
                 ON CONFLICT(session_id) DO UPDATE SET
                     dealer_name = excluded.dealer_name,
                     owner_name = excluded.owner_name,
@@ -244,7 +323,30 @@ class SQLiteStore(StorageAdapter):
                     recommended_group = excluded.recommended_group,
                     confirmation_status = excluded.confirmation_status,
                     review_status = excluded.review_status,
-                    flags = excluded.flags
+                    flags = excluded.flags,
+                    address = excluded.address,
+                    province_specialty = excluded.province_specialty,
+                    category_stack = excluded.category_stack,
+                    main_product = excluded.main_product,
+                    product_portfolio_signal = excluded.product_portfolio_signal,
+                    business_model_signal = excluded.business_model_signal,
+                    est_team_size = excluded.est_team_size,
+                    team_stability_signal = excluded.team_stability_signal,
+                    supplier_brands = excluded.supplier_brands,
+                    customer_segment_signal = excluded.customer_segment_signal,
+                    zalo = excluded.zalo,
+                    facebook = excluded.facebook,
+                    primary_contact_channel = excluded.primary_contact_channel,
+                    fb_marketing_status = excluded.fb_marketing_status,
+                    customer_old_percentage = excluded.customer_old_percentage,
+                    customer_storage_method = excluded.customer_storage_method,
+                    customer_pain = excluded.customer_pain,
+                    usp_signal = excluded.usp_signal,
+                    payment_terms_signal = excluded.payment_terms_signal,
+                    brandkit_consent = excluded.brandkit_consent,
+                    slogan = excluded.slogan,
+                    color_accent = excluded.color_accent,
+                    feng_shui_signal = excluded.feng_shui_signal
                 """,
                 (
                     session_id,
@@ -264,5 +366,29 @@ class SQLiteStore(StorageAdapter):
                     profile.review_status,
                     json.dumps(profile.flags, ensure_ascii=False),
                     datetime.utcnow().isoformat(),
+                    # v7
+                    profile.address,
+                    profile.province_specialty,
+                    json.dumps(profile.category_stack, ensure_ascii=False),
+                    profile.main_product,
+                    profile.product_portfolio_signal,
+                    profile.business_model_signal,
+                    profile.est_team_size,
+                    profile.team_stability_signal,
+                    json.dumps(profile.supplier_brands, ensure_ascii=False),
+                    profile.customer_segment_signal,
+                    profile.zalo,
+                    profile.facebook,
+                    profile.primary_contact_channel,
+                    profile.fb_marketing_status,
+                    profile.customer_old_percentage,
+                    profile.customer_storage_method,
+                    profile.customer_pain,
+                    profile.usp_signal,
+                    profile.payment_terms_signal,
+                    profile.brandkit_consent,
+                    profile.slogan,
+                    profile.color_accent,
+                    profile.feng_shui_signal,
                 ),
             )

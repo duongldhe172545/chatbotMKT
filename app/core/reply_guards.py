@@ -95,8 +95,13 @@ def _build_compliment(extracted_data: dict, address: str) -> str:
 
     if data.get("customer_base_estimate"):
         n = data["customer_base_estimate"]
+        # Tránh double "khách" nếu value đã chứa từ chỉ người ("khách", "ông",
+        # "đứa", "người"). Vd "10 khách/tuần" → "Wow 10 khách/tuần — ..."
+        # thay vì "Wow 10 khách/tuần khách —".
+        n_low = str(n).lower()
+        suffix = "" if any(w in n_low for w in ("khách", "ông", "đứa", "người", "anh")) else " khách"
         eligible.append(
-            f"Wow {n} khách — em phục {address} thật, chăm khách kỹ mới giữ được nhiều thế!"
+            f"Wow {n}{suffix} — em phục {address} thật, chăm khách kỹ mới giữ được nhiều thế!"
         )
 
     if data.get("phone_or_zalo"):
@@ -159,6 +164,7 @@ def enforce_min_length(
     extracted_data: dict | None = None,
     address: str = "anh",
     min_words: int = 35,
+    confidence: dict | None = None,
 ) -> str:
     """Pre-send safety net — prepend compliment cho field MỚI nếu Replier
     chưa engage value field đó.
@@ -169,17 +175,23 @@ def enforce_min_length(
        (đã engage rồi, không cần prepend).
     3. Có field mới + Replier chưa đề cập → prepend compliment template.
 
-    So với version cũ:
-    - BỎ check `has_engagement` markers chung chung ("wow"/"em ghi nhận"/
-      "tên "...) — quá lỏng, false positive (Replier engage owner_name
-      nhưng có field mới = dealer_name → skip nhầm).
-    - BỎ check `word_count` — không liên quan tới engagement.
-    - Logic mới: check Replier có mention VALUE thực tế của field mới không.
+    A1 fix: CHỈ prepend cho field có confidence HIGH. Field MEDIUM/LOW là
+    Haiku INFER từ context (vd suy main_category từ shop name) — dealer
+    chưa nói rõ → prepend compliment sẽ "lạc quẻ".
 
     `min_words` giữ làm parameter backward compat nhưng không dùng nữa.
     """
     if not text:
         return text
+
+    # A1 fix: filter extracted_data chỉ giữ field HIGH confidence.
+    # Field MEDIUM/LOW thường là Haiku infer/đoán → dealer chưa nói rõ →
+    # không nên khen tránh "Tủ bếp là tâm hồn..." khi dealer chưa nói tủ bếp.
+    if confidence:
+        extracted_data = {
+            k: v for k, v in (extracted_data or {}).items()
+            if confidence.get(k) == "HIGH"
+        }
 
     # Lấy danh sách value string của field mới
     new_values = _extract_new_values(extracted_data or {})
