@@ -21,13 +21,22 @@ from __future__ import annotations
 # Khi detect → KHÔNG inject target_field hint, để Replier tự engage chuyện đó
 # trước rồi mới dẫn về field.
 _TAM_SU_KEYWORDS = (
+    # Gia đình / quan hệ
     "vợ", "chồng", "bạn gái", "bạn trai", "ny", "gấu",
-    "con", "gia đình", "ba mẹ", "bố mẹ", "bố", "mẹ",
-    "nhậu", "say", "đau đầu", "mệt", "ốm", "bệnh", "viện", "đau",
-    "golf", "bóng", "đá bóng", "tennis", "bida", "gym", "tập",
-    "buồn", "chán", "stress", "căng thẳng", "đời", "tâm sự",
-    "cãi nhau", "cãi cọ", "hết tiền", "kẹt tiền", "dịch bệnh",
-    "công trình", "lắp đặt", "đi khách", "khách hàng khó",
+    "con", "gia đình", "ba mẹ", "bố mẹ",
+    # Sức khoẻ
+    "đau đầu", "mệt", "ốm", "bệnh", "viện",
+    # Giải trí / thể thao cá nhân
+    "nhậu", "say", "golf", "đá bóng", "tennis", "bida", "pickleball",
+    "gym", "tập gym",
+    # Cảm xúc / tâm trạng
+    "buồn", "chán", "stress", "căng thẳng", "tâm sự",
+    "cãi nhau", "cãi cọ",
+    # Tham khảo: KHÔNG dùng "công trình", "lắp đặt", "khách hàng khó",
+    # "hết tiền", "kẹt tiền", "dịch bệnh", "bố", "mẹ", "đau", "bóng",
+    # "tập", "đời" — đây là BUSINESS context hoặc quá rộng → false positive
+    # với dealer kể chuyện cửa hàng (vd "khách công trình lớn", "lắp đặt
+    # vách kính", "đợt dịch bệnh khách rơi rớt").
 )
 
 
