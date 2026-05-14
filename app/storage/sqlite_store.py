@@ -392,3 +392,17 @@ class SQLiteStore(StorageAdapter):
                     profile.feng_shui_signal,
                 ),
             )
+
+    def delete_session(self, session_id: str) -> bool:
+        """Xoá session + profile_raw + flush WAL.
+
+        Return True nếu có row bị xoá (ít nhất 1 trong 2 table).
+        """
+        with self._conn() as conn:
+            cur1 = conn.execute(
+                "DELETE FROM sessions WHERE session_id = ?", (session_id,)
+            )
+            cur2 = conn.execute(
+                "DELETE FROM dealer_profile_raw WHERE session_id = ?", (session_id,)
+            )
+            return (cur1.rowcount + cur2.rowcount) > 0

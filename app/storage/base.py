@@ -41,3 +41,11 @@ class StorageAdapter(ABC):
         Subclass có thể override để hỗ trợ cross-session memory.
         """
         return None
+
+    def delete_session(self, session_id: str) -> bool:
+        """Xoá session + profile_raw theo session_id.
+
+        Return True nếu đã xoá ít nhất 1 row. Default raise NotImplementedError;
+        subclass implement nếu hỗ trợ admin delete.
+        """
+        raise NotImplementedError

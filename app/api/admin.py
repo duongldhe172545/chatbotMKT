@@ -49,6 +49,22 @@ def get_session(
     return session.model_dump(mode="json")
 
 
+@router.delete("/session/{session_id}")
+def delete_session(
+    session_id: str,
+    storage: StorageAdapter = Depends(get_storage),
+) -> dict:
+    """Xoá vĩnh viễn session + profile_raw. Admin only.
+
+    Dùng cho test/cleanup data PII trên production. KHÔNG thể recover sau khi
+    xoá.
+    """
+    deleted = storage.delete_session(session_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Session không tồn tại")
+    return {"deleted": True, "session_id": session_id}
+
+
 # ---------- Export Markdown ----------
 
 @router.get("/session/{session_id}/export.md")
