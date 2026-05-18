@@ -12,6 +12,7 @@
     <nav class="nav">
       <button class="nav-btn active" data-tab="dashboard">📊 Dashboard</button>
       <button class="nav-btn" data-tab="sessions">📋 Sessions</button>
+      <button class="nav-btn" data-tab="confirmed">✅ Đã chốt</button>
       <button class="nav-btn" data-tab="queue">⚠️ Queue</button>
     </nav>
     <div class="user-info">
@@ -90,14 +91,14 @@
             <option value="EDITED">EDITED</option>
           </select>
         </label>
-        <label>Dealer type:
+        <label title="Tone dealer detect được (refer File 1B § 2)">Dealer type:
           <select id="filter-dealer-type">
             <option value="">— Tất cả —</option>
-            <option value="lua_lo">Lửa Lò</option>
-            <option value="khoe">Khoe</option>
-            <option value="lo">Lo</option>
-            <option value="ban">Bận</option>
-            <option value="unknown">Unknown</option>
+            <option value="lua_lo">🔥 Lửa Lò (cộc, nóng tính)</option>
+            <option value="khoe">🏆 Khoe (kể thành tích)</option>
+            <option value="lo">😟 Lo (nghi ngờ, sợ scam)</option>
+            <option value="ban">⚡ Bận (gõ 1-2 chữ)</option>
+            <option value="unknown">❓ Chưa detect</option>
           </select>
         </label>
         <button id="btn-filter">🔍 Lọc</button>
@@ -122,6 +123,37 @@
           </tr>
         </thead>
         <tbody id="sessions-tbody"></tbody>
+      </table>
+    </section>
+
+    <!-- CONFIRMED tab — dedicated cho hồ sơ đã chốt -->
+    <section id="tab-confirmed" class="tab">
+      <h2>✅ Hồ sơ đã chốt (CONFIRMED)</h2>
+      <p style="color:#718096;margin-bottom:12px;font-size:13px">
+        Dealer đã trả "đúng/OK" với card xác nhận → review_status=RAW, chờ team chốt Dealer_ID chính thức.
+      </p>
+      <div class="filters">
+        <button id="btn-confirmed-refresh">🔄 Reload</button>
+        <button id="btn-confirmed-bulk-export" class="btn-export">📦 Export tất cả ra ZIP</button>
+        <span id="confirmed-count" style="color:#718096;font-size:13px;align-self:flex-end"></span>
+      </div>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th><input type="checkbox" id="confirmed-check-all" /></th>
+            <th>Session ID</th>
+            <th>Owner</th>
+            <th>Cửa hàng</th>
+            <th>SĐT</th>
+            <th>Địa chỉ</th>
+            <th>Brandkit</th>
+            <th>Type</th>
+            <th>Flags</th>
+            <th>Closed at</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="confirmed-tbody"></tbody>
       </table>
     </section>
 

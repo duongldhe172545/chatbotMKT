@@ -17,15 +17,19 @@ Endpoints:
 """
 from __future__ import annotations
 
+import io
 import json
 import logging
+import zipfile
 from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import PlainTextResponse, Response
 from pydantic import BaseModel
 
 from app.api.auth import require_admin
+from app.core.md_exporter import render_full_md, render_profile_md, safe_filename
 from app.models.enums import QueueStatus, Stage
 
 logger = logging.getLogger(__name__)
@@ -232,6 +236,102 @@ def get_session_detail(session_id: str) -> SessionDetail:
         ip_address=session.ip_address,
         profile=profile.model_dump() if profile else {},
         history=[m.model_dump(mode="json") for m in session.history],
+    )
+
+
+@router.get(
+    "/sessions/{session_id}/export",
+    response_class=PlainTextResponse,
+    responses={200: {"content": {"text/markdown": {}}}},
+)
+def export_session_md(
+    session_id: str,
+    include_history: bool = Query(True, description="Include conversation history"),
+):
+    """Export 1 session profile + history ra file Markdown."""
+    store = _get_store()
+    session = store.get_session(session_id)
+    if session is None:
+        raise HTTPException(404, detail="Session không tồn tại")
+    profile = store.get_profile(session_id)
+    if profile is None:
+        from app.models.schema import DealerProfileRaw
+        profile = DealerProfileRaw()
+
+    md = render_full_md(session, profile, include_history=include_history)
+    # Filename: <dealer_name>_<session_short>.md
+    name_part = safe_filename(
+        profile.dealer_name or profile.owner_name or session.session_id[:8]
+    )
+    filename = f"{name_part}_{session.session_id[:8]}.md"
+    return PlainTextResponse(
+        content=md,
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+class BulkExportRequest(BaseModel):
+    """Body cho bulk export — list session_id."""
+    session_ids: list[str]
+    include_history: bool = True
+
+
+@router.post(
+    "/sessions/export",
+    responses={200: {"content": {"application/zip": {}}}},
+)
+def bulk_export_sessions(req: BulkExportRequest):
+    """Bulk export nhiều session thành 1 file ZIP chứa nhiều .md."""
+    if not req.session_ids:
+        raise HTTPException(400, detail="session_ids rỗng")
+    if len(req.session_ids) > 200:
+        raise HTTPException(400, detail="Max 200 session / lần export")
+
+    store = _get_store()
+    buffer = io.BytesIO()
+    exported = 0
+    skipped: list[str] = []
+
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for sid in req.session_ids:
+            session = store.get_session(sid)
+            if session is None:
+                skipped.append(sid)
+                continue
+            profile = store.get_profile(sid)
+            if profile is None:
+                from app.models.schema import DealerProfileRaw
+                profile = DealerProfileRaw()
+            md = render_full_md(session, profile, include_history=req.include_history)
+            name_part = safe_filename(
+                profile.dealer_name or profile.owner_name or sid[:8]
+            )
+            filename = f"{name_part}_{sid[:8]}.md"
+            zf.writestr(filename, md.encode("utf-8"))
+            exported += 1
+
+        # Add summary
+        summary = (
+            f"# Bulk export summary\n\n"
+            f"- Requested: {len(req.session_ids)}\n"
+            f"- Exported: {exported}\n"
+            f"- Skipped (not found): {len(skipped)}\n"
+        )
+        if skipped:
+            summary += "\n## Skipped session IDs\n" + "\n".join(
+                f"- `{s}`" for s in skipped
+            )
+        zf.writestr("_SUMMARY.md", summary.encode("utf-8"))
+
+    buffer.seek(0)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    return Response(
+        content=buffer.read(),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="em_linh_export_{timestamp}.zip"',
+        },
     )
 
 

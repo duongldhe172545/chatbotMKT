@@ -91,10 +91,20 @@ def post_chat(req: ChatRequest) -> ChatResponse:
             user_agent=req.user_agent,
         )
         profile = DealerProfileRaw()
+        # Render greeting + append vào history (để admin xem được full conversation)
+        from datetime import datetime, timezone
+        from app.models.schema import HistoryMessage
+
+        greeting = start_session(session)
+        session.history.append(
+            HistoryMessage(
+                role="bot",
+                content=greeting,
+                ts=datetime.now(timezone.utc),
+            )
+        )
         store.save_session(session)
         store.save_profile(session.session_id, profile)
-        # Return greeting (turn 0)
-        greeting = start_session(session)
         return ChatResponse(
             session_id=session.session_id,
             reply=greeting,
