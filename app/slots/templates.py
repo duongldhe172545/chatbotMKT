@@ -1,14 +1,18 @@
-"""Slot Q&A templates.
-
-Phase 1 scope: 3 slot REQUIRED đầy đủ (1.1, 1.2, 4.0) — D9 STRATEGY.
-14 slot còn lại: stub đơn giản, Phase 2 mở rộng full 3 biến thể + retry tone.
+"""Slot Q&A templates — 17 slot × 3 biến thể câu hỏi.
 
 Refer:
-- File 1A § 4 (KICH_BAN_1A_core v0.2.2) — 17 slot template chi tiết
-- F2A.5 (LUAT_2A_core v0.2.4) — retry tone giảm dần REQUIRED
+- File 1A § 4 (KICH_BAN_1A_core v0.3.0) — 17 slot template chi tiết
+- F2A.5 (LUAT_2A_core v0.2.5) — retry tone giảm dần REQUIRED
+- D9 STRATEGY — Phase 1 = 3 REQUIRED slot, Phase 2 = đủ 17
 
-> DISCLAIMER: ack template per dealer type là LLM gen (ack_generator.py),
-> không paste cứng từ template. Template chỉ là HINT cho câu hỏi gốc.
+> DISCLAIMER:
+> Template = câu hỏi mặc định / fallback khi LLM gen fail. Production
+> dùng `ack_generator.py` LLM gen kết hợp ack + bridge + question theo
+> dealer_type (refer F2B.4). Template chỉ là HINT cho LLM + safety net.
+>
+> Nguyên tắc "lí do ẩn" (refer memory feedback_ack_and_why): câu hỏi
+> KHÔNG được kết bằng "Em hỏi để X" hay "(Em muốn biết Y để Z)". Lí do
+> phải nén trong cảm thán mở, scenario invite, hoặc cụm danh từ.
 """
 from __future__ import annotations
 
@@ -22,144 +26,323 @@ class SlotTemplate(BaseModel):
     slot_id: str
     questions: list[str] = Field(default_factory=list)              # 3 biến thể câu hỏi gốc
     retry_questions: list[str] = Field(default_factory=list)        # Lượt 2-3 (REQUIRED only)
-    is_phase_1: bool = False                                        # True nếu có content đầy đủ
+    is_phase_1: bool = False                                        # True nếu Phase 1 đã có extractor
+    has_full_question_set: bool = False                             # True nếu có đủ 3 biến thể (Phase 2+)
 
 
 # ============================================================
-# 17 slot templates — Phase 1 đầy đủ 3 slot, 14 slot stub
+# 17 slot templates — Phase 2 đầy đủ 3 biến thể / slot
+# Lấy chính xác từ File 1A § 4 (KICH_BAN_1A_core v0.3.0)
 # ============================================================
 
 
 _SLOT_TEMPLATES: dict[str, SlotTemplate] = {
-    # ============================================================
-    # PHASE 1 — 3 slot REQUIRED (D9 STRATEGY)
-    # ============================================================
+    # ----------------------------------------------------------------
+    # CHỦ ĐỀ 1 — DANH THIẾP (slot 1.1 + 1.2 + 1.3)
+    # ----------------------------------------------------------------
 
     "1.1": SlotTemplate(
         slot_id="1.1",
         questions=[
-            "Dạ em cảm ơn anh đã sẵn sàng. Đầu tiên cho em xin tên anh và "
-            "tên cửa hàng mình ạ — để em xưng hô đúng và lưu hồ sơ cho "
-            "chuẩn từ đầu nhé.",
-            "Dạ anh ơi, bắt đầu nhé. Em xin tên anh và tên cửa hàng mình "
-            "trước để em xưng hô cho đúng ạ.",
+            "Dạ em cảm ơn anh đã sẵn sàng. Đầu tiên cho em xin tên anh "
+            "và tên cửa hàng mình ạ — để em xưng hô đúng và lưu hồ sơ "
+            "cho chuẩn từ đầu nhé.",
+            "Dạ anh ơi, bắt đầu nhé. Em xin tên anh và tên cửa hàng "
+            "mình trước để em xưng hô cho đúng ạ.",
             "Em cảm ơn anh nhận lời. Anh cho em xin tên + tên cửa hàng "
             "để em ghi hồ sơ chuẩn nha.",
         ],
         retry_questions=[
-            # Lượt 2: nhẹ + giải thích
-            "Dạ em xin tên để em biết xưng hô anh cho đúng ạ — em chỉ lưu "
-            "trong hồ sơ nội bộ thôi. Anh cho em tên + cửa hàng mình nhé?",
-            # Lượt 3 (sau DEFER, re-check): tha thiết + offer dễ hơn
-            "Anh không muốn đưa tên thật cũng OK ạ — em ghi tên anh muốn "
-            "em gọi là gì cũng được, miễn để em xưng hô cho lịch sự. Anh "
-            "cho em chữ gọi mình thôi cũng được ạ.",
+            "Dạ em xin tên để em biết xưng hô anh cho đúng ạ — em chỉ "
+            "lưu trong hồ sơ nội bộ thôi. Anh cho em tên + cửa hàng "
+            "mình nhé?",
+            "Anh không muốn đưa tên thật cũng OK ạ — em ghi tên anh "
+            "muốn em gọi là gì cũng được, miễn để em xưng hô cho lịch "
+            "sự. Anh cho em chữ gọi mình thôi cũng được ạ.",
         ],
         is_phase_1=True,
+        has_full_question_set=True,
     ),
 
     "1.2": SlotTemplate(
         slot_id="1.2",
         questions=[
-            "Dạ em note. Anh cho em xin địa chỉ cửa hàng mình ạ — em ghi "
-            "đầy đủ vào hồ sơ. Tiện đây, khách thường đến cửa hàng anh từ "
-            "bao xa nhỉ?",
-            "Anh ơi, em xin địa chỉ cửa hàng mình. Khách hay đến từ trong "
-            "bán kính bao xa anh?",
-            "Cho em xin địa chỉ cửa hàng + khách thường đến từ bao xa "
-            "nha anh?",
+            "Cho em xin địa chỉ cửa hàng mình nha — đủ tỉnh + quận để "
+            "em ghép anh vào nhóm cộng đồng đúng khu vực. Tiện đây "
+            "khách bên anh chủ yếu đến từ khu vực gần, hay từ xa cũng "
+            "có ạ?",
+            "Anh cho em xin địa chỉ cửa hàng mình ạ. Khách hay đến từ "
+            "trong bán kính bao xa anh?",
+            "Em xin địa chỉ cửa hàng + khách thường đến từ bao xa nha "
+            "anh?",
         ],
         retry_questions=[
-            "Anh cho em xin địa chỉ cửa hàng — em lưu hồ sơ nội bộ thôi, "
-            "không share ra ngoài đâu ạ.",
-            "Địa chỉ cửa hàng mình ở đâu vậy anh? Anh ghi quận/huyện cũng "
-            "được, không cần chi tiết quá.",
+            "Anh cho em xin địa chỉ cửa hàng — em lưu hồ sơ nội bộ "
+            "thôi, không share ra ngoài đâu ạ.",
+            "Anh ngại địa chỉ cụ thể thì cho em tỉnh + quận thôi cũng "
+            "được ạ. Vd 'Hà Nội, Cầu Giấy' là đủ.",
         ],
         is_phase_1=True,
+        has_full_question_set=True,
     ),
+
+    "1.3": SlotTemplate(
+        slot_id="1.3",
+        questions=[
+            "Tiện đây anh cho em xin số Zalo / điện thoại mình hay dùng "
+            "nhất với ạ — em chỉ dùng để hỗ trợ khi cần, không spam đâu nhé.",
+            "Anh cho em xin số liên hệ chính ạ (Zalo hoặc điện thoại). "
+            "Em chỉ dùng để hỗ trợ anh, không spam đâu nhé.",
+            "Còn một thứ nhỏ ạ — em xin số Zalo của anh để khách dễ tìm "
+            "+ team em tiện liên hệ. Anh cho em được không?",
+        ],
+        retry_questions=[
+            "Dạ em hiểu anh ngại — em xin số chỉ để hỗ trợ anh sau này, "
+            "anh có quyền yêu cầu xoá bất cứ lúc nào ạ. Anh cho em số nhé?",
+            "Anh ngại để số chính cũng OK ạ — anh cho em Zalo phụ cũng "
+            "được, hoặc số nào tiện liên hệ. Không gì bất tiện đâu anh.",
+        ],
+        has_full_question_set=True,
+    ),
+
+    # ----------------------------------------------------------------
+    # CHỦ ĐỀ 2 — CÔNG VIỆC & KÊNH (slot 2.1 → 2.6)
+    # ----------------------------------------------------------------
+
+    "2.1": SlotTemplate(
+        slot_id="2.1",
+        questions=[
+            "Anh em trong ngành mình thường làm nhiều mảng — cửa cuốn, "
+            "nhôm hệ, vách kính, tủ bếp... bên anh đang chủ lực mảng "
+            "gì, và cái nào anh tự tin mạnh nhất ạ?",
+            "Anh ơi, bên cửa hàng mình đang phát triển những mảng sản "
+            "phẩm nào ạ, và mảng nào là mạnh nhất?",
+            "Em hỏi tiếp ạ — danh mục sản phẩm chủ lực của cửa hàng "
+            "mình là gì, và cái nào anh tự tin nhất?",
+        ],
+        retry_questions=[
+            "Anh chọn 1 cái mạnh nhất cho em là OK ạ — vd 'nhôm kính', "
+            "'cửa cuốn', 'tủ bếp'. Em cần để hiểu cửa hàng mình rõ hơn.",
+            "Anh nói chung chung kiểu 'ngành cửa' / 'nhôm kính' cũng "
+            "được ạ — em cần để chọn phong cách thiết kế phù hợp cho "
+            "bộ thương hiệu.",
+        ],
+        has_full_question_set=True,
+    ),
+
+    "2.2": SlotTemplate(
+        slot_id="2.2",
+        questions=[
+            "À — hiện bên mình theo mô hình nào: phân phối thuần, hay "
+            "có xưởng + đội thi công luôn ạ?",
+            "Anh ơi, bên cửa hàng mình là đại lý phân phối thuần, hay "
+            "có xưởng sản xuất / thi công luôn ạ?",
+            "Em hỏi xíu — bên mình chỉ bán lẻ, hay nhập về gia công + "
+            "lắp đặt trực tiếp luôn?",
+        ],
+        retry_questions=[
+            "Đơn giản thôi anh — bên mình là đại lý bán lại hàng nhà "
+            "sản xuất, hay anh có xưởng/đội thi công riêng ạ?",
+            "Anh nói qua thôi cũng được — bán lẻ hay tự làm? Một trong hai.",
+        ],
+        has_full_question_set=True,
+    ),
+
+    "2.3": SlotTemplate(
+        slot_id="2.3",
+        questions=[
+            "Đội thợ là tài sản số 1 của dealer ngành cửa — bên mình "
+            "hiện có tổng bao nhiêu thợ, và mọi người gắn bó với anh "
+            "lâu chưa ạ?",
+            "Em hỏi thêm — bên anh có đội thợ riêng không, bao nhiêu "
+            "người, và ổn định lâu chưa?",
+            "Anh cho em xíu thông tin về đội thợ — có bao nhiêu người, "
+            "thợ cơ hữu hay vụ?",
+        ],
+        has_full_question_set=True,
+    ),
+
+    "2.4": SlotTemplate(
+        slot_id="2.4",
+        questions=[
+            "Quay lại chuyện cửa hàng xíu — hiện anh đang nhập hàng từ "
+            "những hãng nào là chính, và nếu một hãng đứt nguồn anh có "
+            "backup khác không ạ? Phân khúc khách của anh chắc đa dạng "
+            "nên nguồn cũng phải linh động nhỉ.",
+            "Bên cửa hàng mình đang nhập hàng từ hãng nào là chính? "
+            "Có backup nguồn không nếu hãng đó đứt?",
+            "Em hỏi xíu về nguồn cung — anh nhập từ những hãng nào, "
+            "và có chủ động chọn được không ạ?",
+        ],
+        has_full_question_set=True,
+    ),
+
+    "2.5": SlotTemplate(
+        slot_id="2.5",
+        questions=[
+            "Còn khách hàng — họ thường tìm đến anh qua kênh nào là "
+            "chính ạ, Zalo, điện thoại, hay Facebook?",
+            "Anh ơi, khách hàng tìm đến bên mình qua đâu là chính ạ?",
+            "À cho em hỏi — khách quen liên hệ anh qua kênh nào hay nhất?",
+        ],
+        has_full_question_set=True,
+    ),
+
+    "2.6": SlotTemplate(
+        slot_id="2.6",
+        questions=[
+            "À, mạng lưới thợ và đối tác quanh khu vực anh — có nhiều "
+            "người hay giới thiệu khách cho mình không ạ? Loại quan hệ "
+            "kiểu đó là \"đại sứ miễn phí\" mà em rất quan tâm khi tư "
+            "vấn cho dealer.",
+            "Anh có dùng Facebook cho cửa hàng không? Và trong khu vực "
+            "có nhiều thợ / đối tác hay giới thiệu khách cho anh không?",
+            "Em hỏi 2 ý nhỏ — Facebook anh có trang chưa, và mạng lưới "
+            "thợ / đối tác xung quanh có ai hay giới thiệu khách cho "
+            "mình không ạ?",
+        ],
+        has_full_question_set=True,
+    ),
+
+    # ----------------------------------------------------------------
+    # CHỦ ĐỀ 3 — KHÁCH CŨ & VƯỚNG MẮC (slot 3.1 → 3.5)
+    # ----------------------------------------------------------------
+
+    "3.1": SlotTemplate(
+        slot_id="3.1",
+        questions=[
+            "Chuyển sang chuyện khách cũ xíu — như anh vừa nói khách cũ "
+            "giới thiệu là kênh chính. Trong tổng đơn, anh ước chừng "
+            "khách cũ + khách giới thiệu lại chiếm khoảng bao nhiêu "
+            "phần trăm ạ? Em đoán cao đấy nha.",
+            "Anh ơi, khách của mình chủ yếu đến từ giới thiệu của khách "
+            "cũ, hay khách mới qua quảng cáo / đi ngang?",
+            "Em tò mò xíu — tỉ lệ khách cũ giới thiệu khách mới bên "
+            "mình tầm bao nhiêu % vậy anh?",
+        ],
+        has_full_question_set=True,
+    ),
+
+    "3.2": SlotTemplate(
+        slot_id="3.2",
+        questions=[
+            "Cái danh sách khách quý vậy anh đang lưu ở đâu — sổ tay, "
+            "Zalo, hay file Excel ạ?",
+            "Anh có giữ danh sách khách cũ không? Lưu trên Zalo, sổ tay, "
+            "hay Excel ạ?",
+            "Em hỏi xíu — danh sách khách cũ mình có lưu lại không, và "
+            "nếu có thì ở đâu?",
+        ],
+        has_full_question_set=True,
+    ),
+
+    "3.3": SlotTemplate(
+        slot_id="3.3",
+        questions=[
+            "À cái này em tò mò — khi làm việc với khách cũ, anh thấy "
+            "vướng mắc lớn nhất hay gặp là gì ạ? (Quên lịch bảo trì, "
+            "không nhớ đã làm gì cho khách sau 1-2 năm, hay khách quay "
+            "lại kỳ kèo giá...)",
+            "Anh kể em nghe — bên cửa hàng mình đang vướng nhất ở chỗ "
+            "nào với khách cũ ạ? (chăm sóc, liên hệ lại, hay gì khác?)",
+            "Em tò mò xíu — với khách cũ bên mình, anh đang thấy khó "
+            "nhất ở khâu nào ạ?",
+        ],
+        has_full_question_set=True,
+    ),
+
+    "3.4": SlotTemplate(
+        slot_id="3.4",
+        questions=[
+            "Đây hình như là bệnh chung của ngành mình đó anh. Em hỏi "
+            "thêm một câu — quy trình thanh toán cọc bên mình thường "
+            "thế nào, và sau bàn giao có hay bị nợ kéo dài không ạ?",
+            "Anh chia sẻ xíu về tài chính — bên mình thường cọc bao "
+            "nhiêu %, và khách thanh toán đầy đủ trong bao lâu sau bàn "
+            "giao ạ?",
+            "Em hỏi 2 ý nhỏ về dòng tiền — cọc bao nhiêu khi ký, và có "
+            "hay bị nợ đọng không?",
+        ],
+        has_full_question_set=True,
+    ),
+
+    "3.5": SlotTemplate(
+        slot_id="3.5",
+        questions=[
+            "Em hỏi thêm 1 ý nhỏ về trách nhiệm sau bán — khi khách "
+            "phản ánh lỗi sau lắp đặt, bên mình đứng ra xử trước, hay "
+            "là nhà cung cấp ạ?",
+            "Anh ơi, nếu sản phẩm bị lỗi sau khi giao, chi phí bảo "
+            "hành / sửa thường ai chịu — bên cửa hàng mình, hay nhà "
+            "sản xuất ạ?",
+            "Em tò mò — bảo hành cho khách, anh ký dưới danh nghĩa cửa "
+            "hàng, hay đẩy về nhà cung cấp xử?",
+        ],
+        has_full_question_set=True,
+    ),
+
+    # ----------------------------------------------------------------
+    # CHỦ ĐỀ 4 — BỘ THƯƠNG HIỆU (slot 4.0 + 4.1 + 4.2)
+    # ----------------------------------------------------------------
 
     "4.0": SlotTemplate(
         slot_id="4.0",
         questions=[
-            "Em chuẩn bị bộ thương hiệu (logo + danh thiếp + video giới "
-            "thiệu) gửi anh qua Zalo nhé. Anh đồng ý nhận quà này không ạ?",
-            "Để em gửi anh bộ thương hiệu riêng cho cửa hàng qua Zalo — "
-            "anh OK chứ ạ?",
-            "Em làm bộ thương hiệu (logo + danh thiếp + video) gửi qua "
-            "Zalo cho anh nhé, anh đồng ý không ạ?",
+            "Em xin chân thành cảm ơn anh đã chia sẻ rất thật cùng em "
+            "ạ 🌷. Như đã nói ở phần đầu, em xin phép gửi tặng anh món "
+            "quà nhỏ — một bộ thương hiệu bao gồm:\n"
+            "  🎨 Logo riêng cho {dealer_name}\n"
+            "  📇 Danh thiếp cá nhân hoá\n"
+            "  🎬 Video giới thiệu thương hiệu (gen từ logo)\n\n"
+            "Anh có đồng ý nhận quà của em không ạ?",
+            "Em rất cảm ơn anh đã chia sẻ. Theo đúng lời hứa lúc đầu, "
+            "em xin phép tặng anh bộ thương hiệu nhỏ gồm logo riêng + "
+            "danh thiếp + video giới thiệu cho {dealer_name}. Anh đồng "
+            "ý nhận chứ ạ?",
+            "Dạ phần thu thập thông tin xong rồi anh ơi. Em xin phép "
+            "tặng anh bộ thương hiệu (logo + danh thiếp + video giới "
+            "thiệu thương hiệu) cho {dealer_name} — đây là quà miễn phí "
+            "em tặng để cảm ơn anh dành thời gian. Anh nhận không ạ?",
         ],
         retry_questions=[
-            "Bộ thương hiệu này hoàn toàn miễn phí — em gửi qua Zalo cho "
-            "anh xem trước. Anh OK chứ ạ?",
-            "Anh không cần cũng OK ạ, nhưng em chuẩn bị sẵn cho cửa hàng "
-            "mình rồi. Anh có muốn em gửi qua Zalo xem qua không?",
+            "Dạ em hỏi lại — bộ thương hiệu này em tặng miễn phí, gồm "
+            "logo, danh thiếp, video giới thiệu, đều là quà anh giữ lại "
+            "dùng. Anh có muốn em làm cho không ạ?",
+            "Nếu anh ngại phiền em làm, em vẫn cứ làm rồi gửi link anh "
+            "xem sau cũng OK ạ. Anh cứ nói có hay không thôi, em ghi nhận.",
         ],
         is_phase_1=True,
+        has_full_question_set=True,
     ),
 
-    # ============================================================
-    # PHASE 2+ — 14 slot stub (sẽ fill chi tiết Phase 2)
-    # ============================================================
-
-    "1.3": SlotTemplate(
-        slot_id="1.3",
-        questions=["[Phase 2] Anh cho em xin SĐT / Zalo liên hệ chính ạ?"],
-    ),
-    "2.1": SlotTemplate(
-        slot_id="2.1",
-        questions=["[Phase 2] Bên mình mạnh nhất sản phẩm gì anh?"],
-    ),
-    "2.2": SlotTemplate(
-        slot_id="2.2",
-        questions=["[Phase 2] Đang phân phối hay sản xuất ạ?"],
-    ),
-    "2.3": SlotTemplate(
-        slot_id="2.3",
-        questions=["[Phase 2] Có bao nhiêu thợ, gắn bó lâu chưa anh?"],
-    ),
-    "2.4": SlotTemplate(
-        slot_id="2.4",
-        questions=["[Phase 2] Nhập hãng nào? Nếu đứt hàng có backup không?"],
-    ),
-    "2.5": SlotTemplate(
-        slot_id="2.5",
-        questions=["[Phase 2] Khách thường liên hệ qua kênh nào?"],
-    ),
-    "2.6": SlotTemplate(
-        slot_id="2.6",
-        questions=["[Phase 2] Có Facebook không? Có thợ/đối tác giới thiệu khách không?"],
-    ),
-    "3.1": SlotTemplate(
-        slot_id="3.1",
-        questions=["[Phase 2] Khách cũ giới thiệu chiếm bao nhiêu %?"],
-    ),
-    "3.2": SlotTemplate(
-        slot_id="3.2",
-        questions=["[Phase 2] Lưu danh sách khách trên Zalo/sổ/Excel ạ?"],
-    ),
-    "3.3": SlotTemplate(
-        slot_id="3.3",
-        questions=["[Phase 2] Vướng nhất ở khách cũ là gì anh?"],
-    ),
-    "3.4": SlotTemplate(
-        slot_id="3.4",
-        questions=["[Phase 2] Quy trình cọc + công nợ thế nào?"],
-    ),
-    "3.5": SlotTemplate(
-        slot_id="3.5",
-        questions=["[Phase 2] Khi lỗi sau bán, anh hay nhà cung cấp đứng ra xử ạ?"],
-    ),
     "4.1": SlotTemplate(
         slot_id="4.1",
         questions=[
-            "Đầu tiên về LOGO — em đã có sẵn bộ phong cách thiết kế chuẩn "
-            "cho ngành mình. Để em chọn 1 cái phù hợp nhất với anh nha, "
-            "anh cần chỉnh thì bên em sẽ chỉnh sửa cho anh sau ạ."
+            "Đầu tiên về LOGO — em đã có sẵn bộ phong cách thiết kế "
+            "chuẩn cho ngành mình. Để em chọn 1 cái phù hợp nhất với "
+            "anh nha, anh cần chỉnh thì bên em sẽ chỉnh sửa cho anh sau "
+            "ạ — anh yên tâm điểm này nhé.",
+            "Em làm bộ thương hiệu cho anh nhé. Phần logo, em đã có "
+            "sẵn nhiều phong cách phù hợp ngành mình — em chọn cho anh "
+            "trước, sau đó anh duyệt và chỉnh nếu cần ạ.",
+            "Em làm bộ thương hiệu cho anh. Logo em chọn theo phong "
+            "cách phổ biến ngành mình rồi gửi anh xem, OK chứ ạ?",
         ],
+        has_full_question_set=True,
     ),
+
     "4.2": SlotTemplate(
         slot_id="4.2",
-        questions=["[Phase 2] Anh thích màu nào? Có hợp mệnh không?"],
+        questions=[
+            "Dạ. Còn về MÀU SẮC thương hiệu — không biết anh có đặc "
+            "biệt thích màu nào không, hoặc có màu nào hợp mệnh phong "
+            "thủy của anh không ạ?",
+            "Anh có thích màu nào cho thương hiệu của mình không, hoặc "
+            "có quan tâm đến phong thủy / mệnh hợp màu không ạ?",
+            "Em hỏi xíu — màu chủ đạo cho bộ thương hiệu mình, anh "
+            "muốn màu gì, hay để em chọn theo gu ngành + phong thủy?",
+        ],
+        has_full_question_set=True,
     ),
 }
 
@@ -216,6 +399,12 @@ def get_retry_question(slot_id: str, attempt: int) -> Optional[str]:
 
 
 def is_phase_1_ready(slot_id: str) -> bool:
-    """True nếu slot có template Phase 1 đầy đủ (3 biến thể + retry tone)."""
+    """True nếu slot có Phase 1 extractor (3 slot: 1.1, 1.2, 4.0)."""
     tpl = _SLOT_TEMPLATES.get(slot_id)
     return tpl is not None and tpl.is_phase_1
+
+
+def has_full_question_set(slot_id: str) -> bool:
+    """True nếu slot có đủ 3 biến thể câu hỏi (Phase 2+)."""
+    tpl = _SLOT_TEMPLATES.get(slot_id)
+    return tpl is not None and tpl.has_full_question_set

@@ -124,12 +124,13 @@ class TestGetRetryQuestion:
         q4 = get_retry_question("1.1", attempt=4)
         assert q4 is None
 
-    def test_optional_slot_only_attempt_1(self):
-        """Slot non-Phase-1 chỉ có question gốc, không retry detail."""
-        q1 = get_retry_question("1.3", attempt=1)
+    def test_slot_without_retry_returns_none_attempt_2(self):
+        """OPTIONAL slot không có retry_questions → attempt 2/3 trả None."""
+        # Slot 2.3 (đội thợ) OPTIONAL, không cần retry per 1A § 4
+        q1 = get_retry_question("2.3", attempt=1)
         assert q1 is not None
-        q2 = get_retry_question("1.3", attempt=2)
-        assert q2 is None  # chưa có retry_questions cho stub
+        q2 = get_retry_question("2.3", attempt=2)
+        assert q2 is None
 
 
 # ============================================================
@@ -154,12 +155,13 @@ class TestVocabCompliance:
                 assert word not in q, \
                     f"Slot {slot_id} retry chứa vocab cấm '{word}'"
 
-    @pytest.mark.parametrize("slot_id", ["1.1", "1.2", "4.0"])
-    def test_slot_4_0_mentions_zalo(self, slot_id):
-        """Slot 4.0: bot phải nói 'qua Zalo' (CORE § A.3 + 1A § 3.2)."""
-        if slot_id != "4.0":
-            return
-        tpl = get_template(slot_id)
+    def test_slot_4_0_mentions_gift_or_brandkit(self):
+        """Slot 4.0 phải mention 'bộ thương hiệu' hoặc 'quà' (1A § 4 slot 4.0).
+
+        Note: KHÔNG bắt buộc nói "Zalo" trong slot 4.0 — Greeting đã nói
+        "gửi qua Zalo" rồi. Slot 4.0 chỉ cần làm rõ là gift miễn phí.
+        """
+        tpl = get_template("4.0")
         for q in tpl.questions:
-            # Phải có "qua Zalo" hoặc "Zalo" — bot không render trực tiếp
-            assert "Zalo" in q, f"Slot 4.0 câu phải mention Zalo: {q[:80]}"
+            assert ("bộ thương hiệu" in q.lower() or "quà" in q.lower()), \
+                f"Slot 4.0 câu phải mention 'bộ thương hiệu' hoặc 'quà': {q[:80]}"
