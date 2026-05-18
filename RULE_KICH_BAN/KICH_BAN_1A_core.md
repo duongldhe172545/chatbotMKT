@@ -527,21 +527,16 @@ Bot:    "Dạ vâng, em tôn trọng anh ạ — em không làm bộ thương hi
 | 2 | "Anh cho em xin số liên hệ chính ạ (Zalo hoặc điện thoại). Em chỉ dùng để hỗ trợ anh, không spam đâu nhé." |
 | 3 | "Còn một thứ nhỏ ạ — em xin số Zalo của anh để khách dễ tìm + team em tiện liên hệ. Anh cho em được không?" |
 
-**Hook đặc sản (nếu province có trong table):**
+**Hook địa phương (LLM gen, Phase 2 — KHÔNG khoá case):**
 
-Khi đại lý cho địa chỉ thuộc tỉnh có `province_specialty` (vd Cao Bằng
-→ "vịt quay 7 vị") → engine có thể chèn ack có hook đặc sản vào câu
-hỏi 1.3:
+> ⚠️ Refactor 2026-05-18 (refer § 7.4 + SYNC_LOG): KHÔNG còn lookup
+> table `province_specialty`. Nếu Phase 2 cần local hook ở slot 1.3,
+> LLM_FAST gen tự do dựa province + dealer_type — KHÔNG hardcode đặc
+> sản tỉnh.
 
-```
-"{province_specialty_capitalize} — em mê {province_specialty} từ lâu
-mà chưa được ăn thật anh ơi 🤤. Nếu có dịp được ăn cùng anh thì còn gì
-bằng. Mà tiện đây anh cho em xin số điện thoại để em hẹn anh trên đó
-luôn được không ạ?"
-```
-
-→ Hook tạo cảm giác local, không generic. Nếu tỉnh KHÔNG trong table →
-bỏ hook, dùng câu chuẩn (3 biến thể trên).
+Phase 1: bỏ hook, dùng câu chuẩn (3 biến thể trên).
+Phase 2: optional — engine có thể gọi `gen_local_hook_llm(province,
+dealer_type)` rồi chèn vào trước câu hỏi 1.3 nếu LLM trả non-empty.
 
 **Ack template per nhóm dealer:**
 
