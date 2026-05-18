@@ -1,5 +1,28 @@
+# Em Linh MKT Chatbot v8 — Phase 1 dependencies
+# Refer KE_HOACH_REFACTOR § PHẦN 5 + action 0b
+
+# ============================================================
+# Web framework
+# ============================================================
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
-anthropic==0.40.0
+
+# ============================================================
+# LLM clients (refer STRATEGY D8 — model-agnostic 2-tier)
+# ============================================================
+google-generativeai==0.8.3      # Pilot primary — Gemini 2.5 Flash + Pro
+anthropic==0.40.0                # Fallback — Claude Haiku 4.5 + Sonnet 4.6
+
+# ============================================================
+# Data validation / config
+# ============================================================
 pydantic==2.10.4
+pydantic-settings==2.7.1
 python-dotenv==1.0.1
+
+# ============================================================
+# Testing (refer KE_HOACH § 0.10 test pyramid)
+# ============================================================
+pytest==8.3.4
+pytest-asyncio==0.25.2
+httpx==0.28.1                    # Test client cho FastAPI
