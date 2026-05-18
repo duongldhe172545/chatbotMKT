@@ -51,12 +51,23 @@ def detect_intent_layer1(message: str) -> Optional[Intent]:
         Intent nếu match, None nếu không match marker nào.
         Caller (Phase 1) treat None = Intent.NORMAL.
         Caller (Phase 2+) dispatch Layer 2 LLM nếu None.
+
+    Note: KHONG_BIET/REFUSAL pattern chỉ áp dụng cho message NGẮN
+    (≤ 25 từ). Message dài là dealer KỂ chứ không phải refuse — tránh
+    false positive như "anh không nhớ ra đã làm gì cho họ" (dealer kể
+    pain, không phải nói "không biết").
     """
     if not message or not message.strip():
         return None
 
     msg_lower = message.strip().lower()
+    word_count = len(msg_lower.split())
+    skip_short_intents = word_count > 25
+
     for intent, patterns in _COMPILED:
+        # Bỏ qua KHONG_BIET / REFUSAL cho message dài
+        if skip_short_intents and intent in (Intent.KHONG_BIET, Intent.REFUSAL):
+            continue
         for pattern in patterns:
             if pattern.search(msg_lower):
                 return intent

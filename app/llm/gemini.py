@@ -28,6 +28,22 @@ RETRYABLE_ERRORS = (
     genai_errors.APIError,  # bao gồm rate limit
 )
 
+
+def _build_thinking_config(model: str) -> "types.ThinkingConfig | None":
+    """Build thinking config theo model.
+
+    - Flash models: disable thinking (thinking_budget=0) — save cost.
+    - Pro models: cần thinking_budget ≥ 128. Đặt 1024 để đảm bảo có
+      đủ room thinking + text output (256 từng gây empty text).
+    - Không xác định: None (dùng default).
+    """
+    name = model.lower()
+    if "flash" in name:
+        return types.ThinkingConfig(thinking_budget=0)
+    if "pro" in name:
+        return types.ThinkingConfig(thinking_budget=1024)
+    return None
+
 # Safety settings — relax xuống BLOCK_ONLY_HIGH cho tất cả category.
 # Lý do: dealer ngành cửa/VLXD thường chửi tục ("đéo", "đm", "vcl") khi bực mình.
 # Default threshold MEDIUM_AND_ABOVE sẽ chặn content → response.content = None → app crash.
@@ -65,7 +81,13 @@ class GeminiProvider(LLMProvider):
                 "Lấy free tại https://aistudio.google.com/apikey"
             )
         if self._client is None:
-            self._client = genai.Client(api_key=self._api_key)
+            # Timeout cứng 60s — chống hang khi Gemini API overload
+            # (đã thấy 1 call hang 8133s = 2.27h trong test).
+            # Sau 60s → APIError → retry policy + cuối cùng safe_ack fallback.
+            self._client = genai.Client(
+                api_key=self._api_key,
+                http_options=types.HttpOptions(timeout=60_000),
+            )
         return self._client
 
     def _call_with_retry(self, fn, method: str):
@@ -169,11 +191,9 @@ class GeminiProvider(LLMProvider):
                     response_mime_type="application/json",
                     response_schema=gemini_schema,
                     safety_settings=SAFETY_SETTINGS,
-                    # Disable thinking — Gemini 2.5 series có thinking mode mặc định
-                    # ăn vào max_output_tokens budget → response thực bị truncate.
-                    # Cho extract structured output đơn giản, không cần thinking.
-                    thinking_config=types.ThinkingConfig(thinking_budget=0),
-                    # Extract cần ổn định, không sáng tạo câu hỏi/flow.
+                    # Thinking: disable cho flash (save cost), budget tối thiểu
+                    # cho pro (model bắt buộc thinking_budget > 0).
+                    thinking_config=_build_thinking_config(self.model),
                     temperature=0.3,
                     top_p=0.9,
                     max_output_tokens=1024,
@@ -236,7 +256,7 @@ class GeminiProvider(LLMProvider):
                 config=types.GenerateContentConfig(
                     system_instruction=system_prompt,
                     safety_settings=SAFETY_SETTINGS,
-                    thinking_config=types.ThinkingConfig(thinking_budget=0),
+                    thinking_config=_build_thinking_config(self.model),
                     temperature=0.6,
                     top_p=0.9,
                     max_output_tokens=max_tokens,
@@ -257,5 +277,8 @@ class GeminiProvider(LLMProvider):
             pass
         if not text:
             logger.warning("Gemini chat trả empty — có thể bị safety filter chặn")
-            return "Dạ em hiểu anh đang bận, mình quay lại chuyện cửa hàng nhé ạ?"
+            # Neutral fallback (không assert dealer "bận" — gây hiểu nhầm
+            # nếu dealer KHÔNG bận). Caller (ack_generator) sẽ catch và
+            # rơi safe_ack random.
+            return ""
         return text

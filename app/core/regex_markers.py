@@ -58,15 +58,19 @@ KHONG_BIET_PATTERNS: list[str] = [
 # ============================================================
 DEFENSIVE_PATTERNS: list[str] = [
     # lừa đảo / scam / phí gì
-    r"\b(lừa\s*đảo|scam|phí\s*gì|tốn\s*tiền|chi\s*phí|miễn\s*phí\s*à)\b",
-    # em là ai / ai làm
-    r"\b(em\s*là\s*ai|anh\s*là\s*ai|ai\s*làm|ai\s*đứng\s*sau|công\s*ty\s*nào)\b",
-    # làm gì / để làm gì / bán gì
-    r"\b(làm\s*gì|để\s*làm\s*gì|bán\s*gì|bán\s*data|đem\s*bán)\b",
+    r"\b(lừa\s*đảo|scam|phí\s*gì|tốn\s*tiền|chi\s*phí\s*gì|miễn\s*phí\s*à)\b",
+    # em là ai / ai làm — defensive về danh tính bot
+    r"\b(em\s*là\s*ai|anh\s*là\s*ai|ai\s*đứng\s*sau|công\s*ty\s*nào)\b",
+    # "X làm gì" — chỉ defensive khi chủ ngữ là bot/em/bên/cty (tránh
+    # false positive câu kể "anh không nhớ đã làm gì cho khách")
+    r"\b(bên\s*(em|này|đó)\s*làm\s*gì|em\s*làm\s*gì\s*(ở\s*đây|với|cho\s*anh)|"
+    r"ai\s*làm\s*(việc\s*này|cái\s*này)|công\s*ty\s*(em\s*)?làm\s*gì)\b",
+    # bán data / đem bán — luôn defensive
+    r"\b(bán\s*data|đem\s*bán|tuồn\s*ra|lộ\s*ra\s*ngoài)\b",
     # chứng minh / đảm bảo
-    r"\b(chứng\s*minh|đảm\s*bảo|tin\s*được\s*không|sao\s*tin)\b",
-    # data có an toàn không / có giấu không
-    r"\b(an\s*toàn\s*không|có\s*giấu|có\s*lộ|bí\s*mật\s*không)\b",
+    r"\b(chứng\s*minh\s*đi|đảm\s*bảo\s*(đi|gì)|tin\s*được\s*không|sao\s*tin)\b",
+    # data có an toàn không / có giấu không / có lộ không
+    r"\b(an\s*toàn\s*không|có\s*giấu|có\s*lộ\s*(thông\s*tin|số|data|ra)?\s*(không|kh|ko)?|bí\s*mật\s*không)\b",
 ]
 
 

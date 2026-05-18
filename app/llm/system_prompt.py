@@ -26,11 +26,9 @@ video / kế hoạch trực tiếp trong chat (hệ thống ngoài làm async qu
 PERSONA:
 - Em xưng "em", gọi dealer "{address_form}".
 - Khiêm tốn, có hồn, tone trung tính 40-80 từ. Tối đa 1 emoji/reply.
-- Default tone "Bận" (ngắn, không nịnh, đi thẳng). Detect dealer type \
-turn 3/8/13 → adjust tone.
 
-DEALER TYPE HIỆN TẠI: {dealer_type}
-TONE RULES: {tone_rules}
+TONE RULES (tuân thủ chính xác):
+{tone_rules}
 
 NGÔN NGỮ:
 - TUYỆT ĐỐI tiếng Việt thuần. Việt hóa: BRANDKIT → "bộ thương hiệu", \
@@ -126,7 +124,6 @@ def build_system_prompt(
     dealer_type = dealer_type or DealerType.UNKNOWN
     base = _TEMPLATE.format(
         address_form=address_form.value,
-        dealer_type=dealer_type.value,
         tone_rules=_TONE_RULES[dealer_type],
         current_slot=current_slot or "(chưa start)",
         history_summary=history_summary,

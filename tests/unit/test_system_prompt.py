@@ -17,18 +17,21 @@ from app.models.enums import AddressForm, DealerType
 
 class TestBuildSystemPrompt:
     def test_default_build(self):
-        """Default args → prompt với dealer_type=UNKNOWN."""
+        """Default args → prompt với UNKNOWN tone rule."""
         prompt = build_system_prompt()
         assert isinstance(prompt, str)
         assert len(prompt) > 100
         assert "Em Linh" in prompt
         assert "anh" in prompt
-        assert "unknown" in prompt
+        # UNKNOWN tone: tone Bận (3 turn đầu) — refer _TONE_RULES
+        assert "Default tone Bận" in prompt or "Bận" in prompt
 
     def test_build_with_dealer_type(self):
+        """Khoe type → prompt phải có rule khen CỤ THỂ."""
         prompt = build_system_prompt(dealer_type=DealerType.KHOE)
-        assert "khoe" in prompt
-        assert "Khen CỤ THỂ" in prompt or "khen" in prompt.lower()
+        # Refer 2026-05-18: bỏ injection raw enum value (gây LLM nhầm
+        # 'ban' = bận tâm trạng). Check qua tone rule content thay.
+        assert "Khen CỤ THỂ" in prompt or "khen cụ thể" in prompt.lower()
 
     def test_build_with_address_form_chi(self):
         prompt = build_system_prompt(address_form=AddressForm.CHI)

@@ -211,7 +211,7 @@ class TestExtractSlot:
         assert result == {}
 
     def test_extract_passes_dealer_type_to_prompt(self):
-        """Verify extract_slot tạo prompt với dealer_type."""
+        """Verify extract_slot tạo prompt với tone rule của dealer_type."""
         client = _make_mock_client({"owner_name": "X", "dealer_name": "Y"})
         extract_slot(
             "1.1", "X cửa hàng Y", client,
@@ -221,5 +221,7 @@ class TestExtractSlot:
         # Verify call_args
         call_kwargs = client.extract_fast.call_args.kwargs
         system_prompt = call_kwargs["system_prompt"]
-        assert "khoe" in system_prompt
+        # Refer 2026-05-19: bỏ inject raw enum value 'khoe' (LLM nhầm
+        # 'ban' = bận tâm trạng). Check qua tone rule content thay.
+        assert "Khen CỤ THỂ" in system_prompt or "INSIGHT" in system_prompt
         assert "chị" in system_prompt
