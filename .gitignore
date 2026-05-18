@@ -14,7 +14,9 @@ config.local.*
 # ============================================================
 # DỮ LIỆU DEALER (PII — chống commit nhầm)
 # ============================================================
-data/
+# Note: dùng data/* (1 level) thay vì data/ — để whitelist JSON seed
+# (gitignore không re-include được nếu parent dir bị ignore).
+data/*
 !data/.gitkeep
 !data/*.json     # whitelist JSON seed (province_list, province_specialty, ...) — refer F2C.7
 *.db
