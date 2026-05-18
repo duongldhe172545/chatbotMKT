@@ -10,8 +10,8 @@ uvicorn[standard]==0.34.0
 # ============================================================
 # LLM clients (refer STRATEGY D8 — model-agnostic 2-tier)
 # ============================================================
-google-generativeai==0.8.3      # Pilot primary — Gemini 2.5 Flash + Pro
-anthropic==0.40.0                # Fallback — Claude Haiku 4.5 + Sonnet 4.6
+google-genai>=1.75.0             # Pilot primary — Gemini 2.5 Flash + Pro (new official SDK)
+# anthropic==0.40.0              # Fallback — Phase 2+ nếu cần
 
 # ============================================================
 # Data validation / config
