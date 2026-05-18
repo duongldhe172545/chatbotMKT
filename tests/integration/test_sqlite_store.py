@@ -94,8 +94,8 @@ class TestSessionCRUD:
             flags=[Flag.REQUIRED_MISSING, Flag.HALLUCINATE],
             detected_dealer_type=DealerType.KHOE,
             dealer_type_history=[
-                DealerTypeHistoryEntry(turn=3, dealer_type=DealerType.UNKNOWN),
-                DealerTypeHistoryEntry(turn=8, dealer_type=DealerType.KHOE),
+                DealerTypeHistoryEntry(turn=3, type=DealerType.UNKNOWN),
+                DealerTypeHistoryEntry(turn=8, type=DealerType.KHOE),
             ],
             history=[
                 HistoryMessage(role="dealer", content="hi", ts=datetime.now(timezone.utc)),

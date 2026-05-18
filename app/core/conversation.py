@@ -19,6 +19,7 @@ from typing import Optional
 
 from app.core.card_renderer import render_card
 from app.core.closing import render_closing, render_soft_end_closing
+from app.core.dealer_type import detect_dealer_type, should_detect_now
 from app.core.greeting import render_greeting
 from app.core.intent import detect_intent
 from app.core.sanity import check_sanity
@@ -148,6 +149,10 @@ def _handle_asking(
     """Stage ASKING: extract + state machine + gen reply."""
     intent = detect_intent(message)
     current_slot = session.current_slot
+
+    # Detect dealer type tại turn 3/8/13 (refer F2A.6)
+    if should_detect_now(session.turn_count):
+        detect_dealer_type(session)
 
     # Extract field (chỉ nếu slot có extractor — Phase 1: 3 slot)
     extracted: Optional[dict] = None

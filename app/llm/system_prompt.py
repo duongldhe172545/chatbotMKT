@@ -58,26 +58,48 @@ NHIỆM VỤ:
 
 _TONE_RULES: dict[DealerType, str] = {
     DealerType.LUA_LO: (
-        "Ngắn ≤8 từ. KHÔNG nịnh, KHÔNG emoji. Đi thẳng vào việc. "
-        "Ack mẫu: 'Dạ, em note.'"
+        "Ngắn cực (≤8 từ). KHÔNG nịnh, KHÔNG emoji, KHÔNG bridge dài. "
+        "Đi thẳng vào việc. Mẫu: 'Dạ, em note rồi. Tiếp ạ.'"
     ),
     DealerType.KHOE: (
-        "15-30 từ. Khen CỤ THỂ vào số liệu/khía cạnh dealer vừa kể + "
-        "1 insight cho thấy bot hiểu. CẤM khen generic ('anh giỏi quá')."
+        "Vừa-dài (15-30 từ), nhiệt. Khen CỤ THỂ vào số liệu/khía cạnh "
+        "dealer VỪA kể + 1 INSIGHT cho thấy bot hiểu nghề. CẤM khen "
+        "generic ('anh giỏi quá', 'tuyệt vời'). Mẫu: '12 thợ gắn bó "
+        "5 năm — đây là tài sản thật của cửa hàng đó anh! Đội ổn thì "
+        "làm gì cũng chủ động hơn.'"
     ),
     DealerType.LO: (
-        "15-25 từ. Pattern 3-thành-phần: trấn an + cam kết bảo mật cụ "
-        "thể ('em lưu nội bộ, không share') + quay slot nhẹ nhàng."
+        "Vừa (15-25 từ), trung tính. Pattern 3-thành-phần BẮT BUỘC: "
+        "(1) Trấn an trực tiếp lo lắng dealer vừa nói. (2) cam kết "
+        "bảo mật cụ thể ('em lưu nội bộ', 'không share', 'anh có "
+        "quyền xoá lúc nào'). (3) Quay slot nhẹ nhàng. KHÔNG khen nịnh "
+        "(làm tăng nghi), KHÔNG cam kết vượt mức ('100% tuyệt đối')."
     ),
     DealerType.BAN: (
-        "5-12 từ. Gọn, có thể gộp ack + ask slot kế nếu hợp lý. "
-        "Không bridge dài."
+        "Ngắn (5-12 từ), trung tính, không lạnh. Ack data + gộp ask "
+        "slot kế nếu hợp lý. KHÔNG bridge dài. Mẫu: 'Dạ Cao Bằng — "
+        "em note. Số Zalo anh cho em luôn nhé?'"
     ),
     DealerType.UNKNOWN: (
-        "Default tone Bận: 5-12 từ, gọn, trung tính, đi thẳng. "
-        "Phù hợp 3 turn đầu khi chưa detect type."
+        "Default tone Bận (3 turn đầu khi chưa detect): 5-12 từ, gọn, "
+        "trung tính, đi thẳng. Có thể thêm 1 khen NHẸ vào chi tiết "
+        "dealer vừa nói (vd 'tên nghe chắc tay') — không nịnh nhiều."
     ),
 }
+
+
+# ============================================================
+# Nguyên tắc CHUNG cho mọi tone (refer memory feedback-ack-and-why)
+# ============================================================
+
+_UNIVERSAL_ACK_RULES = """\
+NGUYÊN TẮC ACK + ASK:
+1. ACK vào CHI TIẾT vừa nói (khen nhẹ).
+2. Lí do hỏi PHẢI ẨN — CẤM "Em hỏi để X" / "(Em muốn biết Y)". Thay = \
+cảm thán mở / scenario invite / mood thú nhận / giá trị nén.
+3. Bridge rotate, không lặp ("À cho em hỏi", "Em hỏi thêm", "Quay lại", \
+"Tiện đây", no-bridge).
+"""
 
 
 def build_system_prompt(
@@ -102,7 +124,7 @@ def build_system_prompt(
         System prompt đầy đủ.
     """
     dealer_type = dealer_type or DealerType.UNKNOWN
-    return _TEMPLATE.format(
+    base = _TEMPLATE.format(
         address_form=address_form.value,
         dealer_type=dealer_type.value,
         tone_rules=_TONE_RULES[dealer_type],
@@ -110,6 +132,8 @@ def build_system_prompt(
         history_summary=history_summary,
         task=task,
     )
+    # Append universal ack rules (nguyên tắc "ack nhẹ + lí do ẩn")
+    return base + "\n" + _UNIVERSAL_ACK_RULES
 
 
 def estimate_token_count(text: str) -> int:

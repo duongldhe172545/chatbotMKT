@@ -68,7 +68,9 @@ class HistoryMessage(BaseModel):
 class DealerTypeHistoryEntry(BaseModel):
     """Detect dealer type per turn. Refer F2A.6 turn 3/8/13."""
     turn: int
-    dealer_type: DealerType
+    type: DealerType                           # đổi tên: dealer_type → type (ngắn gọn)
+    score: Optional[float] = None              # confidence score (debug)
+    ts: Optional[datetime] = None              # timestamp detect
 
 
 # ============================================================
