@@ -17,6 +17,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional
 
+from app.core.address_parser import parse_address
 from app.core.card_renderer import render_card
 from app.core.closing import render_closing, render_soft_end_closing
 from app.core.dealer_type import detect_dealer_type, should_detect_now
@@ -281,7 +282,11 @@ def _enter_confirming(profile: DealerProfileRaw) -> str:
 
 
 def _merge_extracted(profile: DealerProfileRaw, extracted: dict) -> None:
-    """Merge extracted dict vào profile (chỉ field non-None)."""
+    """Merge extracted dict vào profile (chỉ field non-None).
+
+    Auto-derive Scope 2 fields sau khi merge:
+    - address → province + district (qua address_parser Layer 1 regex)
+    """
     for field, value in extracted.items():
         if value is None:
             continue
@@ -289,6 +294,14 @@ def _merge_extracted(profile: DealerProfileRaw, extracted: dict) -> None:
             logger.warning("Extracted field %s không có trong DealerProfileRaw", field)
             continue
         setattr(profile, field, value)
+
+    # Auto-derive province + district sau khi address fill (Scope 2)
+    if "address" in extracted and extracted.get("address") and not profile.province:
+        province, district = parse_address(profile.address)
+        if province:
+            profile.province = province
+        if district:
+            profile.district = district
 
 
 def _gen_ack_safe(

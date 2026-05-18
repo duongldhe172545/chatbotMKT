@@ -25,10 +25,20 @@ from app.models.enums import AddressForm, DealerType
 
 
 class TestSchemas:
-    def test_phase_1_has_3_schemas(self):
-        """Phase 1 chỉ 3 slot REQUIRED có extractor (D9 STRATEGY)."""
-        assert len(SLOT_TOOL_SCHEMAS) == 3
-        assert set(SLOT_TOOL_SCHEMAS.keys()) == {"1.1", "1.2", "4.0"}
+    def test_phase_2_has_16_schemas(self):
+        """Phase 2: 16 slot có extractor (slot 4.1 THÔNG BÁO không có)."""
+        assert len(SLOT_TOOL_SCHEMAS) == 16
+        expected = {
+            "1.1", "1.2", "1.3",
+            "2.1", "2.2", "2.3", "2.4", "2.5", "2.6",
+            "3.1", "3.2", "3.3", "3.4", "3.5",
+            "4.0", "4.2",
+        }
+        assert set(SLOT_TOOL_SCHEMAS.keys()) == expected
+
+    def test_slot_4_1_is_thong_bao_no_extractor(self):
+        """Slot 4.1 = THÔNG BÁO, không có extractor (refer GLOSSARY)."""
+        assert "4.1" not in SLOT_TOOL_SCHEMAS
 
     @pytest.mark.parametrize("tool", [TOOL_SLOT_1_1, TOOL_SLOT_1_2, TOOL_SLOT_4_0])
     def test_tool_has_required_keys(self, tool):
@@ -86,14 +96,18 @@ class TestHelpers:
         assert schema["name"] == "extract_slot_1_1"
 
     def test_get_tool_schema_unknown(self):
-        """Slot Phase 2+ chưa có schema → None."""
-        assert get_tool_schema("2.3") is None
-        assert get_tool_schema("3.5") is None
+        """Slot 4.1 THÔNG BÁO không có extractor → None."""
+        assert get_tool_schema("4.1") is None
         assert get_tool_schema("99.99") is None
 
     def test_list_phase_1_slot_ids(self):
+        """Phase 2: 16 slot có extractor."""
         ids = list_phase_1_slot_ids()
-        assert set(ids) == {"1.1", "1.2", "4.0"}
+        assert len(ids) == 16
+        assert "1.1" in ids
+        assert "4.0" in ids
+        assert "3.3" in ids
+        assert "4.1" not in ids  # THÔNG BÁO, không có extractor
 
 
 # ============================================================
@@ -110,9 +124,9 @@ def _make_mock_client(extract_return: dict | None = None):
 
 class TestExtractSlot:
     def test_unknown_slot_returns_empty(self):
-        """Slot Phase 2+ chưa có schema → return {}."""
+        """Slot không có schema (vd 4.1 THÔNG BÁO) → return {}."""
         client = _make_mock_client()
-        result = extract_slot("2.3", "Có 5 thợ", client)
+        result = extract_slot("4.1", "ok", client)
         assert result == {}
         # KHÔNG gọi LLM
         client.extract_fast.assert_not_called()

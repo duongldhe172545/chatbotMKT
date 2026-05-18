@@ -142,32 +142,55 @@ def validate_free_text(
 
 _FIELD_VALIDATORS: dict[str, callable] = {
     "phone_or_zalo": validate_phone,
+    "zalo": validate_phone,
     "address": validate_address,
     "brandkit_consent": validate_brandkit_consent,
     "owner_name": validate_name,
     "dealer_name": validate_name,
     # RAW signal + free text fields → free_text validator
     "local_dominance_signal": validate_free_text,
+    "main_product": validate_free_text,
+    "business_model_signal": validate_free_text,
+    "team_stability_signal": validate_free_text,
+    "primary_contact_channel": validate_free_text,
+    "facebook": validate_free_text,
+    "fb_marketing_status": validate_free_text,
+    "customer_old_percentage": validate_free_text,
+    "customer_storage_method": validate_free_text,
     "customer_pain": validate_free_text,
     "motivation_signal": validate_free_text,
     "usp_signal": validate_free_text,
     "supplier_negotiation_signal": validate_free_text,
     "community_network_signal": validate_free_text,
     "warranty_responsibility_signal": validate_free_text,
+    "payment_terms_signal": validate_free_text,
+    "color_accent": validate_free_text,
+    "feng_shui_signal": validate_free_text,
 }
 
 
-def validate_field(field_name: str, value: Optional[str]) -> tuple[bool, Optional[str]]:
+def validate_field(field_name: str, value):
     """Dispatch validator theo field name.
+
+    Args:
+        field_name: tên field từ schema
+        value: raw value từ LLM (str/int/list/None)
 
     Returns:
         (True, cleaned) nếu valid.
-        (False, None) nếu invalid hoặc field không có validator (passthrough None).
+        (False, None) nếu invalid.
+
+    Note: với field không có validator dedicated (vd est_team_size int,
+    category_stack list, supplier_brands list), passthrough giữ NGUYÊN
+    type — Pydantic JSON schema đã enforce type ở LLM call.
     """
     validator = _FIELD_VALIDATORS.get(field_name)
     if validator is None:
-        # Field chưa có validator → passthrough (giữ value nếu non-None, else None)
         if value is None:
             return (False, None)
-        return (True, str(value)) if not isinstance(value, str) else (True, value)
+        # Passthrough non-string types (int, list, bool, dict) giữ nguyên
+        # — không ép str() để tránh hỏng array/int.
+        if not isinstance(value, str):
+            return (True, value)
+        return (True, value)
     return validator(value)
