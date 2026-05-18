@@ -27,6 +27,7 @@ from app.core.sanity import check_sanity
 from app.core.session import is_session_timeout, mark_session_closed, touch_session
 from app.core.state_machine import decide_action
 from app.llm.ack_generator import generate_ack
+from app.llm.auto_derive import derive_main_category
 from app.llm.client import LLMClient
 from app.llm.extractors import extract_slot
 from app.llm.extractors.schemas import SLOT_TOOL_SCHEMAS
@@ -155,7 +156,7 @@ def _handle_asking(
     if should_detect_now(session.turn_count):
         detect_dealer_type(session)
 
-    # Extract field (chỉ nếu slot có extractor — Phase 1: 3 slot)
+    # Extract field (Phase 2: 16 slot có extractor)
     extracted: Optional[dict] = None
     if current_slot and current_slot in SLOT_TOOL_SCHEMAS:
         extracted = extract_slot(
@@ -165,9 +166,9 @@ def _handle_asking(
             dealer_type=session.detected_dealer_type or DealerType.UNKNOWN,
             address_form=session.address_form,
         )
-        # Merge extracted vào profile
+        # Merge extracted vào profile + auto-derive Scope 2 fields
         if extracted:
-            _merge_extracted(profile, extracted)
+            _merge_extracted(profile, extracted, client=client)
 
     # State machine quyết action
     next_slot, action = decide_action(session, intent, extracted)
@@ -281,11 +282,16 @@ def _enter_confirming(profile: DealerProfileRaw) -> str:
     )
 
 
-def _merge_extracted(profile: DealerProfileRaw, extracted: dict) -> None:
+def _merge_extracted(
+    profile: DealerProfileRaw,
+    extracted: dict,
+    client: Optional[LLMClient] = None,
+) -> None:
     """Merge extracted dict vào profile (chỉ field non-None).
 
     Auto-derive Scope 2 fields sau khi merge:
     - address → province + district (qua address_parser Layer 1 regex)
+    - main_product → main_category (LLM_FAST, không substring match)
     """
     for field, value in extracted.items():
         if value is None:
@@ -302,6 +308,20 @@ def _merge_extracted(profile: DealerProfileRaw, extracted: dict) -> None:
             profile.province = province
         if district:
             profile.district = district
+
+    # Auto-derive main_category từ main_product (LLM_FAST)
+    if (
+        client is not None
+        and "main_product" in extracted
+        and extracted.get("main_product")
+        and not profile.main_category
+    ):
+        context = ""
+        if profile.category_stack:
+            context = f"category_stack: {', '.join(profile.category_stack)}"
+        derived = derive_main_category(profile.main_product, client, context)
+        if derived:
+            profile.main_category = derived
 
 
 def _gen_ack_safe(
