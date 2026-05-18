@@ -51,15 +51,22 @@ class LLMClient:
 
     @staticmethod
     def _build_default_fast() -> LLMProvider:
-        api_key = os.environ.get("GEMINI_API_KEY", "")
-        model = os.environ.get("LLM_FAST", DEFAULT_LLM_FAST)
-        return GeminiProvider(api_key=api_key, model=model)
+        """Build provider từ Pydantic Settings (đã load .env qua pydantic-settings).
+
+        Note: dùng get_settings() thay vì os.environ trực tiếp vì pydantic-settings
+        load .env vào Settings model nhưng KHÔNG mutate os.environ.
+        """
+        from app.config import get_settings
+        settings = get_settings()
+        return GeminiProvider(api_key=settings.GEMINI_API_KEY, model=settings.LLM_FAST)
 
     @staticmethod
     def _build_default_quality() -> LLMProvider:
-        api_key = os.environ.get("GEMINI_API_KEY", "")
-        model = os.environ.get("LLM_QUALITY", DEFAULT_LLM_QUALITY)
-        return GeminiProvider(api_key=api_key, model=model)
+        from app.config import get_settings
+        settings = get_settings()
+        return GeminiProvider(
+            api_key=settings.GEMINI_API_KEY, model=settings.LLM_QUALITY
+        )
 
     # ============================================================
     # LLM_FAST tier
