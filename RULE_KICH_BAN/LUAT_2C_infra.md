@@ -41,11 +41,12 @@ contract của rule.
 
 ## VERSION & CHANGELOG
 
-**Version:** v0.1.4-draft
-**Cập nhật:** 2026-05-15
+**Version:** v0.1.5-draft
+**Cập nhật:** 2026-05-18
 
 | Ngày | Version | Thay đổi |
 |---|---|---|
+| 2026-05-18 | v0.1.5-draft | Refactor "không khoá case" đồng bộ KICH_BAN_1A v0.3.0 + LUAT_2A v0.2.5: (1) F2C.7 data files — bỏ `data/province_specialty.json` khỏi danh sách (vi phạm khoá case). Thêm note nguyên tắc "data file chỉ chứa LUẬT/ENUM hạt nhân, cấm lookup table mapping X → Y cụ thể". Bỏ sample data + watch_file cho province_specialty. (2) F2C.7 acceptance test — bỏ case "add tỉnh mới vào province_specialty.json". (3) F2C.5 cache table — bỏ "Province specialty" entry (in-memory load 1 lần). Thêm "Local hook (LLM)" Phase 2 — cache 7d Redis. (4) F2C.1 schema column `province_specialty` ghi DEPRECATED (giữ column backward compat, code không write). |
 | 2026-05-15 | v0.1.4-draft | Spec consistency BATCH 4: (1) F2C.1 Schema refactor: 1 bảng `sessions` JSON blob → **3 bảng riêng** (`sessions` state machine + `dealer_profile_raw` 28 trường Scope 1+2 + `admin_queue`) — sync với KE_HOACH § 2.4 DDL canonical. Index `phone_or_zalo` cho cross-session detect. Schema bảng `sessions` mở rộng `deferred_slots` JSON + `paused_for` field. (2) F2C.8 admin_queue trigger 9 → **13** (thêm `hallucinate` HIGH, `pii_leak` HIGH, `brand_not_in_whitelist` MEDIUM, `voice_quality_poor` LOW). Note 2 flag KHÔNG trigger queue (`garbage_input` + `dealer_too_defensive` — bot tự handle). Sync `phone_invalid_after_retry` source pointer "F2A.5" → "File 1C § 12". |
 | 2026-05-15 | v0.1.3-draft | Spec consistency BATCH 3: thêm § DISCLAIMER toàn cục — config value, threshold, schema, script example trong file là VÍ DỤ TƯỢNG TRƯNG, KHÔNG khóa cứng case. Production có thể tune threshold/cache TTL/metric name miễn đảm bảo contract của rule. |
 | 2026-05-15 | v0.1.2-draft | Spec consistency BATCH 2: F2C.2 Spam guard pointer "CORE § J.7 (chống abuse)" → "CORE § K.5 (spam guard 4 layers)" — § J.7 không tồn tại trong CORE, § K.5 là nguyên tắc gốc thật. Áp dụng cùng 1 thay đổi ở 3 chỗ: heading line 185, Cross-ref line 303, bảng cuối line 1033. Thêm note hierarchy "CORE = nguyên tắc, 2C = detail rate limit + abuse score". |
@@ -156,7 +157,7 @@ CREATE TABLE dealer_profile_raw (
     -- Scope 2: chatbot auto-derive
     province            TEXT,
     district            TEXT,
-    province_specialty  TEXT,
+    province_specialty  TEXT,  -- DEPRECATED 2026-05-18 (khoá case) — giữ column backward compat, code không write
     main_category       TEXT,
     dealer_type         TEXT,
     brand_name_short    TEXT,
@@ -647,8 +648,8 @@ Cache các operation đắt để:
 | **LLM intent classify** | `intent:{hash(message+context)}` | 1h | Redis |
 | **STT brand correct** | `brand:{hash(text)}` | 24h | Redis |
 | **Address parse** | `addr:{hash(raw)}` | 24h | Redis |
-| **Province specialty** | `specialty:{province}` | ∞ | In-memory (load 1 lần) |
 | **Slogan options** | `slogan:{dealer_name}:{main_product}` | 7d | Redis (vì same dealer name → same slogan) |
+| **Local hook (LLM)** | `local_hook:{province}:{dealer_type}` | 7d | Redis — Phase 2 (LLM gen, cache để giảm cost) |
 | **System prompt build** | `sys_prompt:{slot}:{dealer_type}` | 1h | In-memory |
 
 ### Cache invalidation
@@ -661,8 +662,8 @@ async def invalidate_session_cache(session_id: str):
         await redis.delete(*keys)
 
 # Global cache: invalidate khi config/data update
-# - Province specialty: load lại khi data/province_specialty.json change
 # - Brand list: load lại khi BRAND_LIST update
+# - Province list: load lại khi data/province_list.json change
 ```
 
 ### Tham số config
@@ -852,7 +853,7 @@ Case: Session CONFIRMED rate drop từ 70% → 30%
 
 ## F2C.7 — Data files (province, brand, etc.)
 
-**Tham chiếu File 2A:** F2A.8 (province specialty), F2A.7 (address blacklist)
+**Tham chiếu File 2A:** F2A.8 (Closing — local hook LLM gen), F2A.7 (address blacklist)
 **Tham chiếu File 2B:** F2B.5 (brand list), F2B.6 (province list)
 
 ### Yêu cầu
@@ -860,46 +861,46 @@ Case: Session CONFIRMED rate drop từ 70% → 30%
 Tách data ra file JSON riêng, không hardcode trong code. Cho phép
 admin update mà không deploy lại.
 
+**Nguyên tắc bắt buộc — "không khoá case, chỉ khoá luật":**
+- Data file CHỈ chứa LUẬT/ENUM hạt nhân (vd 63 tỉnh validation,
+  brand whitelist, forbidden vocab security).
+- CẤM data file kiểu lookup table mapping "X → Y cụ thể" (vd province →
+  đặc sản, keyword → category code) — ép bot phản xạ máy móc.
+- Suy luận case-by-case → LLM gen với context (refer F2A.8 § 7.4).
+
 ### Data files
 
 | File | Format | Mô tả | Size |
 |---|---|---|---|
-| `data/province_list.json` | JSON array | 63 tỉnh Việt Nam | ~3 KB |
-| `data/province_specialty.json` | JSON dict | province → specialty (50 tỉnh) | ~5 KB |
-| `data/brand_list.json` | JSON array | Brand whitelist | ~2 KB |
-| `data/stt_corrections.json` | JSON dict | STT wrong → right | ~3 KB |
-| `data/address_blacklist.json` | JSON array | Chính trị/tôn giáo/vùng miền | ~1 KB |
-| `data/main_category_enum.json` | JSON array | Enum main_category | ~500 B |
-| `data/dealer_type_enum.json` | JSON array | Enum dealer_type | ~500 B |
+| `data/province_list.json` | JSON array | 63 tỉnh Việt Nam (LUẬT validation) | ~3 KB |
+| `data/brand_list.json` | JSON array | Brand whitelist (LUẬT enum) | ~2 KB |
+| `data/stt_corrections.json` | JSON dict | STT wrong → right (LUẬT — đây là phonetic fix pattern, không phải case) | ~3 KB |
+| `data/address_blacklist.json` | JSON array | Chính trị/tôn giáo/vùng miền (LUẬT security) | ~1 KB |
+| `data/main_category_enum.json` | JSON array | Enum main_category (code + name, KHÔNG keywords) | ~500 B |
+| `data/dealer_type_enum.json` | JSON array | Enum dealer_type (code + label) | ~500 B |
 | `data/common_words_filter.json` | JSON array | Filter words cho initials gen | ~1 KB |
-| `data/forbidden_vocab.json` | JSON array | Vocab cấm dùng với dealer | ~2 KB |
+| `data/forbidden_vocab.json` | JSON array | Vocab cấm dùng với dealer (LUẬT security) | ~2 KB |
+
+> **REMOVED 2026-05-18 (refer SYNC_LOG):**
+> `data/province_specialty.json` — vi phạm "không khoá case". Thay
+> bằng LLM gen hook địa phương (F2A.8 § 7.4).
 
 ### Load pattern
 
 ```python
 # In-memory load 1 lần khi service start
 PROVINCE_LIST = json.load(open("data/province_list.json"))
-PROVINCE_SPECIALTY = json.load(open("data/province_specialty.json"))
 BRAND_LIST = json.load(open("data/brand_list.json"))
 # ...
 
-# File watcher cho hot reload (dev mode)
+# File watcher cho hot reload (dev mode) — chỉ với data thực sự cần
+# update runtime (vd brand_list update khi có hãng mới ra mắt)
 if ENV == "dev":
-    watch_file("data/province_specialty.json",
-               on_change=lambda: reload(PROVINCE_SPECIALTY))
+    watch_file("data/brand_list.json",
+               on_change=lambda: reload(BRAND_LIST))
 ```
 
 ### Sample data files
-
-**`data/province_specialty.json`** (refer F2A.8 list):
-```json
-{
-  "Cao Bằng": "vịt quay 7 vị",
-  "Hà Giang": "bánh tam giác mạch",
-  "Lạng Sơn": "vịt quay lá mác mật",
-  "...": "..."
-}
-```
 
 **`data/brand_list.json`**:
 ```json
@@ -949,10 +950,6 @@ Mỗi data file có version trong frontmatter (JSON đầu):
 ### Acceptance test
 
 ```
-Case: Add tỉnh mới vào province_specialty.json (vd "Tỉnh X")
-  → Dev: hot reload, dealer mới ở Tỉnh X có specialty
-  → Prod: restart service → effect
-
 Case: Brand list update (vd thêm "EuroAlu")
   → Hot reload (dev) hoặc restart (prod)
   → STT correct + extractor accept brand mới

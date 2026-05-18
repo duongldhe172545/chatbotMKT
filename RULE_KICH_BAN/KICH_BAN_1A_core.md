@@ -29,11 +29,12 @@ Bot ĐỒNG THỜI phải:
 
 ## VERSION & CHANGELOG
 
-**Version:** v0.2.2-draft
-**Cập nhật:** 2026-05-15
+**Version:** v0.3.0-draft
+**Cập nhật:** 2026-05-18
 
 | Ngày | Version | Thay đổi |
 |---|---|---|
+| 2026-05-18 | v0.3.0-draft | Refactor "không khoá case" theo nguyên tắc user: (1) § 7.2 cấu trúc Closing — đổi "Hook đặc sản tỉnh (lookup)" → "Hook địa phương (LLM gen tự do)". (2) § 7.3 3 biến thể Closing — thay `{province_specialty}` + `{province_specialty_hook}` bằng `{local_hook}` (LLM gen, có thể rỗng). (3) § 7.4 viết lại hoàn toàn — BỎ lookup table 50 tỉnh → đặc sản, chuyển sang LLM_FAST gen 1-2 câu tự nhiên dựa province + tone + context; Phase 1 luôn rỗng (chưa có LLM hook). (4) § 7.6 thêm "Cấm hard-code mapping tỉnh → đặc sản". Code refactor đồng bộ: bỏ `data/province_specialty.json`, bỏ `get_specialty()`, bỏ field `province_specialty` trong DealerProfileRaw, đơn giản hóa `app/core/closing.py`. |
 | 2026-05-15 | v0.2.2-draft | Spec consistency BATCH 4 (audit lần 3 user feedback): (1) § 1.1 retry tone sửa "2 lần" → "max 3 lần tổng, 2 lần liên tiếp" — sync § 1.4. (2) § 1.4 mở rộng nuance: "tổng max 3 / session, không hỏi quá 2 lần liên tiếp" + why box "dealer turn đầu hay test/nghịch, không skip vội". (3) § 1.6 mới — quy ước retry DEFER (3 pattern: test/confusion/refusal thật) + algorithm 5 bước (lượt 1 → 2 liên tiếp → DEFER → re-check → lần 3 → SKIP). (4) § 1.5 thêm note 6 slot multi-field còn lại (1.2/2.1/2.4/2.5/2.6/3.3) — pattern chung + 2 ví dụ. (5) § 2.2 đổi tiêu đề "12 cụm" → "11 cụm + 1 no-bridge mode". (6) Slot 4.1 nhãn "OPTIONAL ⭕" → "THÔNG BÁO 📢" (sync GLOSSARY § 1). (7) Slot 2.5 biến thể 3 đổi "Tiện đây em hỏi" → "À cho em hỏi" (tránh lặp). |
 | 2026-05-15 | v0.2.1-draft | Spec consistency BATCH 3 (audit user feedback): (1) § 3.2 Greeting 3 biến thể — clarify "bộ thương hiệu gửi qua Zalo" (bot KHÔNG render trong chat), sync CORE § A.3. (2) § 1.5 mới — quy ước slot multi-field PARTIAL fill (KHÔNG count retry). (3) § 4 slot 1.1 — add "PARTIAL fill handler" template (dealer cho 1 trong 2 field → ack + hỏi field còn thiếu trong turn kế). Refer 2A F2A.4 step 2.6. |
 |---|---|---|
@@ -1389,12 +1390,13 @@ Anh duyệt OK hay cần chỉnh chỗ nào ạ?
 ```
 [Phần 1] Cảm ơn + thông báo bộ thương hiệu đang gen (nếu consent=yes)
 [Phần 2] Link ứng dụng nhỏ + promise 3 ngày kế hoạch nền tảng số
-[Phần 3] Hook đặc sản tỉnh (lookup, fallback nếu null) + chào tạm biệt
+[Phần 3] (TUỲ CHỌN) Hook địa phương — LLM gen tự do từ context tỉnh,
+         KHÔNG khoá case theo lookup table cứng
 ```
 
 ### 7.3 Closing biến thể (3 mẫu — engine rotate theo session_id)
 
-**Biến thể 1 (chuẩn — có hook đặc sản tỉnh):**
+**Biến thể 1 (chuẩn — có chỗ chèn hook địa phương LLM gen):**
 
 ```
 Em cảm ơn anh đã dành thời gian trò chuyện cùng em hôm nay ạ 🌷.
@@ -1406,9 +1408,7 @@ của em, anh nhận sau ít phút nha.
 Trong 3 ngày tới em cũng gửi anh kế hoạch chiến lược phát triển nền
 tảng số đầy đủ qua Zalo — đó là phần em đã hứa từ đầu ạ.
 
-Nhân tiện em nghe nói {province} mình nổi tiếng {province_specialty}
-— em mê từ lâu mà chưa được ăn thật anh ơi 🤤. Nếu có dịp em ghé
-{province}, em xin phép mời anh một bữa nhé.
+{local_hook}
 
 Chúc anh một ngày làm việc nhiều đơn hàng ạ! Hẹn gặp lại anh.
 ```
@@ -1424,47 +1424,50 @@ trong ứng dụng nhỏ Zalo trong ít phút.
 Kế hoạch chiến lược nền tảng số đầy đủ em gửi anh trong 3 ngày tới
 qua Zalo nhé.
 
-{province_specialty_hook}. Chúc anh kinh doanh thuận lợi, hẹn gặp
-lại anh!
+{local_hook}
 ```
 
 **Biến thể 3 (thân mật hơn — dealer trẻ / Khoe):**
 
 ```
 Em cảm ơn anh nhiều lắm 🌷. Cuộc trò chuyện này em học được nhiều
-điều thật đó ạ — cửa hàng mình {khoe_hook} là điều em sẽ note vào
-kế hoạch cho anh.
+điều thật đó ạ.
 
 Bộ thương hiệu (logo + danh thiếp + video) của {dealer_name} em
 gen ngay — em gửi anh qua ứng dụng nhỏ Zalo trong ít phút.
 
 Kế hoạch chiến lược nền tảng số đầy đủ — em gửi anh trong 3 ngày.
 
-{province_specialty_hook}. Hẹn gặp lại anh!
+{local_hook}
 ```
 
-### 7.4 Hook đặc sản tỉnh — rule lookup
+### 7.4 Hook địa phương — LLM gen (KHÔNG khoá case)
+
+**Thay đổi 2026-05-18 (refer SYNC_LOG):**
+Trước đây spec quy định lookup table 50 tỉnh → đặc sản hard-coded
+(Cao Bằng → "vịt quay 7 vị", Hà Nội → "phở"...). Nguyên tắc
+"không khoá case, chỉ khoá luật" cấm pattern này — bot sẽ trả cùng
+1 câu cứng cho mọi dealer cùng tỉnh, mất tự nhiên.
+
+**Quy ước mới:**
 
 ```
-1. Lấy province từ profile (Scope 2 — auto-derive)
-2. Lookup table 50 tỉnh:
-   - Cao Bằng → "vịt quay 7 vị"
-   - Hà Giang → "bánh tam giác mạch"
-   - Nghệ An → "cháo lươn"
-   - ... (full table trong File 2C / data file)
-
-3. Nếu province trong table:
-   hook = "Nhân tiện em nghe nói {province} mình nổi tiếng
-           {specialty} — em mê từ lâu..."
-
-4. Nếu province KHÔNG trong table (vd dealer ở tỉnh nhỏ chưa map):
-   hook = "Em chúc cửa hàng anh ngày càng phát triển,
-           {province} mình em mong sớm có dịp ghé qua."
-
-5. Nếu address null hoặc parse fail:
-   hook = "Em chúc cửa hàng mình kinh doanh phát đạt, ngày càng
-           nhiều khách hàng tin tưởng."
+1. Lấy province (+ history nếu cần) từ profile
+2. Gọi LLM_FAST gen hook địa phương ngắn (1-2 câu, ≤ 30 từ):
+   - Input cho LLM: tỉnh + tone dealer + ngữ cảnh hội thoại
+   - Yêu cầu: tự nhiên, đa dạng, không lặp đặc sản nếu LLM không tự nghĩ ra
+   - Cho phép LLM nói KHÔNG có hook nếu không có gì hay → trả string rỗng
+3. Fallback chuỗi rỗng nếu:
+   - province=null
+   - LLM fail / timeout
+   - LLM trả empty
+   → Khi rỗng: Closing chỉ giữ 2 phần (cảm ơn + promise Zalo)
+4. Phase 1 (chưa có LLM hook): luôn rỗng. Template render bỏ qua dòng
+   {local_hook} hoặc thay = chuỗi rỗng.
 ```
+
+→ Cấm tuyệt đối hard-code "phở", "vịt quay", "mì Quảng" trong code.
+→ Cấm bảng lookup `{tỉnh: đặc sản}` trong data file.
 
 ### 7.5 Closing khi dealer từ chối brandkit (consent=no)
 
@@ -1477,12 +1480,14 @@ Em vẫn ghi nhận thông tin cửa hàng {dealer_name} — nếu sau này anh
 cần hỗ trợ chiến lược nền tảng số, team người thật bên em sẵn sàng
 liên hệ lại với anh.
 
-{province_specialty_hook}. Cảm ơn anh đã dành thời gian, chúc anh
-một ngày làm việc thuận lợi!
+{local_hook}
+
+Cảm ơn anh đã dành thời gian, chúc anh một ngày làm việc thuận lợi!
 ```
 
 → KHÔNG nhắc lại "tặng bộ thương hiệu" để không ép.
 → KHÔNG nhắc "kế hoạch 3 ngày" nếu dealer cộc.
+→ `{local_hook}` LLM gen như § 7.4 (Phase 1: rỗng).
 
 ### 7.6 Cấm tuyệt đối trong Closing
 
@@ -1491,7 +1496,7 @@ một ngày làm việc thuận lợi!
 - ❌ Promise gì ngoài: "bộ thương hiệu" + "kế hoạch 3 ngày" (đúng theo
   Greeting)
 - ❌ Xin thêm thông tin (đã xong → KHÔNG hỏi thêm)
-- ❌ Generic "cảm ơn nhiều" mà KHÔNG có hook địa phương/cá nhân
+- ❌ Hard-code mapping tỉnh → đặc sản (khoá case, refer § 7.4)
 
 ---
 

@@ -90,8 +90,8 @@ CREATE TABLE IF NOT EXISTS dealer_profile_raw (
     -- ----------------------------------------------------------------
     province                TEXT,                                       -- parse từ address
     district                TEXT,                                       -- parse từ address
-    province_specialty      TEXT,                                       -- lookup 50/63 tỉnh có specialty
-    main_category           TEXT,                                       -- enum chuẩn hóa từ main_product
+    province_specialty      TEXT,                                       -- DEPRECATED 2026-05-18 (khoá case) — giữ column cho backward compat, code không write
+    main_category           TEXT,                                       -- enum chuẩn hóa từ main_product (LLM auto-derive Phase 2)
     dealer_type             TEXT,                                       -- enum: dai_ly/chu_xuong/tho_doi/nha_thau_nho/s_dich_vu/khac
     brand_name_short        TEXT,                                       -- LLM rút gọn (vd "Thanh Tùng")
     initials_full           TEXT,                                       -- vd "NKTT"

@@ -13,11 +13,12 @@
 
 ## VERSION & CHANGELOG
 
-**Version:** v0.2.4-draft
-**Cập nhật:** 2026-05-15
+**Version:** v0.2.5-draft
+**Cập nhật:** 2026-05-18
 
 | Ngày | Version | Thay đổi |
 |---|---|---|
+| 2026-05-18 | v0.2.5-draft | Refactor "không khoá case" đồng bộ KICH_BAN_1A v0.3.0: (1) F2A.3 Scope 2 — bỏ `province_specialty: str` (vi phạm khoá case). (2) F2A.8 viết lại hoàn toàn — BỎ `PROVINCE_SPECIALTY_TABLE` 50 entries, BỎ 3-tier fallback logic specialty match/province only/no province. Thay = LLM gen local_hook (Phase 2) hoặc rỗng (Phase 1). (3) F2A.8 acceptance test mới: PASS = "không chứa hard-code đặc sản", FAIL = "có mapping cứng". (4) F2A.8 constraints thêm "KHÔNG hardcode mapping tỉnh → đặc sản". (5) Pointer implementation thêm `app/llm/local_hook.py` (Phase 2), bỏ `data/province_specialty.json`. |
 | 2026-05-15 | v0.2.4-draft | Spec consistency BATCH 4: (1) F2A.4 list action 5 → **6** (thêm `DEFER`), text "1 trong 4" → "1 trong 6 hành động". Sync output tuple `{ADVANCE, RETRY, PARTIAL_RETRY, DEFER, SKIP, PAUSE}`. (2) F2A.4 algorithm step 2.7 mới — branch DEFER cho slot REQUIRED khi `consecutive_attempts >= 2` (refer D11 STRATEGY). Step 2.8 mới — re-check deferred slots khi mood dealer ok. (3) F2A.4 tham số config thêm `MAX_RETRY_CONSECUTIVE=2`, `DEFER_RECHECK_AFTER_N_SLOTS=2`, `MAX_DEFER_PER_SLOT=1`. (4) F2A.1 stage transition tuple sync 6 action. (5) F2A.5 retry algorithm refactor — track `consecutive_attempts` + `total_attempts` riêng, DEFER khi 2 consecutive, SKIP khi 3 total. (6) F2A.7 sanity 5-point thêm bảng `SLOT_TO_REQUIRED_FIELDS` mapping (fix undefined function). (7) F2A.1 Cross-ref bullet line ~616 "CORE § B.2" → "§ J.1 + § G" (batch 2 chỉ fix 2/3 chỗ). (8) F2A.2 edge case table fix broken 3-cột markdown. (9) F2A.3 + F2A.7 cross-ref "schema 3 scope" → "4 scope". (10) F2A.3 Scope 4 "Gemini chấm" → "LLM_QUALITY chấm" (batch 2 sót). |
 | 2026-05-15 | v0.2.3-draft | Spec consistency BATCH 3: F2A.4 algorithm thêm action thứ 5 `PARTIAL_RETRY` + step 2.6 — slot multi-field (1.1, 1.2, 2.1, 2.4, 2.5, 2.6, 3.3) khi dealer fill 1 phần → ack + hỏi field còn thiếu, KHÔNG count `slot_attempts`. Sync với GLOSSARY § Action + 1A § 1.5 + § 4 slot 1.1 PARTIAL handler. Trước đây engine sẽ count retry sai khi dealer fill 1/2 field → dealer bực ("em vừa cho rồi mà"). |
 | 2026-05-15 | v0.2.2-draft | Spec consistency BATCH 2: (1) F2A.4 algorithm thêm step 2.5 — branch sớm slot 4.0 consent=no → mark skip 4.1/4.2 + đi CONFIRMING (sync File 1A slot 4.0 handler). (2) F2A.3 Scope 3 + Scope 4 model-agnostic: "Backend Scoring (Gemini chấm)" → "(`LLM_QUALITY` chấm — pilot Gemini 2.5 Pro)" (refer D8 STRATEGY). (3) F2A.3 docstring `# OPTIONAL (~14 field)` → `# OPTIONAL (16 field) + RAW SIGNAL (6) = 22`. (4) F2A.7 ADDRESS_BLACKLIST — bỏ pointer "CORE § J.6" (CORE không có section đó), thêm note hierarchy "CORE § E.5 nguyên tắc + 2A spec detail". (5) F2A.1 pointer CORE "§ B.2 (workflow)" → "§ J.1 (workflow voice-first) + § G (khung chạy)" — § B.2 thực sự là rule tone default. |
@@ -125,7 +126,8 @@ warranty_responsibility_signal: str | None      # slot 3.5 (C4)
 # Parse từ address
 province: str | None             # parse từ address
 district: str | None             # parse từ address
-province_specialty: str | None   # lookup table 50 tỉnh
+# REMOVED 2026-05-18: province_specialty (vi phạm "không khoá case",
+# refer SYNC_LOG + File 1A § 7.4)
 
 # Chuẩn hóa enum
 main_category: Literal["cua_cuon", "cua_nhom_kinh", "cua_thep",
@@ -1320,7 +1322,7 @@ Profile D (c_score = 75 lọt vào profile):
 ### Yêu cầu
 
 Engine chọn biến thể Greeting + Closing tự động theo session, fill
-placeholder, lookup province specialty.
+placeholder, gen local hook qua LLM (Phase 2) — KHÔNG lookup table cứng.
 
 ### Algorithm — Greeting
 
@@ -1355,99 +1357,38 @@ else:
     variant_id = hash(session.session_id + "closing") % 3
     template = CLOSING_VARIANTS[variant_id]  # 3 mẫu File 1A § 7.3
 
-# 2. Lookup province specialty hook
-province = profile.get("province")  # Scope 2 — auto-derive
-specialty = PROVINCE_SPECIALTY_TABLE.get(province)
+# 2. Gen local hook qua LLM (Phase 2). Phase 1: luôn rỗng.
+province = profile.get("province")
+local_hook = gen_local_hook_llm(province, session.detected_dealer_type) \
+             if PHASE >= 2 else ""
 
-if specialty:
-    province_specialty_hook = (
-        f"Nhân tiện em nghe nói {province} mình nổi tiếng {specialty} "
-        f"— em mê từ lâu mà chưa được ăn thật anh ơi 🤤. Nếu có dịp em "
-        f"ghé {province}, em xin phép mời anh một bữa nhé."
-    )
-elif province:
-    province_specialty_hook = (
-        f"Em chúc cửa hàng anh ngày càng phát triển, {province} mình "
-        f"em mong sớm có dịp ghé qua."
-    )
-else:
-    # Address null hoặc parse fail
-    province_specialty_hook = (
-        "Em chúc cửa hàng mình kinh doanh phát đạt, ngày càng nhiều "
-        "khách hàng tin tưởng."
-    )
+# Yêu cầu LLM_FAST trả 1-2 câu ≤ 30 từ, tự nhiên, có thể trả rỗng.
+# CẤM hard-code mapping tỉnh → đặc sản. Cache key:
+# local_hook:{province}:{dealer_type} (refer F2C.5).
 
 # 3. Fill placeholder
 filled = template.format(
     dealer_name=profile.get("dealer_name", "cửa hàng mình"),
-    province=province or "",
-    province_specialty=specialty or "",
-    province_specialty_hook=province_specialty_hook,
-    khoe_hook=generate_khoe_hook(profile) if dealer_type == "khoe" else "",
+    local_hook=local_hook,  # có thể rỗng — template thiết kế để chấp nhận
 )
 
 return filled
 ```
 
-### PROVINCE_SPECIALTY_TABLE (sample — full table trong File 2C / data file)
+### Nguyên tắc "không khoá case" (refer File 1A § 7.4)
 
-```python
-PROVINCE_SPECIALTY_TABLE = {
-    "Cao Bằng":   "vịt quay 7 vị",
-    "Hà Giang":   "bánh tam giác mạch",
-    "Lạng Sơn":   "vịt quay lá mác mật",
-    "Bắc Kạn":    "tôm chua",
-    "Tuyên Quang":"cơm lam",
-    "Lào Cai":    "phở chua",
-    "Yên Bái":    "thịt trâu gác bếp",
-    "Thái Nguyên":"chè Tân Cương",
-    "Phú Thọ":    "thịt chua",
-    "Sơn La":     "pa pỉnh tộp",
-    "Hà Nội":     "phở bò + bún chả",
-    "Hải Phòng":  "bánh đa cua",
-    "Quảng Ninh": "chả mực",
-    "Ninh Bình":  "thịt dê + cơm cháy",
-    "Thanh Hóa":  "nem chua",
-    "Nghệ An":    "cháo lươn",
-    "Hà Tĩnh":    "bánh đa kê",
-    "Quảng Bình": "bánh xèo Đồng Hới",
-    "Quảng Trị":  "bánh ướt",
-    "Huế":        "bún bò Huế",
-    "Đà Nẵng":    "mì Quảng + bánh tráng cuốn thịt heo",
-    "Quảng Nam":  "mì Quảng",
-    "Quảng Ngãi": "don",
-    "Bình Định":  "bánh ít lá gai",
-    "Phú Yên":    "mắt cá ngừ đại dương",
-    "Khánh Hòa":  "bún chả cá",
-    "Ninh Thuận": "thịt cừu + nho",
-    "Bình Thuận": "bánh canh chả cá",
-    "Kon Tum":    "gỏi lá",
-    "Gia Lai":    "phở khô",
-    "Đắk Lắk":    "bún đỏ",
-    "Đắk Nông":   "cà phê",
-    "Lâm Đồng":   "atisô + dâu tây",
-    "Hồ Chí Minh":"hủ tiếu + cơm tấm",
-    "Bình Dương": "gỏi gà măng cụt",
-    "Đồng Nai":   "bưởi Tân Triều",
-    "Bà Rịa-Vũng Tàu": "bánh khọt",
-    "Tây Ninh":   "bánh canh Trảng Bàng",
-    "Long An":    "lẩu mắm",
-    "Tiền Giang": "hủ tiếu Mỹ Tho",
-    "Bến Tre":    "kẹo dừa",
-    "Trà Vinh":   "bún nước lèo",
-    "Vĩnh Long":  "cá tai tượng chiên xù",
-    "Đồng Tháp":  "hủ tiếu Sa Đéc",
-    "An Giang":   "bún cá Châu Đốc",
-    "Kiên Giang": "bún kèn Hà Tiên",
-    "Cần Thơ":    "bánh tét lá cẩm",
-    "Hậu Giang":  "cá thát lát",
-    "Sóc Trăng":  "bún nước lèo",
-    "Bạc Liêu":   "bánh xèo + bún bò cay",
-    "Cà Mau":     "ba khía",
-}
-# Lưu ý: data này sẽ được move sang file `data/province_specialty.json`
-# trong File 2C — ở đây liệt kê để tham chiếu logic.
-```
+**Refactor 2026-05-18:** Spec gốc dùng `PROVINCE_SPECIALTY_TABLE` map
+cứng 50 tỉnh → đặc sản (Cao Bằng → "vịt quay 7 vị", Hà Nội → "phở"...).
+Vi phạm nguyên tắc "không khoá case, chỉ khoá luật" — ép bot phản xạ
+máy móc, mọi dealer cùng tỉnh nghe cùng 1 câu.
+
+**Quy ước mới:**
+- KHÔNG có `PROVINCE_SPECIALTY_TABLE` trong code/spec.
+- KHÔNG có `data/province_specialty.json`.
+- Local hook (nếu cần) → LLM gen với context (tỉnh + tone + history),
+  cache 7 ngày trong Redis (refer F2C.5).
+- LLM được phép trả rỗng → template render bỏ qua placeholder.
+- Phase 1: local_hook luôn rỗng.
 
 ### Tham số config
 
@@ -1456,15 +1397,16 @@ PROVINCE_SPECIALTY_TABLE = {
 | `GREETING_VARIANTS_COUNT` | 3 | Số biến thể Greeting (refer File 1A) |
 | `CLOSING_VARIANTS_COUNT` | 3 | Số biến thể Closing |
 | `VARIANT_HASH_SEED` | `session_id + tag` | Hash để chọn variant consistent trong session |
-| `PROVINCE_FALLBACK_TEXT` | (xem code) | Fallback khi province không trong table |
+| `LOCAL_HOOK_LLM_MAX_TOKENS` | 60 | Phase 2: max output tokens cho local hook gen |
+| `LOCAL_HOOK_CACHE_TTL_S` | 604800 | Phase 2: cache 7d (refer F2C.5) |
 
 ### Acceptance test
 
 > ⚠️ **VÍ DỤ MINH HỌA — engine cover MỌI session.**
 
 **Pattern test:** Engine render Greeting + Closing với biến thể
-consistent trong 1 session. Province specialty lookup đúng, fallback
-khi miss.
+consistent trong 1 session. Local hook gen qua LLM (Phase 2) hoặc rỗng
+(Phase 1) — KHÔNG có vocab đặc sản hard-code.
 
 **Case ví dụ:**
 
@@ -1473,13 +1415,14 @@ Session A (session_id="abc123", province="Cao Bằng"):
   - hash("abc123" + "greeting") % 3 = 1  → variant 1
   - Greeting render đúng biến thể 1 (File 1A § 3.2)
   - hash("abc123" + "closing")  % 3 = 0  → variant 0
-  - Province specialty: "vịt quay 7 vị" → hook đầy đủ
+  - Phase 1: local_hook = "" → template render bỏ qua
+  - Phase 2: LLM gen hook tự do (mỗi session khác nhau)
 
-Session B (province="X-tỉnh-không-trong-table"):
-  - hook = "Em chúc cửa hàng anh ngày càng phát triển, X mình em mong sớm có dịp ghé qua."
+Session B (province="X-tỉnh-bất-kỳ"):
+  - LLM phải tự xử (không phụ thuộc lookup table)
 
 Session C (address=null):
-  - hook = "Em chúc cửa hàng mình kinh doanh phát đạt..."
+  - local_hook = "" — template render bỏ qua
 
 Session D (brandkit_consent="no"):
   - dùng CLOSING_NO_BRANDKIT (closing rút gọn 2 phần)
@@ -1488,34 +1431,34 @@ Session D (brandkit_consent="no"):
 
 **Tổng quát hóa:**
 - 3 biến thể Greeting/Closing pick by hash (consistent trong session)
-- Province specialty lookup 3-tier fallback (specialty match / province only / no province)
+- Local hook gen qua LLM hoặc empty — KHÔNG lookup table cứng
 - consent=no → closing path khác (KHÔNG nhắc tặng bộ TH)
 
 ✅ **PASS:**
 - Hash-based variant pick — cùng session → cùng biến thể
-- Province specialty fill đúng từ lookup table
-- Fallback đúng theo 3 tier
 - consent=no → closing rút gọn
+- Closing render KHÔNG chứa hard-code "phở", "vịt quay", "mì Quảng"...
+- LLM gen fail/timeout → fallback empty hook, không crash
 
 ❌ **FAIL:**
 - Random variant mỗi lần render (mất consistency)
-- Province "Cao Bằng" mà hook không có "vịt quay 7 vị" → lookup fail
 - consent=no mà closing vẫn nhắc "tặng bộ thương hiệu" → ép dealer
+- Closing có mapping cứng province → đặc sản → vi phạm "không khoá case"
 - Greeting fill placeholder dealer data (chưa có) → KeyError
 
 ### Constraints (KHÔNG được vi phạm)
 
 - Variant pick = hash(session_id + tag) % N — deterministic per session
-- Province specialty lookup BẮT BUỘC fallback 3 tier
 - consent=no → closing path khác, KHÔNG nhắc bộ thương hiệu
 - Greeting KHÔNG fill dealer placeholder (chưa có data)
 - KHÔNG hardcode 1 biến thể duy nhất — phải rotate
+- **KHÔNG hardcode mapping tỉnh → đặc sản (vi phạm "không khoá case")**
 
 ### Pointer implementation
 
 → `app/core/greeting.py` § `render_greeting`
 → `app/core/closing.py` § `render_closing`
-→ `data/province_specialty.json` (load runtime)
+→ `app/llm/local_hook.py` (Phase 2: LLM gen local hook — KHÔNG lookup table)
 → `app/llm/khoe_hook.py` (LLM gen hook cho dealer Khoe)
 
 ### Cross-ref
@@ -1523,7 +1466,7 @@ Session D (brandkit_consent="no"):
 - ⬆ CORE § A.3, § H.3
 - ⬅ File 1A § 3, § 7
 - ➡ F2A.6 (dealer_type input cho khoe_hook)
-- ➡ File 2C § data/province_specialty.json
+- ➡ File 2B § LLM gen local_hook prompt (Phase 2)
 - ➡ File 2B § LLM gen khoe_hook prompt
 
 ---

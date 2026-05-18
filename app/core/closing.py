@@ -1,16 +1,20 @@
 """Closing render — Phase 1.
 
 Refer:
-- F2A.8 (LUAT_2A_core v0.2.4) — Closing engine + hook đặc sản tỉnh
+- F2A.8 (LUAT_2A_core v0.2.5) — Closing engine (KHÔNG khoá case đặc sản)
 - File 1A § 7 — Closing templates + consent=no path
 - CORE § H.3 + § A.3 — bot KHÔNG render trực tiếp, chỉ dẫn Zalo
 - D10 STRATEGY — consent=no skip path
+
+Nguyên tắc "không khoá case":
+- Bỏ lookup table "province → đặc sản" (vd HN → phở) — ép câu robot.
+- Closing chỉ truyền province làm context, để Phase 2 LLM tự gen hook
+  địa phương đa dạng (không ép template).
+- Phase 1: closing không có hook địa phương — template tổng quát.
 """
 from __future__ import annotations
 
 from typing import Optional
-
-from app.cache.data_loaders import get_specialty
 
 
 # ============================================================
@@ -25,7 +29,7 @@ _CLOSING_CONSENT_YES_TEMPLATE = (
     "(logo + danh thiếp + video) và sẽ gửi anh qua Zalo trong ít giờ tới.\n\n"
     "Nhóm Cộng Đồng Thợ 4.0 phù hợp với anh em cũng sẽ giới thiệu kèm. "
     "Trong 3 ngày tới em sẽ gửi anh kế hoạch chiến lược nền tảng số đầy "
-    "đủ qua Zalo nữa nhé.{specialty_hook}\n\n"
+    "đủ qua Zalo nữa nhé.\n\n"
     "Em cảm ơn anh rất nhiều! Chúc cửa hàng mình ngày càng phát đạt ạ 🌷"
 )
 
@@ -40,7 +44,7 @@ _CLOSING_CONSENT_NO_TEMPLATE = (
     "Em vẫn ghi nhận thông tin của cửa hàng mình. Nếu sau này anh đổi ý "
     "muốn nhận bộ thương hiệu, anh nhắn lại em nhé — bên em luôn sẵn sàng.\n\n"
     "Nhóm Cộng Đồng Thợ 4.0 phù hợp với khu vực + ngành mình em cũng sẽ "
-    "giới thiệu qua Zalo trong 3 ngày tới ạ.{specialty_hook}\n\n"
+    "giới thiệu qua Zalo trong 3 ngày tới ạ.\n\n"
     "Em cảm ơn anh rất nhiều đã dành thời gian!"
 )
 
@@ -66,21 +70,22 @@ def render_closing(
     province: Optional[str] = None,
     consent: Optional[str] = None,
 ) -> str:
-    """Render closing dựa trên consent + province.
+    """Render closing dựa trên consent.
 
     Args:
-        province: Tỉnh dealer (cho hook đặc sản). None → no hook.
+        province: Reserved cho Phase 2 (LLM gen hook địa phương dựa context).
+            Phase 1 không dùng — bỏ lookup table đặc sản.
         consent: brandkit_consent value ("yes"/"no"/None).
 
     Returns:
         Closing text Việt thuần.
     """
-    specialty_hook = _build_specialty_hook(province)
+    del province  # Phase 1: chưa dùng. Phase 2: LLM-driven hook.
 
     if consent == "no":
-        return _CLOSING_CONSENT_NO_TEMPLATE.format(specialty_hook=specialty_hook)
+        return _CLOSING_CONSENT_NO_TEMPLATE
     # Default: consent=yes path (cũng dùng cho consent=null nhưng pass sanity)
-    return _CLOSING_CONSENT_YES_TEMPLATE.format(specialty_hook=specialty_hook)
+    return _CLOSING_CONSENT_YES_TEMPLATE
 
 
 def render_soft_end_closing() -> str:
@@ -89,19 +94,3 @@ def render_soft_end_closing() -> str:
     Refer 1C § 13 escalation script.
     """
     return _CLOSING_SOFT_END_TEMPLATE
-
-
-def _build_specialty_hook(province: Optional[str]) -> str:
-    """Build specialty hook string (prefix `\n\n` nếu có, empty nếu không).
-
-    Refer F2A.8 + 1A § 7 hook đặc sản tỉnh.
-    """
-    if not province:
-        return ""
-    specialty = get_specialty(province)
-    if not specialty:
-        return ""
-    return (
-        f"\n\nÀ tiện đây, nghe nói {province} mình có {specialty} ngon nức "
-        f"tiếng — anh có dịp em ghé thưởng thức nha! 😊"
-    )

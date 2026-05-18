@@ -126,8 +126,7 @@ class DealerProfileRaw(BaseModel):
     # ================================================================
     province: Optional[str] = None                             # parse từ address
     district: Optional[str] = None                             # parse từ address
-    province_specialty: Optional[str] = None                   # lookup 50/63 tỉnh có specialty
-    main_category: Optional[str] = None                        # enum chuẩn hóa từ main_product
+    main_category: Optional[str] = None                        # enum chuẩn hóa từ main_product (LLM auto-derive Phase 2)
     dealer_type: Optional[str] = None                          # enum dai_ly/chu_xuong/...
 
     brand_name_short: Optional[str] = None                     # LLM rút gọn

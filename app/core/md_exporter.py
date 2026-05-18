@@ -68,8 +68,6 @@ def render_profile_md(
         if profile.district:
             location = f"{profile.district}, {location}"
         lines.append(f"- **Tỉnh / Huyện:** {location}")
-    if profile.province_specialty:
-        lines.append(f"- **Đặc sản tỉnh:** {profile.province_specialty}")
     lines.append("")
 
     # Section 2: Công việc & Kênh

@@ -82,15 +82,26 @@ class TestClosingConsentYes:
         assert "cảm ơn" in text.lower()
         assert "Zalo" in text
 
-    def test_closing_with_specialty_hook(self):
-        """Province có specialty → hook đặc sản."""
-        text = render_closing(province="Cao Bằng", consent="yes")
-        assert "vịt quay" in text.lower() or "Cao Bằng" in text
+    def test_closing_does_not_lock_specialty(self):
+        """Refactor 2026-05-18: bỏ lookup table specialty (khoá case).
 
-    def test_closing_no_specialty_fallback(self):
-        """Province không có specialty → no hook (refer F2A.8)."""
+        Closing template KHÔNG được hard-code "vịt quay 7 vị", "phở Hà Nội"...
+        cho province. Phase 2: LLM gen hook tự do dựa context.
+        """
+        text_hn = render_closing(province="Hà Nội", consent="yes")
+        text_cb = render_closing(province="Cao Bằng", consent="yes")
+        # 2 tỉnh khác nhau → Phase 1 trả cùng template (chưa có LLM hook)
+        assert text_hn == text_cb
+        # Không có vocab đặc sản hard-coded
+        for forbidden in ["phở", "vịt quay", "mì Quảng", "cháo lươn"]:
+            assert forbidden.lower() not in text_hn.lower(), (
+                f"Closing chứa đặc sản hard-code '{forbidden}' — vi phạm "
+                f"nguyên tắc không khoá case"
+            )
+
+    def test_closing_handles_unknown_province(self):
+        """Province bất kỳ → không crash, return template chuẩn."""
         text = render_closing(province="Province xa xôi không có", consent="yes")
-        # Không crash, không có hook
         assert "cảm ơn" in text.lower()
 
     def test_closing_none_province(self):

@@ -2,6 +2,12 @@
 
 Phase 1: in-memory cache đơn giản (load 1 lần khi import).
 Phase 4+: thêm file-watch reload nếu cần hot-reload dev.
+
+Nguyên tắc "không khoá case":
+- Chỉ giữ data file là LUẬT/ENUM hạt nhân (vd 63 tỉnh VN validation,
+  7 main_category code).
+- BỎ mọi lookup table case-specific (vd province → đặc sản,
+  keyword substring → category code). Phase 2 thay = LLM auto-derive.
 """
 from __future__ import annotations
 
@@ -32,13 +38,13 @@ def _load_json_file(filename: str) -> dict:
 
 
 # ============================================================
-# Province list — 63 tỉnh VN
+# Province list — 63 tỉnh VN (LUẬT enum validation)
 # ============================================================
 
 
 @lru_cache(maxsize=1)
 def get_province_list() -> list[str]:
-    """List 63 tỉnh VN cũ (refer F2B.6 + C3 batch 4)."""
+    """List 63 tỉnh VN (refer F2B.6 + C3 batch 4). LUẬT enum."""
     data = _load_json_file("province_list.json")
     return data.get("provinces", [])
 
@@ -49,33 +55,17 @@ def is_valid_province(province: str) -> bool:
 
 
 # ============================================================
-# Province specialty — 50/63 tỉnh có specialty
-# ============================================================
-
-
-@lru_cache(maxsize=1)
-def get_province_specialty_map() -> dict[str, str]:
-    """Map {province: specialty_text}. 50 tỉnh có, 13 không.
-
-    Dùng cho hook đặc sản trong Closing (F2A.8 + 1A § 7).
-    """
-    data = _load_json_file("province_specialty.json")
-    return data.get("specialties", {})
-
-
-def get_specialty(province: str) -> str | None:
-    """Trả specialty cho province. None nếu không có (Closing fallback generic)."""
-    return get_province_specialty_map().get(province)
-
-
-# ============================================================
-# Main category enum — 7 loại ngành
+# Main category enum — 7 loại ngành (LUẬT enum, KHÔNG keyword match)
 # ============================================================
 
 
 @lru_cache(maxsize=1)
 def get_main_category_list() -> list[dict]:
-    """7 category {code, name, keywords}."""
+    """7 category {code, name}. KHÔNG có keywords array (bỏ vì khoá case).
+
+    Suy main_category code từ free text → Phase 2 dùng LLM auto-derive
+    với context, KHÔNG substring match.
+    """
     data = _load_json_file("main_category_enum.json")
     return data.get("categories", [])
 
@@ -85,21 +75,11 @@ def get_category_codes() -> list[str]:
     return [c["code"] for c in get_main_category_list()]
 
 
-def find_category_by_keyword(text: str) -> str | None:
-    """Match text với keywords để suy main_category code.
-
-    Phase 1 simple: substring match (case-insensitive).
-    Phase 2+: LLM auto-derive với fuzzy + context.
-
-    Returns category code hoặc None.
-    """
-    if not text:
-        return None
-    text_lower = text.lower()
+def get_category_name(code: str) -> str | None:
+    """Display name cho 1 category code."""
     for cat in get_main_category_list():
-        for kw in cat.get("keywords", []):
-            if kw.lower() in text_lower:
-                return cat["code"]
+        if cat.get("code") == code:
+            return cat.get("name")
     return None
 
 
@@ -111,5 +91,4 @@ def find_category_by_keyword(text: str) -> str | None:
 def clear_cache() -> None:
     """Clear all lru_cache — dùng cho test reload data."""
     get_province_list.cache_clear()
-    get_province_specialty_map.cache_clear()
     get_main_category_list.cache_clear()
