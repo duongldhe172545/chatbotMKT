@@ -1,159 +1,205 @@
-"""Pydantic schemas — mirror mục 10 và 11 trong tài liệu MVP."""
+"""Em Linh MKT v8 — Pydantic schemas.
+
+Refer:
+- F2A.3 (LUAT_2A_core v0.2.4) — schema 4 scope
+- F2C.1 (LUAT_2C_infra v0.1.4) — DB 3 bảng
+- CORE § H.1 v3.0.5 — 28 trường Scope 1+2 (6 REQUIRED + 16 OPTIONAL + 6 RAW + 12 derive)
+
+Note: Pydantic KHÔNG enforce REQUIRED ở schema level. REQUIRED field trong
+Scope 1 (slot 1.1/1.2/1.3/2.1/2.2/4.0) có thể null nếu SKIP với flag
+`required_missing` — sanity check 5-point F2A.7 job để validate.
+
+Scope 4 (c1..c9, c_score, tier, dealer_id) KHÔNG ở đây — Backend Scoring
+service riêng (STRATEGY D7).
+"""
 from __future__ import annotations
 
-from datetime import datetime
-from enum import Enum
-from typing import Literal
+from datetime import datetime, timezone
+from typing import Optional
 
 from pydantic import BaseModel, Field
 
-ConfidenceLevel = Literal["LOW", "MEDIUM", "HIGH"]
+from app.models.enums import (
+    AddressForm,
+    Channel,
+    ConfirmationStatus,
+    DealerType,
+    Flag,
+    Priority,
+    QueueStatus,
+    ReviewStatus,
+    Stage,
+)
+
+
+def _utcnow() -> datetime:
+    """Helper: datetime.now(timezone.utc) — replaces deprecated datetime.utcnow()."""
+    return datetime.now(timezone.utc)
+
+
+# ============================================================
+# Sub-models cho state tracking
+# ============================================================
+
+
+class SlotAttempts(BaseModel):
+    """Tracker per-slot retry. Refer D11 STRATEGY + F2A.4 step 2.7.
+
+    `consecutive`: reset = 0 sau ADVANCE hoặc DEFER (sau khi gác slot)
+    `total`: tăng qua mỗi RETRY hoặc DEFER, hardcap = MAX_RETRY_TOTAL (3)
+    """
+    consecutive: int = 0
+    total: int = 0
+
+
+class DeferredSlot(BaseModel):
+    """Slot tạm gác sau 2-lần-liên-tiếp chưa fill. Refer F2A.4 step 2.7-2.8."""
+    defer_at_turn: int
+    recheck_after_n_slots: int = 2     # Config DEFER_RECHECK_AFTER_N_SLOTS
+
+
+class HistoryMessage(BaseModel):
+    """1 message trong history. Role: 'dealer' / 'bot'."""
+    role: str
+    content: str
+    ts: datetime
+
+
+class DealerTypeHistoryEntry(BaseModel):
+    """Detect dealer type per turn. Refer F2A.6 turn 3/8/13."""
+    turn: int
+    dealer_type: DealerType
+
+
+# ============================================================
+# Scope 1 + 2 — DealerProfileRaw
+# 6 REQUIRED + 16 OPTIONAL + 6 RAW SIGNAL (Scope 1) + 12 auto-derive (Scope 2)
+# = 28 + 12 = 40 trường (cộng metadata 2 + session_id FK ở DB layer)
+# ============================================================
 
 
 class DealerProfileRaw(BaseModel):
-    """Schema profile RAW — đã mở rộng cho Em Linh MKT v7.
+    """Schema profile RAW dealer.
 
-    Field cũ (v6) giữ nguyên để backward compat data sessions cũ. Field v7
-    mới thêm dưới — nullable, không vỡ schema khi load profile v6.
+    Refer: CORE § H.1 + F2A.3 + KE_HOACH § 2.1 + DB schema F2C.1 (3 bảng).
     """
-    # === v6 fields (legacy — giữ để không vỡ data cũ) ===
-    dealer_name: str | None = None
-    owner_name: str | None = None
-    phone_or_zalo: str | None = None
-    province: str | None = None
-    district: str | None = None
-    main_category: str | None = None
-    dealer_type: str | None = None
-    customer_base_estimate: str | None = None
-    pain_points: list[str] = Field(default_factory=list)
-    dl0_priority: list[str] = Field(default_factory=list)
-    recommended_group: str | None = None
+    # ================================================================
+    # SCOPE 1: chatbot thu trực tiếp qua 17 slot
+    # ================================================================
 
-    # === v7 fields (mới — Em Linh MKT v7) ===
-    # Identity (Chủ đề 1)
-    address: str | None = None  # full address: "Tổ 6, P. Duyệt Trung, TP. Cao Bằng, Tỉnh Cao Bằng"
-    province_specialty: str | None = None  # lookup từ address — "vịt quay 7 vị"
-    # Business (Chủ đề 2)
-    category_stack: list[str] = Field(default_factory=list)  # ["vách kính cường lực", "cửa nhôm Xingfa"]
-    main_product: str | None = None  # sản phẩm chính: "vách kính cường lực"
-    product_portfolio_signal: str | None = None  # raw
-    business_model_signal: str | None = None  # "phân phối + sản xuất + thi công"
-    est_team_size: int | None = None
-    team_stability_signal: str | None = None  # raw — "4 thợ cơ hữu, ổn định lâu"
-    supplier_brands: list[str] = Field(default_factory=list)  # ["Xingfa Quảng Đông", "Việt Pháp"]
-    customer_segment_signal: str | None = None  # "trung cấp → cận cao cấp"
-    # Channels (Chủ đề 2 cuối)
-    zalo: str | None = None
-    facebook: str | None = None  # link/url/"chưa có"
-    primary_contact_channel: str | None = None  # "Zalo" | "FB" | "điện thoại" | "mixed"
-    fb_marketing_status: str | None = None  # raw
-    # Customer Gold Mine (Chủ đề 3)
-    customer_old_percentage: str | None = None  # "60-80%"
-    customer_storage_method: str | None = None  # "Zalo cá nhân (chính); Sổ tay (vài khách lớn)"
-    customer_pain: str | None = None  # raw long text — turn 3.3
-    usp_signal: str | None = None  # raw
-    payment_terms_signal: str | None = None  # raw cọc + công nợ
-    # Brandkit (Chủ đề 4)
-    brandkit_consent: Literal["yes", "no"] | None = None
-    slogan: str | None = None  # auto-gen sau, optional
-    color_accent: str | None = None  # "Xanh đậm + bạc kim loại"
-    feng_shui_signal: str | None = None  # "Mậu Thân, hợp xanh đậm + kim loại bạc"
+    # ----- REQUIRED (6) — sanity check F2A.7 validate -----
+    dealer_name: Optional[str] = None              # slot 1.1
+    owner_name: Optional[str] = None               # slot 1.1
+    address: Optional[str] = None                  # slot 1.2
+    phone_or_zalo: Optional[str] = None            # slot 1.3 (digits-only, len 9-11)
+    main_product: Optional[str] = None             # slot 2.1
+    brandkit_consent: Optional[str] = None         # slot 4.0 — "yes" / "no"
 
-    # === Status (giữ chung) ===
-    confirmation_status: Literal["PENDING", "CONFIRMED", "EDITED"] = "PENDING"
-    review_status: Literal["RAW", "UNDER_REVIEW", "APPROVED", "REJECTED"] = "RAW"
-    flags: list[str] = Field(default_factory=list)
+    # ----- OPTIONAL (16) — "không biết" → null + flag dealer_declined -----
+    category_stack: list[str] = Field(default_factory=list)    # slot 2.1
+    business_model_signal: Optional[str] = None                # slot 2.2
+    est_team_size: Optional[int] = None                        # slot 2.3
+    team_stability_signal: Optional[str] = None                # slot 2.3
+    supplier_brands: list[str] = Field(default_factory=list)   # slot 2.4
+    customer_segment_signal: Optional[str] = None              # slot 2.4
+    zalo: Optional[str] = None                                 # slot 2.5
+    facebook: Optional[str] = None                             # slot 2.6
+    primary_contact_channel: Optional[str] = None              # slot 2.5
+    fb_marketing_status: Optional[str] = None                  # slot 2.6
+    customer_old_percentage: Optional[str] = None              # slot 3.1
+    customer_storage_method: Optional[str] = None              # slot 3.2
+    customer_pain: Optional[str] = None                        # slot 3.3 (open question text dài)
+    payment_terms_signal: Optional[str] = None                 # slot 3.4
+    color_accent: Optional[str] = None                         # slot 4.2
+    feng_shui_signal: Optional[str] = None                     # slot 4.2
 
+    # ----- RAW SIGNAL (6) — mining cho Backend Scoring chấm C1-C9 -----
+    local_dominance_signal: Optional[str] = None               # C6 (slot 1.2)
+    supplier_negotiation_signal: Optional[str] = None          # C8 (slot 2.4)
+    community_network_signal: Optional[str] = None             # C9 (slot 2.6)
+    motivation_signal: Optional[str] = None                    # C5 (slot 3.3)
+    warranty_responsibility_signal: Optional[str] = None       # C4 NEW (slot 3.5)
+    usp_signal: Optional[str] = None                           # bonus slogan (slot 3.3)
 
-class ExtractResult(BaseModel):
-    """Output extractor mục 11 — voice_intake_result với 3 lớp:
-    raw_transcript / cleaned_summary / extracted_fields + confidence + missing + confirm.
-    """
-    raw_transcript: str = ""  # Toàn bộ tin nhắn dealer ghép lại (không qua LLM)
-    cleaned_summary: str = ""
-    extracted_fields: dict = Field(default_factory=dict)
-    confidence: dict[str, ConfidenceLevel] = Field(default_factory=dict)
-    missing_fields: list[str] = Field(default_factory=list)
-    confirm_questions: list[str] = Field(default_factory=list)
+    # ================================================================
+    # SCOPE 2: chatbot auto-derive (parse + LLM gen)
+    # ================================================================
+    province: Optional[str] = None                             # parse từ address
+    district: Optional[str] = None                             # parse từ address
+    province_specialty: Optional[str] = None                   # lookup 50/63 tỉnh có specialty
+    main_category: Optional[str] = None                        # enum chuẩn hóa từ main_product
+    dealer_type: Optional[str] = None                          # enum dai_ly/chu_xuong/...
+
+    brand_name_short: Optional[str] = None                     # LLM rút gọn
+    initials_full: Optional[str] = None
+    initial_single: Optional[str] = None
+    contact_name: Optional[str] = None                         # default = owner_name
+    contact_role: str = "Chủ cửa hàng"                         # fix default
+    hotline: Optional[str] = None                              # default = phone_or_zalo
+    slogan_options: list[str] = Field(default_factory=list)    # LLM gen 5 phương án
 
 
-class Stage(str, Enum):
-    GREETING = "GREETING"
-    ASKING = "ASKING"
-    CONFIRMING = "CONFIRMING"
-    DONE = "DONE"
+# ============================================================
+# Scope 3 — SessionState (state machine + history)
+# Refer F2A.1 + F2C.1
+# ============================================================
 
 
-class ChatRole(str, Enum):
-    BOT = "bot"
-    DEALER = "dealer"
-
-
-class ChatMessage(BaseModel):
-    role: ChatRole
-    content: str
-    ts: datetime = Field(default_factory=datetime.utcnow)
-
-
-class Session(BaseModel):
-    session_id: str
+class SessionState(BaseModel):
+    """State machine + lifecycle metadata."""
+    session_id: str                                            # uuid v4
     stage: Stage = Stage.GREETING
-    messages: list[ChatMessage] = Field(default_factory=list)
-    profile_raw: DealerProfileRaw = Field(default_factory=DealerProfileRaw)
-    confidence: dict[str, ConfidenceLevel] = Field(default_factory=dict)
-    missing_fields: list[str] = Field(default_factory=list)
-    current_question_idx: int = 0
-    # Track số lần đã hỏi mỗi field — sau MAX_RETRY thì skip để không loop vô tận
-    field_attempts: dict[str, int] = Field(default_factory=dict)
-    skipped_fields: list[str] = Field(default_factory=list)
-    # Re-ask logic: khi field bị skip, lưu count field đã fill tại thời điểm skip.
-    # Sau khi dealer fill thêm ≥2 field NEW (signal cooperation) → field skip
-    # được phép hỏi lại 1 lần (ghi vào skipped_retried để không loop).
-    skipped_at_filled_count: dict[str, int] = Field(default_factory=dict)
-    skipped_retried: list[str] = Field(default_factory=list)
-    # Cờ tích luỹ qua các turn (abuse, prompt injection, escalation, ...)
-    flag_history: list[str] = Field(default_factory=list)
-    # Nhóm cụm mở đầu của turn bot gần nhất (A/B/C/D/X) — dùng để inject
-    # directive "TURN NÀY CẤM nhóm X" vào extractor prompt, ép luân phiên.
-    last_opener_group: str | None = None
-    # True nếu phone của dealer match profile cũ → bot greet kiểu returning.
-    is_returning_dealer: bool = False
-    # Xưng hô: "anh" (mặc định) hoặc "chị" (sau khi detect dealer là nữ).
-    # Một khi chốt → giữ nhất quán suốt phiên.
-    address_form: str = "anh"
-    # Spam protection — Layer 1+5
-    llm_call_count: int = 0  # tổng số LLM call đã dùng trong session
-    quota_warned: bool = False  # đã cảnh báo tại ngưỡng 30 chưa
-    mode: Literal["normal", "template_only", "soft_ended"] = "normal"
-    consecutive_clean_messages: int = 0  # đếm clean msg để recovery template_only
-    # === v7 turn state ===
-    # Turn hiện tại trong flow 15 micro-turn. None = chưa bắt đầu / đã xong.
-    # Format: "1.1", "1.2", "1.3", "2.1"..."4.2".
-    v7_turn: str | None = None
-    # List turn đã hoàn thành (extract đúng field expected hoặc skip).
-    v7_completed_turns: list[str] = Field(default_factory=list)
-    # Số lần đã hỏi turn hiện tại (retry refusal — sau 2 lần thì skip turn,
-    # trừ turn bắt buộc 1.1 + 4.0).
-    v7_turn_attempts: dict[str, int] = Field(default_factory=dict)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    current_slot: Optional[str] = None                         # vd "2.3"
+
+    # Retry tracking — refer D11 + F2A.4
+    slot_attempts: dict[str, SlotAttempts] = Field(default_factory=dict)
+    deferred_slots: dict[str, DeferredSlot] = Field(default_factory=dict)
+    skipped_slots: list[str] = Field(default_factory=list)
+
+    # Flags + admin tracking (15 enum)
+    flags: list[Flag] = Field(default_factory=list)
+
+    # Dealer type detection — refer F2A.6
+    detected_dealer_type: Optional[DealerType] = None
+    dealer_type_history: list[DealerTypeHistoryEntry] = Field(default_factory=list)
+
+    # Confirmation + review status
+    confirmation_status: ConfirmationStatus = ConfirmationStatus.PENDING
+    review_status: ReviewStatus = ReviewStatus.RAW
+
+    # History + counter
+    history: list[HistoryMessage] = Field(default_factory=list)
+    turn_count: int = 0
+    paused_for: Optional[str] = None                           # None / "defensive" / "tam_su"
+
+    # Persona config
+    address_form: AddressForm = AddressForm.ANH
+
+    # Lifecycle timestamps
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
+    closed_at: Optional[datetime] = None
+
+    # Source
+    channel: Channel = Channel.WEB
+    ip_address: Optional[str] = None
+    user_agent: Optional[str] = None
 
 
-# API request/response
-class ChatRequest(BaseModel):
-    session_id: str | None = Field(default=None, max_length=64)
-    # Max 1000 chars/message — chống spam tốn token. Pydantic reject với
-    # 422 nếu vượt. Dealer chat tự nhiên hiếm khi vượt 500 chars/turn.
-    message: str = Field(max_length=1000)
-    # Idempotency key (frontend tự sinh UUID) — chống double-submit do
-    # network retry / multi-tab. Optional vì client cũ không có vẫn chạy.
-    message_id: str | None = Field(default=None, max_length=64)
+# ============================================================
+# Admin queue entry (F2C.8)
+# ============================================================
 
 
-class ChatResponse(BaseModel):
+class AdminQueueEntry(BaseModel):
+    """Entry trong admin queue cho human review. Refer F2C.8."""
+    queue_id: str                                  # uuid v4
     session_id: str
-    bot_message: str
-    stage: Stage
-    profile_snapshot: DealerProfileRaw
-    messages: list[ChatMessage] = Field(default_factory=list)
-    done: bool = False
+    trigger: Flag                                  # 15 enum
+    priority: Priority
+    status: QueueStatus = QueueStatus.PENDING
+    assigned_to: Optional[str] = None              # admin username
+    notes: Optional[str] = None
+    profile_snapshot: Optional[DealerProfileRaw] = None
+    created_at: datetime = Field(default_factory=_utcnow)
+    resolved_at: Optional[datetime] = None
