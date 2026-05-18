@@ -1,4 +1,6 @@
-// Chat client — Web Speech API cho voice input (Chrome/Edge tốt nhất)
+// Chat client v8 — adapt /api/chat response format.
+// Refer app/api/chat.py: ChatResponse {session_id, reply, stage, current_slot, is_first_turn}
+
 const chatEl = document.getElementById("chat");
 const formEl = document.getElementById("form");
 const inputEl = document.getElementById("input");
@@ -6,52 +8,46 @@ const sendBtn = document.getElementById("sendBtn");
 const micBtn = document.getElementById("micBtn");
 const statusEl = document.getElementById("status");
 
-const SESSION_KEY = "em_linh_session_id";
+const SESSION_KEY = "em_linh_session_id_v8";
 let sessionId = localStorage.getItem(SESSION_KEY) || null;
 
-// P0-3: chặn double-submit ở scope ngoài (form submit + sendMessage cùng check)
+// Chặn double-submit
 let isSending = false;
+
 
 // ---------- UI helpers ----------
 function appendBubble(role, content) {
   const div = document.createElement("div");
   div.className = `bubble ${role}`;
+  // Multi-line support (greeting có \n + card có ASCII art)
   div.textContent = content;
+  div.style.whiteSpace = "pre-wrap";
   chatEl.appendChild(div);
   chatEl.scrollTop = chatEl.scrollHeight;
-  return div;
 }
 
-function clearChat() {
-  chatEl.innerHTML = "";
-}
 
-function renderHistory(messages) {
-  clearChat();
-  for (const m of messages || []) {
-    appendBubble(m.role, m.content);
+function setStatus(text, isError = false) {
+  if (statusEl) {
+    statusEl.textContent = text;
+    statusEl.classList.toggle("error", isError);
   }
 }
 
-function setStatus(text, isError = false) {
-  statusEl.textContent = text;
-  statusEl.classList.toggle("error", isError);
-}
 
 function setBusy(busy) {
-  sendBtn.disabled = busy;
-  inputEl.disabled = busy;
-  micBtn.disabled = busy;
+  if (sendBtn) sendBtn.disabled = busy;
+  if (inputEl) inputEl.disabled = busy;
+  if (micBtn) micBtn.disabled = busy;
 }
 
-// ---------- Typing indicator xoay vòng ----------
-// Sonnet 4.6 đôi khi mất 4-6s — tránh nhàm chán bằng message thay đổi theo thời gian.
+
+// ---------- Typing indicator ----------
 const TYPING_MESSAGES = [
   "Em đang đọc tin nhắn của anh...",
   "Em đang nghĩ xíu...",
   "Em sắp xong rồi ạ...",
   "Anh chờ em chút nha...",
-  "Em đang gõ lại cho gọn...",
 ];
 
 function createTypingBubble() {
@@ -70,9 +66,7 @@ function createTypingBubble() {
     idx = (idx + 1) % TYPING_MESSAGES.length;
     textEl.textContent = " " + TYPING_MESSAGES[idx];
   };
-  // Lần đầu hiện sau 2s (tránh nháy nếu LLM trả nhanh)
   const initialTimer = setTimeout(tick, 2000);
-  // Sau đó đổi message mỗi 3s
   const interval = setInterval(tick, 3000);
 
   return {
@@ -86,33 +80,28 @@ function createTypingBubble() {
   };
 }
 
-// ---------- API call ----------
-// Idempotency key: UUID per gửi → backend cache 5 phút. Network retry /
-// multi-tab gửi trùng → backend trả cached response, không gọi LLM 2 lần.
-function genMessageId() {
-  if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
-  return "msg-" + Date.now() + "-" + Math.random().toString(36).slice(2, 10);
-}
 
+// ---------- API call ----------
 async function postChat(message) {
   const res = await fetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       session_id: sessionId,
-      message,
-      message_id: genMessageId(),
+      message: message || "",
+      channel: "web",
     }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || "Lỗi server");
+    throw new Error(err.detail || `HTTP ${res.status}`);
   }
   return res.json();
 }
 
+
 async function sendMessage(text) {
-  if (isSending) return; // P0-3: chặn double submit
+  if (isSending) return;
   isSending = true;
   setBusy(true);
   appendBubble("dealer", text);
@@ -125,126 +114,78 @@ async function sendMessage(text) {
     localStorage.setItem(SESSION_KEY, sessionId);
 
     typing.stop();
-    appendBubble("bot", data.bot_message);
+    appendBubble("bot", data.reply);
 
-    setStatus(`Stage: ${data.stage}`);
+    setStatus(`Stage: ${data.stage}${data.current_slot ? ' | Slot: ' + data.current_slot : ''}`);
   } catch (err) {
     typing.stop();
     setStatus(`Lỗi: ${err.message}`, true);
+    appendBubble("bot", "Dạ em đang gặp xíu trục trặc, anh thử nhắn lại sau ít phút nhé.");
   } finally {
     isSending = false;
     setBusy(false);
-    inputEl.focus();
+    if (inputEl) inputEl.focus();
   }
 }
 
-// ---------- Init: khôi phục history hoặc chào mới ----------
+
+// ---------- Init ----------
 async function init() {
   setStatus("Đang kết nối...");
   setBusy(true);
   try {
+    if (sessionId) {
+      // Resume session existing — fetch status
+      try {
+        const statusRes = await fetch(`/api/chat/${sessionId}/status`);
+        if (statusRes.ok) {
+          const status = await statusRes.json();
+          if (status.stage === "DONE") {
+            // Session đã DONE — bắt đầu mới
+            sessionId = null;
+            localStorage.removeItem(SESSION_KEY);
+          } else {
+            setStatus(`Resume session — Stage: ${status.stage}`);
+            setBusy(false);
+            return;
+          }
+        } else {
+          // Session không tồn tại → clear + new
+          sessionId = null;
+          localStorage.removeItem(SESSION_KEY);
+        }
+      } catch (_) {
+        sessionId = null;
+      }
+    }
+
+    // Session mới → POST với session_id=null → backend trả greeting
     const data = await postChat("");
     sessionId = data.session_id;
     localStorage.setItem(SESSION_KEY, sessionId);
-
-    if (data.messages && data.messages.length > 0) {
-      renderHistory(data.messages);
-    } else {
-      appendBubble("bot", data.bot_message);
-    }
+    appendBubble("bot", data.reply);
     setStatus(`Stage: ${data.stage}`);
   } catch (err) {
     setStatus(`Lỗi: ${err.message}`, true);
+    appendBubble("bot", "Em xin lỗi, kết nối có vấn đề. Anh thử reload trang nhé.");
   } finally {
     setBusy(false);
   }
 }
 
+
 // ---------- Form submit ----------
-formEl.addEventListener("submit", (e) => {
-  e.preventDefault();
-  if (isSending) return; // P0-3: chặn ở cả form-level
-  if (isRecording && recognitionRef) {
-    try { recognitionRef.stop(); } catch (_) {}
-  }
-  const text = inputEl.value.trim();
-  if (!text) return;
-  inputEl.value = "";
-  sendMessage(text);
-});
-
-// ---------- Web Speech API (voice → text) ----------
-let recognitionRef = null;
-let isRecording = false;
-
-const SpeechRecognition =
-  window.SpeechRecognition || window.webkitSpeechRecognition;
-
-if (!SpeechRecognition) {
-  micBtn.disabled = true;
-  micBtn.title = "Trình duyệt không hỗ trợ voice. Dùng Chrome/Edge.";
-} else {
-  recognitionRef = new SpeechRecognition();
-  recognitionRef.lang = "vi-VN";
-  recognitionRef.continuous = false;
-  recognitionRef.interimResults = true;
-
-  let finalTranscript = "";
-
-  micBtn.addEventListener("click", () => {
-    if (isRecording) {
-      recognitionRef.stop();
-    } else {
-      finalTranscript = "";
-      recognitionRef.start();
-    }
+if (formEl) {
+  formEl.addEventListener("submit", (e) => {
+    e.preventDefault();
+    if (isSending) return;
+    const text = inputEl.value.trim();
+    if (!text) return;
+    inputEl.value = "";
+    sendMessage(text);
   });
-
-  recognitionRef.onstart = () => {
-    isRecording = true;
-    micBtn.classList.add("recording");
-    setStatus("Đang nghe... (bấm lại để dừng, sau đó kiểm tra rồi bấm Gửi)");
-  };
-
-  recognitionRef.onresult = (event) => {
-    let interim = "";
-    for (let i = event.resultIndex; i < event.results.length; i++) {
-      const transcript = event.results[i][0].transcript;
-      if (event.results[i].isFinal) {
-        finalTranscript += transcript;
-      } else {
-        interim += transcript;
-      }
-    }
-    inputEl.value = finalTranscript + interim;
-  };
-
-  recognitionRef.onerror = (event) => {
-    setStatus(`Lỗi voice: ${event.error}`, true);
-  };
-
-  recognitionRef.onend = () => {
-    isRecording = false;
-    micBtn.classList.remove("recording");
-    if (finalTranscript.trim()) {
-      setStatus("Em nghe xong rồi ạ — anh đọc lại rồi bấm Gửi nhé.");
-      inputEl.focus();
-    } else {
-      setStatus("Em chưa nghe rõ, anh thử nói lại giúp em với ạ.");
-    }
-  };
 }
 
-// ---------- P1-8: cleanup khi rời trang ----------
-window.addEventListener("beforeunload", () => {
-  if (recognitionRef) {
-    try { recognitionRef.abort(); } catch (_) {}
-    recognitionRef.onstart = null;
-    recognitionRef.onresult = null;
-    recognitionRef.onerror = null;
-    recognitionRef.onend = null;
-  }
-});
 
-// Bắt đầu
+// ---------- Init on load ----------
 init();

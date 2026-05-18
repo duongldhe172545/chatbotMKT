@@ -1,101 +1,85 @@
-"""FastAPI entrypoint. Chạy: python -m app.main
+"""FastAPI entry point v8.
 
-Production (Railway): set UVICORN_RELOAD=false để tắt watch.
-Dev local: mặc định reload=true để auto-restart khi sửa code.
+Run: python -m app.main (dev) hoặc uvicorn app.main:app --port 8000.
 """
 from __future__ import annotations
 
-import os
+import logging
 from pathlib import Path
 
 import uvicorn
-from fastapi import Depends, FastAPI
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api.admin import router as admin_router
-from app.api.auth import require_admin
 from app.api.chat import router as chat_router
-from app.api.labels_route import router as labels_router
-from app.config import get_server_config
-from app.logging_setup import setup_logging
-from app.middleware import RequestIDMiddleware
+from app.config import get_settings
 
-setup_logging()
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
+
 
 ROOT = Path(__file__).resolve().parent.parent
 STATIC_DIR = ROOT / "static"
 
-app = FastAPI(title="Em Linh MKT — Chatbot Dealer MVP")
 
-# CORS: cho phép frontend deploy khác domain gọi API. Mặc định "*" cho dev,
-# production NÊN whitelist domain cụ thể qua env CORS_ALLOWED_ORIGINS (CSV).
-import os as _os
-_cors_origins_raw = _os.getenv("CORS_ALLOWED_ORIGINS", "*").strip()
-_cors_origins = (
-    [o.strip() for o in _cors_origins_raw.split(",") if o.strip()]
-    if _cors_origins_raw != "*"
-    else ["*"]
-)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=_cors_origins,
-    allow_credentials=True,
-    allow_methods=["GET", "POST"],
-    allow_headers=["*"],
-    expose_headers=["X-Request-ID"],
-)
+def create_app() -> FastAPI:
+    """App factory."""
+    settings = get_settings()
+    app = FastAPI(
+        title="Em Linh MKT — Chatbot Dealer v8",
+        version="0.1.0",
+        description="Phase 1 MVP — 3 REQUIRED slot + state machine 6 action + Gemini",
+    )
 
-# X-Request-ID: middleware sinh UUID cho mỗi request, propagate qua logger
-# context, trả qua response header. Debug production nhanh.
-app.add_middleware(RequestIDMiddleware)
+    # CORS
+    origins = (
+        ["*"] if settings.CORS_ALLOWED_ORIGINS == "*"
+        else [o.strip() for o in settings.CORS_ALLOWED_ORIGINS.split(",")]
+    )
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
-app.include_router(chat_router)
-app.include_router(admin_router)
-app.include_router(labels_router)
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    # API routes
+    app.include_router(chat_router)
 
+    # Static files
+    if STATIC_DIR.exists():
+        app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-@app.get("/")
-def index() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html")
+        @app.get("/")
+        def index():
+            return FileResponse(STATIC_DIR / "index.html")
 
+    @app.get("/health")
+    def health() -> dict:
+        return {"status": "ok", "version": "0.1.0", "phase": "1"}
 
-def _serve_admin(_: str = Depends(require_admin)) -> FileResponse:
-    """Serve admin.html — JS đọc URL pathname để hiện đúng tab."""
-    return FileResponse(STATIC_DIR / "admin.html")
-
-
-# /admin → mặc định redirect sang /admin/profiles để URL rõ ràng.
-# /admin/profiles và /admin/sessions là 2 trang logic riêng (cùng HTML +
-# JS detect URL để show panel đúng).
-@app.get("/admin")
-def admin_root(_: str = Depends(require_admin)) -> FileResponse:
-    return FileResponse(STATIC_DIR / "admin.html")
+    return app
 
 
-@app.get("/admin/profiles")
-def admin_profiles(_: str = Depends(require_admin)) -> FileResponse:
-    return FileResponse(STATIC_DIR / "admin.html")
-
-
-@app.get("/admin/sessions")
-def admin_sessions(_: str = Depends(require_admin)) -> FileResponse:
-    return FileResponse(STATIC_DIR / "admin.html")
-
-
-@app.get("/health")
-def health() -> dict:
-    return {"status": "ok"}
+app = create_app()
 
 
 def main() -> None:
-    host, port = get_server_config()
-    # Reload watcher: dev=true (auto-restart khi sửa code), prod=false.
-    # Railway deploy phải set UVICORN_RELOAD=false (hoặc không set).
-    reload = os.getenv("UVICORN_RELOAD", "true").lower() in ("1", "true", "yes")
-    uvicorn.run("app.main:app", host=host, port=port, reload=reload)
+    settings = get_settings()
+    logger.info("Em Linh MKT v8 starting — %s:%d", settings.HOST, settings.PORT)
+    uvicorn.run(
+        "app.main:app",
+        host=settings.HOST,
+        port=settings.PORT,
+        reload=False,
+        log_level="info",
+    )
 
 
 if __name__ == "__main__":
