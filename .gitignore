@@ -16,6 +16,7 @@ config.local.*
 # ============================================================
 data/
 !data/.gitkeep
+!data/*.json     # whitelist JSON seed (province_list, province_specialty, ...) — refer F2C.7
 *.db
 *.db-wal
 *.db-shm
