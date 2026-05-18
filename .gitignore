@@ -16,9 +16,11 @@ config.local.*
 # ============================================================
 # Note: dùng data/* (1 level) thay vì data/ — để whitelist JSON seed
 # (gitignore không re-include được nếu parent dir bị ignore).
+# Inline # KHÔNG phải comment trong gitignore — phải để comment riêng line.
 data/*
 !data/.gitkeep
-!data/*.json     # whitelist JSON seed (province_list, province_specialty, ...) — refer F2C.7
+# Whitelist JSON seed (province_list, province_specialty, main_category_enum) — refer F2C.7
+!data/*.json
 *.db
 *.db-wal
 *.db-shm

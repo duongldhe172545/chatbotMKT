@@ -1,0 +1,45 @@
+{
+  "_meta": {
+    "version": "1.0.0",
+    "updated_at": "2026-05-15",
+    "note": "7 category cover ≥95% dealer ngành cửa/nhôm kính/tủ bếp/VLXD VN. Refer STRATEGY phụ lục + CORE § L.2.",
+    "source": "MVP v01 khảo sát thị trường"
+  },
+  "categories": [
+    {
+      "code": "cua_cuon",
+      "name": "Cửa cuốn",
+      "keywords": ["cửa cuốn", "cửa cuốn tay", "cửa cuốn motor", "khe gió", "nan ngang"]
+    },
+    {
+      "code": "cua_nhom_kinh",
+      "name": "Cửa nhôm kính",
+      "keywords": ["nhôm kính", "nhôm hệ", "vách kính", "cửa nhôm", "cường lực", "kính dán", "kính phản quang", "xingfa", "việt pháp", "schüco"]
+    },
+    {
+      "code": "cua_thep",
+      "name": "Cửa thép",
+      "keywords": ["cửa thép", "cửa thép chống cháy", "cửa thép vân gỗ", "kingdoor"]
+    },
+    {
+      "code": "tu_bep",
+      "name": "Tủ bếp",
+      "keywords": ["tủ bếp", "gỗ MDF", "acrylic", "laminate", "gỗ tự nhiên", "blum", "hettich", "hafele"]
+    },
+    {
+      "code": "solar",
+      "name": "Điện mặt trời",
+      "keywords": ["solar", "điện mặt trời", "pin năng lượng", "trina", "canadian solar", "longi", "jinko"]
+    },
+    {
+      "code": "bao_tri_sua_chua",
+      "name": "Bảo trì / Sửa chữa",
+      "keywords": ["bảo trì", "sửa chữa", "thay thế", "linh kiện", "phụ kiện"]
+    },
+    {
+      "code": "vlxd_tong_hop",
+      "name": "VLXD tổng hợp",
+      "keywords": ["vlxd", "vật liệu xây dựng", "tổng hợp", "đa ngành"]
+    }
+  ]
+}
