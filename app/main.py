@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.api.admin import router as admin_router
 from app.api.chat import router as chat_router
 from app.config import get_settings
 
@@ -51,6 +52,7 @@ def create_app() -> FastAPI:
 
     # API routes
     app.include_router(chat_router)
+    app.include_router(admin_router)
 
     # Static files
     if STATIC_DIR.exists():
@@ -59,6 +61,12 @@ def create_app() -> FastAPI:
         @app.get("/")
         def index():
             return FileResponse(STATIC_DIR / "index.html")
+
+        @app.get("/admin")
+        def admin_page():
+            """Admin UI page (HTTP Basic auth ở API level, frontend trigger
+            popup browser native login khi gọi API)."""
+            return FileResponse(STATIC_DIR / "admin.html")
 
     @app.get("/health")
     def health() -> dict:

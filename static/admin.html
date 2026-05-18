@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Em Linh MKT — Admin Dashboard</title>
+  <link rel="stylesheet" href="/static/admin.css" />
+</head>
+<body>
+  <header class="header">
+    <div class="brand">Em Linh MKT — Admin</div>
+    <nav class="nav">
+      <button class="nav-btn active" data-tab="dashboard">📊 Dashboard</button>
+      <button class="nav-btn" data-tab="sessions">📋 Sessions</button>
+      <button class="nav-btn" data-tab="queue">⚠️ Queue</button>
+    </nav>
+    <div class="user-info">
+      <a href="/" class="link-home">← Về chat</a>
+    </div>
+  </header>
+
+  <main class="main">
+    <!-- Dashboard tab -->
+    <section id="tab-dashboard" class="tab active">
+      <h2>Dashboard</h2>
+      <div id="stats-container" class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">Tổng session</div>
+          <div class="stat-value" id="stat-total">-</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">CONFIRMED</div>
+          <div class="stat-value" id="stat-confirmed">-</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Queue PENDING</div>
+          <div class="stat-value" id="stat-queue">-</div>
+        </div>
+        <div class="stat-card priority-high">
+          <div class="stat-label">Queue HIGH</div>
+          <div class="stat-value" id="stat-queue-high">-</div>
+        </div>
+      </div>
+
+      <div class="stats-detail">
+        <div class="stats-block">
+          <h3>Phân bố theo Stage</h3>
+          <table class="stats-table">
+            <thead><tr><th>Stage</th><th>Số session</th></tr></thead>
+            <tbody id="stats-by-stage"></tbody>
+          </table>
+        </div>
+
+        <div class="stats-block">
+          <h3>Phân bố theo Dealer type</h3>
+          <table class="stats-table">
+            <thead><tr><th>Type</th><th>Số session</th></tr></thead>
+            <tbody id="stats-by-dealer-type"></tbody>
+          </table>
+        </div>
+
+        <div class="stats-block">
+          <h3>Phân bố theo Confirmation</h3>
+          <table class="stats-table">
+            <thead><tr><th>Status</th><th>Số session</th></tr></thead>
+            <tbody id="stats-by-confirmation"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Sessions tab -->
+    <section id="tab-sessions" class="tab">
+      <h2>Sessions</h2>
+      <div class="filters">
+        <label>Stage:
+          <select id="filter-stage">
+            <option value="">— Tất cả —</option>
+            <option value="GREETING">GREETING</option>
+            <option value="ASKING">ASKING</option>
+            <option value="CONFIRMING">CONFIRMING</option>
+            <option value="DONE">DONE</option>
+          </select>
+        </label>
+        <label>Confirmation:
+          <select id="filter-confirmation">
+            <option value="">— Tất cả —</option>
+            <option value="PENDING">PENDING</option>
+            <option value="CONFIRMED">CONFIRMED</option>
+            <option value="EDITED">EDITED</option>
+          </select>
+        </label>
+        <label>Dealer type:
+          <select id="filter-dealer-type">
+            <option value="">— Tất cả —</option>
+            <option value="lua_lo">Lửa Lò</option>
+            <option value="khoe">Khoe</option>
+            <option value="lo">Lo</option>
+            <option value="ban">Bận</option>
+            <option value="unknown">Unknown</option>
+          </select>
+        </label>
+        <button id="btn-filter">🔍 Lọc</button>
+        <button id="btn-refresh">🔄 Reload</button>
+      </div>
+
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Session ID</th>
+            <th>Owner</th>
+            <th>Cửa hàng</th>
+            <th>SĐT</th>
+            <th>Stage</th>
+            <th>Slot</th>
+            <th>Turns</th>
+            <th>Confirm</th>
+            <th>Type</th>
+            <th>Flags</th>
+            <th>Updated</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="sessions-tbody"></tbody>
+      </table>
+    </section>
+
+    <!-- Queue tab -->
+    <section id="tab-queue" class="tab">
+      <h2>Admin Queue</h2>
+      <div class="filters">
+        <label>Status:
+          <select id="filter-queue-status">
+            <option value="PENDING">PENDING</option>
+            <option value="IN_REVIEW">IN_REVIEW</option>
+            <option value="APPROVED">APPROVED</option>
+            <option value="REJECTED">REJECTED</option>
+          </select>
+        </label>
+        <label>Priority:
+          <select id="filter-queue-priority">
+            <option value="">— Tất cả —</option>
+            <option value="HIGH">HIGH</option>
+            <option value="MEDIUM">MEDIUM</option>
+            <option value="LOW">LOW</option>
+          </select>
+        </label>
+        <button id="btn-queue-filter">🔍 Lọc</button>
+        <button id="btn-queue-refresh">🔄 Reload</button>
+      </div>
+
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Queue ID</th>
+            <th>Session</th>
+            <th>Trigger</th>
+            <th>Priority</th>
+            <th>Status</th>
+            <th>Assigned</th>
+            <th>Created</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="queue-tbody"></tbody>
+      </table>
+    </section>
+  </main>
+
+  <!-- Detail modal -->
+  <div id="modal" class="modal hidden">
+    <div class="modal-content">
+      <button class="modal-close" id="modal-close">×</button>
+      <div id="modal-body"></div>
+    </div>
+  </div>
+
+  <div id="status-bar" class="status-bar"></div>
+
+  <script src="/static/admin.js"></script>
+</body>
+</html>
