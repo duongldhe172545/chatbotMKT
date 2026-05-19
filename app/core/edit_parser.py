@@ -12,37 +12,38 @@ from __future__ import annotations
 
 import re
 
-# Map keyword tiếng Việt → tên field thật trong DealerProfileRaw
+# Map keyword tiếng Việt → tên field thật trong DealerProfileRaw v8
+# Refer app/models/schema.py — fields đầy đủ.
+# Match dài nhất trước (vd "tên cửa hàng" match trước "tên").
 FIELD_KEYWORDS: dict[str, str] = {
-    # phone
+    # Phone (slot 1.3)
     "sđt": "phone_or_zalo", "sdt": "phone_or_zalo",
     "số điện thoại": "phone_or_zalo", "so dien thoai": "phone_or_zalo",
     "số đt": "phone_or_zalo", "so dt": "phone_or_zalo",
     "zalo": "phone_or_zalo", "phone": "phone_or_zalo",
     "số phone": "phone_or_zalo",
-    # dealer name
+    # Dealer name (slot 1.1)
     "tên cửa hàng": "dealer_name", "ten cua hang": "dealer_name",
     "tên đại lý": "dealer_name", "ten dai ly": "dealer_name",
-    "tên shop": "dealer_name",
-    # owner
+    "tên shop": "dealer_name", "cửa hàng": "dealer_name",
+    # Owner (slot 1.1)
     "tên anh": "owner_name", "ten anh": "owner_name",
     "tên tôi": "owner_name", "ten toi": "owner_name",
-    "tên em": "owner_name",
-    # location
-    "tỉnh": "province", "tinh": "province",
-    "thành phố": "province", "thanh pho": "province",
-    "huyện": "district", "huyen": "district",
-    "quận": "district", "quan": "district",
-    # category
-    "ngành": "main_category", "nganh": "main_category",
-    "mảng": "main_category", "mang": "main_category",
-    # customer base
-    "khách cũ": "customer_base_estimate", "khach cu": "customer_base_estimate",
-    "số khách": "customer_base_estimate", "so khach": "customer_base_estimate",
-    # pain points (note: edit qua regex chỉ set 1 item — list)
-    "đau": "pain_points", "dau": "pain_points",
-    "vướng": "pain_points", "vuong": "pain_points",
-    "nỗi đau": "pain_points", "noi dau": "pain_points",
+    "tên em": "owner_name", "tên chị": "owner_name",
+    # Address (slot 1.2)
+    "địa chỉ": "address", "dia chi": "address",
+    # Main product (slot 2.1)
+    "sản phẩm": "main_product", "san pham": "main_product",
+    "mảng chính": "main_product", "mảng": "main_product",
+    "ngành chính": "main_product",
+    # Team size (slot 2.3)
+    "số thợ": "est_team_size", "so tho": "est_team_size",
+    "thợ": "est_team_size", "tho": "est_team_size",
+    # Brandkit consent (slot 4.0)
+    "bộ thương hiệu": "brandkit_consent", "bo thuong hieu": "brandkit_consent",
+    # Color (slot 4.2)
+    "màu": "color_accent", "mau": "color_accent",
+    "màu sắc": "color_accent",
 }
 
 # Patterns nhận diện ý sửa: "sửa X thành Y", "đổi X thành Y", "X là Y", "không phải, X là Y"
@@ -55,7 +56,7 @@ EDIT_PATTERNS = [
 
 
 # Field nào là list — value cần wrap [value]
-LIST_FIELDS = {"pain_points", "dl0_priority"}
+LIST_FIELDS: set[str] = set()  # v8: edit qua regex chỉ set string fields
 
 
 def parse_edit_command(message: str) -> tuple[str, object] | None:

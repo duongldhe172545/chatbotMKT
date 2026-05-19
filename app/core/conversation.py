@@ -24,11 +24,13 @@ from app.core.abuse_detector import (
     is_personal_abuse,
 )
 from app.core.address_blacklist import check_address_blacklist
+from app.core.address_form import detect_address_form, detect_explicit_address
 from app.core.address_parser import parse_address
 from app.core.brand_check import get_unknown_brands
 from app.core.card_renderer import render_card
 from app.core.closing import render_closing, render_soft_end_closing
 from app.core.dealer_type import detect_dealer_type, should_detect_now
+from app.core.edit_parser import parse_edit_command
 from app.core.edge_cases import (
     check_phone_retry_exhausted,
     handle_defensive_escalation,
@@ -274,6 +276,21 @@ def _handle_asking(
                     "Brand không trong whitelist: session=%s brands=%s",
                     session.session_id, unknown,
                 )
+
+        # 1A § 2.1: Address form auto-detect — sau khi extract slot 1.1
+        # (owner_name) hoặc dealer explicit request "gọi tôi là chị/anh".
+        if current_slot == "1.1" and extracted:
+            from app.models.enums import AddressForm
+            explicit = detect_explicit_address(message)
+            if explicit in ("chị", "anh"):
+                session.address_form = (
+                    AddressForm.CHI if explicit == "chị" else AddressForm.ANH
+                )
+            elif extracted.get("owner_name"):
+                detected = detect_address_form(message, extracted["owner_name"])
+                session.address_form = (
+                    AddressForm.CHI if detected == "chị" else AddressForm.ANH
+                )
         # Merge extracted vào profile + auto-derive Scope 2 fields
         if extracted:
             _merge_extracted(profile, extracted, client=client)
@@ -397,10 +414,29 @@ def _handle_confirming(
         )
 
     if intent == Intent.EDIT:
-        # Phase 2+ edit_parser. Phase 1 simplified.
+        # Phase 3 R9: parse edit command qua regex
+        parsed = parse_edit_command(message)
+        if parsed:
+            field, new_value = parsed
+            if hasattr(profile, field):
+                setattr(profile, field, new_value)
+                logger.info(
+                    "Edit applied: session=%s field=%s value=%r",
+                    session.session_id, field, new_value,
+                )
+                # Re-render card với data mới
+                return (
+                    f"Dạ em đã cập nhật {field} thành {new_value!r} rồi ạ. "
+                    f"Em hiển thị lại card mình cùng check nhé:\n\n"
+                    + render_card(profile)
+                )
+            else:
+                logger.warning("Edit parsed field không có trong profile: %s", field)
+        # Parse fail / field không tồn tại → ask dealer ghi rõ
         return (
             "Dạ anh ghi rõ giúp em — sửa phần nào, thành gì ạ? "
-            "(Edit chi tiết em sẽ hỗ trợ kỹ hơn ở phiên bản sau.)"
+            "(Vd: 'sửa SĐT thành 0901234567', 'tên là Vinh', "
+            "'đổi địa chỉ thành Quận 5')"
         )
 
     if intent == Intent.REFUSAL:
