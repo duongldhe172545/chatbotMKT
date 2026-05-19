@@ -18,7 +18,9 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from app.admin.queue import increment_flag_count
+from app.core.address_blacklist import check_address_blacklist
 from app.core.address_parser import parse_address
+from app.core.brand_check import get_unknown_brands
 from app.core.card_renderer import render_card
 from app.core.closing import render_closing, render_soft_end_closing
 from app.core.dealer_type import detect_dealer_type, should_detect_now
@@ -29,6 +31,7 @@ from app.core.edge_cases import (
     reset_optional_refusal,
     should_skip_in_rush_mode,
 )
+from app.core.garbage_detector import is_garbage, is_meaningful_short
 from app.core.greeting import render_greeting
 from app.core.intent import detect_intent
 from app.core.sanity import check_sanity
@@ -112,6 +115,20 @@ def handle_message(
         increment_flag_count(session, Flag.PROMPT_INJECTION)
         # Sanitize message trước khi pass cho LLM
         message = sanitize_injection(message) or message
+
+    # Garbage input detect (1C § 7) — flag nếu lặp 2 lần cùng slot.
+    # Short "ok"/"có" KHÔNG phải garbage (whitelist).
+    if (
+        not is_meaningful_short(message)
+        and is_garbage(message)
+        and session.stage == Stage.ASKING
+    ):
+        count = increment_flag_count(session, Flag.GARBAGE_INPUT)
+        if count >= 2:
+            logger.warning(
+                "Garbage input lặp ≥ 2 lần: session=%s msg=%r",
+                session.session_id, message[:80],
+            )
 
     # Add dealer message to history (giữ raw message — admin sẽ thấy attack pattern)
     now = datetime.now(timezone.utc)
@@ -212,6 +229,20 @@ def _handle_asking(
                 for field in hallucinated:
                     increment_flag_count(session, Flag.HALLUCINATE)
                     extracted[field] = None
+        # 1C § 10: Address blacklist count (validator đã reject — đếm tần suất)
+        if extracted and extracted.get("address") is None and current_slot == "1.2":
+            # Validator đã reject — check raw message có blacklist không
+            if check_address_blacklist(message):
+                increment_flag_count(session, Flag.ADDRESS_BLACKLIST)
+        # 1C § 11: Brand whitelist check — flag nếu có brand lạ
+        if extracted and extracted.get("supplier_brands"):
+            unknown = get_unknown_brands(extracted["supplier_brands"])
+            if unknown:
+                increment_flag_count(session, Flag.BRAND_NOT_IN_WHITELIST)
+                logger.info(
+                    "Brand không trong whitelist: session=%s brands=%s",
+                    session.session_id, unknown,
+                )
         # Merge extracted vào profile + auto-derive Scope 2 fields
         if extracted:
             _merge_extracted(profile, extracted, client=client)

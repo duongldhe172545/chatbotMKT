@@ -1,0 +1,53 @@
+{
+  "_meta": {
+    "version": "1.0.0",
+    "updated_at": "2026-05-19",
+    "note": "Brand whitelist ngành cửa nhôm kính / cửa cuốn / tủ bếp VN. Refer LUAT_2B § F2B.5 + KICH_BAN_1C § 11. Match case-insensitive. Phase 4: STT brand correction.",
+    "source": "Phase 3 R6 — kê khai từ industry benchmarks + dealer feedback"
+  },
+  "categories": {
+    "cua_nhom_kinh": {
+      "description": "Hãng nhôm hệ + kính cường lực phổ biến",
+      "brands": [
+        "Xingfa", "Việt Pháp", "Schüco", "Reynaers", "PMI",
+        "Sapa", "Yhang", "AMG", "PMA", "Liming",
+        "Việt Tiệp", "Hyundai", "TOSTEM", "Kingsun"
+      ]
+    },
+    "cua_cuon": {
+      "description": "Cửa cuốn motor + tay",
+      "brands": [
+        "Austdoor", "Đài Loan Door", "Smartdoor", "Mitadoor",
+        "Asadoor", "Hyundai Door", "Đồng Tiến"
+      ]
+    },
+    "cua_thep": {
+      "description": "Cửa thép chống cháy + vân gỗ",
+      "brands": [
+        "Kingdoor", "Vidoor", "EuroDoor", "Heatdoor"
+      ]
+    },
+    "tu_bep": {
+      "description": "Vật liệu + phụ kiện tủ bếp",
+      "brands": [
+        "Blum", "Hettich", "Hafele", "An Cường",
+        "Inovar", "Đông Á", "Adler", "Conglomerate",
+        "MDF", "Acrylic", "Laminate"
+      ]
+    },
+    "solar": {
+      "description": "Điện mặt trời",
+      "brands": [
+        "Canadian Solar", "Trina", "JA Solar", "Longi",
+        "Jinko", "JinkoSolar", "Sunpower"
+      ]
+    },
+    "kinh_cuong_luc": {
+      "description": "Kính cường lực + kính dán an toàn",
+      "brands": [
+        "Saint-Gobain", "Viglacera", "Kính Việt Nam",
+        "Đông Á Glass", "EuroWindow"
+      ]
+    }
+  }
+}
