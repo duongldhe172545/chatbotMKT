@@ -33,15 +33,16 @@ def _build_thinking_config(model: str) -> "types.ThinkingConfig | None":
     """Build thinking config theo model.
 
     - Flash models: disable thinking (thinking_budget=0) — save cost.
-    - Pro models: cần thinking_budget ≥ 128. Đặt 1024 để đảm bảo có
-      đủ room thinking + text output (256 từng gây empty text).
+    - Pro models: cần thinking_budget > 0. Đặt 512 để vừa đủ reasoning
+      mà vẫn còn budget cho text output (1024 từng ăn hết budget gây
+      empty response.text dù caller cho max_output_tokens=768).
     - Không xác định: None (dùng default).
     """
     name = model.lower()
     if "flash" in name:
         return types.ThinkingConfig(thinking_budget=0)
     if "pro" in name:
-        return types.ThinkingConfig(thinking_budget=1024)
+        return types.ThinkingConfig(thinking_budget=512)
     return None
 
 # Safety settings — relax xuống BLOCK_ONLY_HIGH cho tất cả category.

@@ -178,8 +178,8 @@ def _handle_asking(
         # Phase 1 simplified: safe fallback. Phase 2+ dùng F2B.4b defensive/tâm sự handler.
         return _phase_1_pause_fallback(session.paused_for)
 
-    # Check transition tới CONFIRMING (hết slot)
-    if next_slot is None and action == Action.ADVANCE:
+    # Check transition tới CONFIRMING (hết slot — bất kỳ action nào trừ RETRY/PAUSE)
+    if next_slot is None and action in (Action.ADVANCE, Action.SKIP, Action.DEFER):
         session.stage = Stage.CONFIRMING
         return _enter_confirming(profile)
 
@@ -322,6 +322,15 @@ def _merge_extracted(
         derived = derive_main_category(profile.main_product, client, context)
         if derived:
             profile.main_category = derived
+            logger.info(
+                "Auto-derive main_category: %r → %s",
+                profile.main_product, derived,
+            )
+        else:
+            logger.warning(
+                "Auto-derive main_category fail/null cho main_product=%r",
+                profile.main_product,
+            )
 
 
 def _gen_ack_safe(

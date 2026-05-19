@@ -21,6 +21,7 @@ from app.models.schema import DeferredSlot, SessionState, SlotAttempts
 from app.slots.definitions import (
     OPTIONAL_SLOTS,
     REQUIRED_SLOTS,
+    SLOT_TO_ALL_FIELDS,
     SLOT_TO_REQUIRED_FIELDS,
     is_multi_field,
     next_slot,
@@ -140,13 +141,24 @@ def decide_action(
 
 
 def _slot_fully_filled(slot_id: Optional[str], extracted: dict) -> bool:
-    """True nếu extracted có đủ all required_fields của slot."""
+    """True nếu slot đã đủ thông tin để ADVANCE.
+
+    - REQUIRED slot: tất cả required_fields phải có value.
+    - OPTIONAL slot: ít nhất 1 field trong SLOT_TO_ALL_FIELDS có value
+      (dealer đã trả lời gì đó dù không cho hết).
+    - THÔNG BÁO slot (4.1): không cần field, caller dùng AFFIRMATIVE intent.
+    """
     if not slot_id:
         return False
     required = SLOT_TO_REQUIRED_FIELDS.get(slot_id, [])
-    if not required:
+    if required:
+        # REQUIRED slot — cần all required_fields
+        return all(extracted.get(f) is not None for f in required)
+    # OPTIONAL slot — cần ít nhất 1 field non-None
+    all_fields = SLOT_TO_ALL_FIELDS.get(slot_id, [])
+    if not all_fields:
         return False
-    return all(extracted.get(f) is not None for f in required)
+    return any(extracted.get(f) is not None for f in all_fields)
 
 
 def _check_partial_fill(

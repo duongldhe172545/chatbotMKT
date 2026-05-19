@@ -71,15 +71,19 @@ def generate_ack(
     )
 
     # Route tier per dealer_type (D8 STRATEGY)
-    chat_fn = (
-        client.chat_quality if dealer_type in _QUALITY_TIER_TYPES else client.chat_fast
-    )
+    is_quality = dealer_type in _QUALITY_TIER_TYPES
+    chat_fn = client.chat_quality if is_quality else client.chat_fast
+
+    # Quality tier (Khoe/Lo) cần dài hơn — ack 15-30 từ + có insight cụ thể.
+    # Gemini Pro thinking mode còn ăn budget → cần buffer rộng để không
+    # empty text. Flash tier (Bận/Lửa) ngắn ≤ 12 từ → 128 token đủ.
+    max_tokens = 768 if is_quality else 192
 
     try:
         response_text = chat_fn(
             system_prompt=system,
             messages=[{"role": "user", "content": user_msg}],
-            max_tokens=128,
+            max_tokens=max_tokens,
         )
     except Exception as e:
         logger.exception("Ack gen fail slot=%s type=%s: %s", slot_id, dealer_type, e)
