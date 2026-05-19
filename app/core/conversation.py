@@ -60,7 +60,13 @@ from app.guards import (
     sanitize_injection,
 )
 from app.llm.ack_generator import generate_ack
-from app.llm.auto_derive import derive_main_category
+from app.llm.auto_derive import (
+    derive_brand_short,
+    derive_main_category,
+    gen_initial_single,
+    gen_initials_full,
+    gen_slogans,
+)
 from app.llm.client import LLMClient
 from app.llm.extractors import extract_slot
 from app.llm.extractors.schemas import SLOT_TOOL_SCHEMAS
@@ -560,6 +566,56 @@ def _merge_extracted(
             logger.warning(
                 "Auto-derive main_category fail/null cho main_product=%r",
                 profile.main_product,
+            )
+
+    # Phase 5 R0: Auto-derive Scope 2 còn lại (F2B.7)
+    # 1. brand_short + initials_full + initial_single + contact_name —
+    #    sau slot 1.1 fill dealer_name + owner_name
+    if (
+        client is not None
+        and "dealer_name" in extracted
+        and extracted.get("dealer_name")
+    ):
+        if not profile.brand_name_short:
+            short = derive_brand_short(profile.dealer_name, client)
+            if short:
+                profile.brand_name_short = short
+                logger.info("Auto-derive brand_short: %r → %r", profile.dealer_name, short)
+        if not profile.initials_full:
+            initials = gen_initials_full(profile.dealer_name)
+            if initials:
+                profile.initials_full = initials
+                if not profile.initial_single:
+                    profile.initial_single = gen_initial_single(initials)
+    if "owner_name" in extracted and extracted.get("owner_name") and not profile.contact_name:
+        profile.contact_name = profile.owner_name
+        # contact_role default = "Chủ cửa hàng" (schema), không cần set
+
+    # 2. hotline = phone_or_zalo — sau slot 1.3 fill phone
+    if "phone_or_zalo" in extracted and extracted.get("phone_or_zalo") and not profile.hotline:
+        profile.hotline = profile.phone_or_zalo
+
+    # 3. slogan_options — sau slot 2.1 fill main_product
+    #    Cần dealer_name + main_product → gen ngay khi đủ.
+    if (
+        client is not None
+        and "main_product" in extracted
+        and extracted.get("main_product")
+        and profile.dealer_name
+        and not profile.slogan_options
+    ):
+        slogans = gen_slogans(
+            dealer_name=profile.dealer_name,
+            main_product=profile.main_product,
+            client=client,
+            province=profile.province,
+            use_quality=True,
+        )
+        if slogans:
+            profile.slogan_options = slogans
+            logger.info(
+                "Auto-derive slogans: dealer=%r → %d options",
+                profile.dealer_name, len(slogans),
             )
 
 

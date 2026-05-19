@@ -1,0 +1,16 @@
+{
+  "_meta": {
+    "version": "1.0.0",
+    "updated_at": "2026-05-19",
+    "note": "Common words VN ngành cửa/VLXD — filter khỏi initials gen. Refer LUAT_2B § F2B.7."
+  },
+  "common_words": [
+    "nhôm", "kính", "cửa", "cuốn", "tủ", "bếp", "thép", "gỗ",
+    "công", "ty", "tnhh", "cp", "cổ", "phần", "doanh", "nghiệp", "dn",
+    "hàng", "shop", "đại", "lý", "showroom",
+    "thi", "công", "sản", "xuất", "lắp", "đặt",
+    "vlxd", "vật", "liệu", "xây", "dựng",
+    "vách", "hệ", "thống",
+    "and", "&", "của", "việt", "nam"
+  ]
+}
