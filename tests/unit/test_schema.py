@@ -62,9 +62,10 @@ class TestEnumCounts:
             "lua_lo", "khoe", "lo", "ban", "unknown"
         }
 
-    def test_flag_has_15_values_in_4_groups(self):
-        """15 flag chia 4 nhóm — refer STRATEGY D12 + F2A.3 + GLOSSARY § 4."""
-        assert len(list(Flag)) == 15
+    def test_flag_has_16_values_in_5_groups(self):
+        """16 flag chia 5 nhóm — Phase 3 R4 add ESCALATION.
+        Refer STRATEGY D12 + F2A.3 + GLOSSARY § 4."""
+        assert len(list(Flag)) == 16
         behavior = {
             Flag.DEALER_DECLINED, Flag.REQUIRED_MISSING,
             Flag.CONSENT_UNCLEAR, Flag.MULTIPLE_REFUSAL_IN_ROW,
@@ -73,6 +74,7 @@ class TestEnumCounts:
             Flag.PROMPT_INJECTION, Flag.ABUSIVE_LANGUAGE, Flag.GARBAGE_INPUT,
             Flag.DEALER_TOO_DEFENSIVE, Flag.ADDRESS_BLACKLIST,
         }
+        escalation = {Flag.ESCALATION}
         data_quality = {
             Flag.SANITY_CHECK_FAILED, Flag.PHONE_INVALID_AFTER_RETRY,
             Flag.VOICE_QUALITY_POOR, Flag.BRAND_NOT_IN_WHITELIST,
@@ -80,6 +82,7 @@ class TestEnumCounts:
         llm_guard = {Flag.HALLUCINATE, Flag.PII_LEAK}
         assert len(behavior) == 4
         assert len(abuse) == 5
+        assert len(escalation) == 1
         assert len(data_quality) == 4
         assert len(llm_guard) == 2
         # Union = 15, không overlap

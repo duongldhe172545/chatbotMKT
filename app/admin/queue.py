@@ -47,8 +47,8 @@ class TriggerRule:
 
 # 13 trigger rule theo F2C.8 (refer LUAT_2C v0.1.5)
 QUEUE_TRIGGER_RULES: list[TriggerRule] = [
-    # HIGH (7)
-    # `escalation` L3 — chưa có Flag riêng, sẽ thêm khi implement R4
+    # HIGH (7) — escalation đặt đầu để priority cao nhất khi push
+    TriggerRule(Flag.ESCALATION, Priority.HIGH, min_count=1),
     TriggerRule(Flag.SANITY_CHECK_FAILED, Priority.HIGH, min_count=1),
     TriggerRule(Flag.HALLUCINATE, Priority.HIGH, min_count=2),
     TriggerRule(Flag.PII_LEAK, Priority.HIGH, min_count=1),

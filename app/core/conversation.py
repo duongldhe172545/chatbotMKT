@@ -22,11 +22,19 @@ from app.core.address_parser import parse_address
 from app.core.card_renderer import render_card
 from app.core.closing import render_closing, render_soft_end_closing
 from app.core.dealer_type import detect_dealer_type, should_detect_now
+from app.core.edge_cases import (
+    check_phone_retry_exhausted,
+    handle_defensive_escalation,
+    record_optional_refusal,
+    reset_optional_refusal,
+    should_skip_in_rush_mode,
+)
 from app.core.greeting import render_greeting
 from app.core.intent import detect_intent
 from app.core.sanity import check_sanity
 from app.core.session import is_session_timeout, mark_session_closed, touch_session
 from app.core.state_machine import decide_action
+from app.slots.definitions import is_optional, is_required
 from app.guards import (
     auto_rewrite,
     check_hallucinate,
@@ -213,8 +221,36 @@ def _handle_asking(
 
     # Gen reply theo action
     if action == Action.PAUSE:
-        # Phase 1 simplified: safe fallback. Phase 2+ dùng F2B.4b defensive/tâm sự handler.
+        # PAUSE = defensive / tâm sự — refer state_machine.decide_action
+        if session.paused_for == "defensive":
+            # Raise flag DEALER_TOO_DEFENSIVE + xử theo cấp 1C § 2
+            increment_flag_count(session, Flag.DEALER_TOO_DEFENSIVE)
+            reply, should_close = handle_defensive_escalation(session)
+            if should_close:
+                # Escalation L3 → soft-end session
+                session.stage = Stage.DONE
+                mark_session_closed(session)
+            return reply
+        # Tâm sự (Phase 3+ sẽ có dedicated handler) — fallback nhẹ
         return _phase_1_pause_fallback(session.paused_for)
+
+    # Track edge case: refusal lặp OPTIONAL (1C § 4) — count + flag
+    rush_offer: Optional[str] = None
+    if action == Action.SKIP and current_slot and is_optional(current_slot):
+        if record_optional_refusal(session):
+            # Vừa đạt 3 OPTIONAL refuse liên tiếp → flag + offer message
+            # (rush_mode logic đầy đủ defer Phase 4 — Phase 3 R4 chỉ flag + offer text)
+            from app.core.edge_cases import RUSH_MODE_OFFER_TEMPLATE
+            rush_offer = RUSH_MODE_OFFER_TEMPLATE
+    elif action == Action.ADVANCE:
+        # Dealer fill OK → reset counter
+        reset_optional_refusal(session)
+
+    # Edge case: phone invalid 3 retry exhausted (1C § 12)
+    # State machine SKIP slot 1.3 khi total >= MAX_RETRY_TOTAL (3) →
+    # raise PHONE_INVALID_AFTER_RETRY thay required_missing generic.
+    if action == Action.SKIP and current_slot == "1.3":
+        check_phone_retry_exhausted(session)
 
     # Check transition tới CONFIRMING (hết slot — bất kỳ action nào trừ RETRY/PAUSE)
     if next_slot is None and action in (Action.ADVANCE, Action.SKIP, Action.DEFER):
@@ -230,6 +266,12 @@ def _handle_asking(
             session=session,
         )
         question = _get_slot_question_for_attempt(next_slot, session)
+        # Nếu vừa offer rush_mode, prepend offer (dealer trả lời ok/không ở turn sau)
+        if rush_offer:
+            base = f"{ack}\n\n{rush_offer}" if ack else rush_offer
+            if question:
+                return f"{base}\n\n{question}"
+            return base
         if question:
             return f"{ack}\n\n{question}" if ack else question
         return ack or "Dạ vâng ạ."

@@ -51,7 +51,9 @@ INJECTION_PATTERNS: list[str] = [
     r"quên (đi |hết )?(rule|luật|những gì)",
     r"từ giờ (em |anh )?(là|đóng vai)",
     r"đóng vai (làm )?(?!em)",  # đóng vai LÀM ai khác (không phải "em")
-    r"em là (chatgpt|claude|gpt|gemini|bot|ai)\b",
+    # Dealer khẳng định bot là model X — KHÔNG match "em là ai" (defensive hỏi)
+    r"em là (chatgpt|claude|gpt|gemini|llm|machine|máy|robot)\b",
+    r"em là bot (đúng|phải|à\s*$)",
     # Prompt extraction
     r"copy (out |the )?(your )?(prompt|instructions)",
     r"output (your |the )?system",

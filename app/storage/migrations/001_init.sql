@@ -28,6 +28,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     history                 TEXT NOT NULL DEFAULT '[]',                 -- JSON list message {role, content, ts}
     turn_count              INTEGER NOT NULL DEFAULT 0,
     paused_for              TEXT,                                       -- NULL / "defensive" / "tam_su"
+    consecutive_optional_refusal INTEGER NOT NULL DEFAULT 0,            -- Phase 3 R4: § 4 (1C) — refusal lặp count
+    rush_mode               INTEGER NOT NULL DEFAULT 0,                 -- Phase 3 R4: § 4 (1C) — bool 0/1
     address_form            TEXT NOT NULL DEFAULT 'anh',                -- anh / chị
     created_at              TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at              TEXT NOT NULL DEFAULT (datetime('now')),

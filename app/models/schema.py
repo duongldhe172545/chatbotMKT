@@ -175,6 +175,10 @@ class SessionState(BaseModel):
     turn_count: int = 0
     paused_for: Optional[str] = None                           # None / "defensive" / "tam_su"
 
+    # Edge case state (Phase 3 R4) — refer 1C § 2/4/5/12
+    consecutive_optional_refusal: int = 0   # § 4: 3 OPTIONAL refuse liên tiếp → flag MULTIPLE_REFUSAL_IN_ROW
+    rush_mode: bool = False                  # § 4: dealer "ok rút gọn" → chỉ hỏi REQUIRED còn lại
+
     # Persona config
     address_form: AddressForm = AddressForm.ANH
 

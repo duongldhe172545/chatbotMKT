@@ -194,15 +194,15 @@ class TestTriggerQueue:
 
 class TestRules:
     def test_rules_count(self):
-        """12 rule (escalation L3 sẽ thêm khi implement R4)."""
-        # 6 HIGH + 4 MEDIUM + 2 LOW = 12
-        assert len(QUEUE_TRIGGER_RULES) == 12
+        """13 rule theo F2C.8."""
+        # 7 HIGH + 4 MEDIUM + 2 LOW = 13
+        assert len(QUEUE_TRIGGER_RULES) == 13
 
     def test_priority_distribution(self):
         by_priority = {p: 0 for p in Priority}
         for rule in QUEUE_TRIGGER_RULES:
             by_priority[rule.priority] += 1
-        assert by_priority[Priority.HIGH] == 6
+        assert by_priority[Priority.HIGH] == 7
         assert by_priority[Priority.MEDIUM] == 4
         assert by_priority[Priority.LOW] == 2
 

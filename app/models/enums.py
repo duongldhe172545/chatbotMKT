@@ -85,6 +85,11 @@ class Flag(str, Enum):
     DEALER_TOO_DEFENSIVE = "dealer_too_defensive"
     ADDRESS_BLACKLIST = "address_blacklist"
 
+    # ----- Escalation (1) — Phase 3 R4 (refer 1C § 13) -----
+    # Tổng hợp khi bot quyết soft-end session (defensive 3 lần, abuse 2 lần,
+    # address blacklist, prompt_injection 3 lần). Trigger admin queue HIGH.
+    ESCALATION = "escalation"
+
     # ----- Data quality (4) — lỗi format / data chưa whitelist -----
     SANITY_CHECK_FAILED = "sanity_check_failed"
     PHONE_INVALID_AFTER_RETRY = "phone_invalid_after_retry"
