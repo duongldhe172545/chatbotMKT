@@ -82,7 +82,8 @@ class TestClassifyIntentLayer2:
             ("normal", Intent.NORMAL),
         ]:
             client = _mock_client(label, "MED")
-            intent, _ = classify_intent_layer2("test", client)
+            # use_cache=False để mỗi label test riêng (cùng "test" message)
+            intent, _ = classify_intent_layer2("test", client, use_cache=False)
             assert intent == expected, f"{label} → {expected}"
 
 

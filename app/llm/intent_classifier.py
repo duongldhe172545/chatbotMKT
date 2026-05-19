@@ -95,22 +95,33 @@ def classify_intent_layer2(
     client: LLMClient,
     stage: Optional[str] = None,
     current_slot: Optional[str] = None,
+    use_cache: bool = True,
 ) -> tuple[Optional[Intent], str]:
-    """Gọi LLM_FAST classify intent.
+    """Gọi LLM_FAST classify intent với cache (Phase 4 R4).
 
     Args:
         message: Dealer raw message
         client: LLMClient
-        stage: Optional context — stage hiện tại (vd "ASKING")
-        current_slot: Slot đang hỏi (vd "1.3")
+        stage: Optional context — stage hiện tại
+        current_slot: Slot đang hỏi
+        use_cache: True → check llm_cache trước (TTL 1h)
 
     Returns:
-        (intent_enum, confidence_str). intent=None nếu LLM fail.
-        confidence_str ∈ {"LOW","MED","HIGH"} — caller check để decide
-        có dùng kết quả LLM không.
+        (intent_enum, confidence_str).
     """
     if not message or not isinstance(message, str):
         return (None, "LOW")
+
+    # Cache check (refer F2C.5 — key = hash(message + stage + slot))
+    cache_key = None
+    if use_cache:
+        from app.cache.llm_cache import llm_cache_get, make_key
+        cache_key = make_key("intent_l2", message, stage, current_slot)
+        cached = llm_cache_get(cache_key)
+        if cached is not None:
+            intent_str, conf = cached
+            if intent_str in _INTENT_LABELS:
+                return (_INTENT_LABELS[intent_str], conf)
 
     user_text = f"MESSAGE: {message}"
     if stage:
@@ -141,6 +152,11 @@ def classify_intent_layer2(
         return (None, "LOW")
     if confidence not in ("LOW", "MED", "HIGH"):
         confidence = "LOW"
+
+    # Cache MED/HIGH result 1h (refer F2C.5)
+    if use_cache and cache_key and confidence in ("MED", "HIGH"):
+        from app.cache.llm_cache import llm_cache_set
+        llm_cache_set(cache_key, (intent_str, confidence), ttl_s=3600)
 
     return (_INTENT_LABELS[intent_str], confidence)
 

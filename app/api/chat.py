@@ -67,15 +67,34 @@ def post_chat(req: ChatRequest) -> ChatResponse:
     """Chat endpoint.
 
     Flow:
-    1. Load (hoặc tạo) session + profile từ DB
-    2. Nếu session mới: return greeting (is_first_turn=True), client gọi lại với message
-    3. Nếu session có: call handle_message → reply
-    4. Save session + profile back to DB
+    1. Rate limit check (Phase 4 R4) — IP / session
+    2. Load (hoặc tạo) session + profile từ DB
+    3. Nếu session mới: return greeting (is_first_turn=True)
+    4. Nếu session có: call handle_message → reply (qua PII guard)
+    5. Save session + profile back to DB
+    6. Admin queue trigger
     """
     # Empty message OK khi tạo session mới (init turn — trả greeting)
     # Nhưng KHÔNG OK khi session_id có (đang trong flow)
     if req.session_id and (not req.message or not req.message.strip()):
         raise HTTPException(400, detail="Message rỗng")
+
+    # Phase 4 R4: Rate limit — refer F2C.2
+    from app.config import get_settings as _get_cfg
+    from app.guards.rate_limit import check_rate_limit
+    cfg = _get_cfg()
+    rate_key = f"session:{req.session_id}" if req.session_id else f"ip:{req.ip_address or 'unknown'}"
+    allowed, retry_after = check_rate_limit(
+        rate_key,
+        max_requests=cfg.RATE_LIMIT_MSG_PER_MINUTE,
+        window_seconds=60,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Retry sau {retry_after:.0f}s.",
+            headers={"Retry-After": str(int(retry_after))},
+        )
 
     store = _get_store()
     client: LLMClient = get_default_client()
