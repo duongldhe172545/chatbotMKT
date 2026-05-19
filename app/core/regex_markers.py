@@ -56,6 +56,25 @@ KHONG_BIET_PATTERNS: list[str] = [
 # ============================================================
 # DEFENSIVE — dealer hỏi ngược / nghi ngờ
 # ============================================================
+# Abuse cá nhân — dealer chửi/xúc phạm em Linh (≠ Lửa Lò chửi chung)
+# Refer KICH_BAN_1C § 5.
+# Phân biệt: "đm em hỏi nhiều" = Lửa Lò general profanity (em là dealer xưng)
+#            "đm con bot này"  = personal abuse (nhằm bot Em Linh)
+PERSONAL_ABUSE_PATTERNS: list[str] = [
+    # Chửi bot cá nhân — KHÔNG match "em" tự do (em là dealer xưng)
+    r"\b(đm|đụ|đéo|cmm)\s*(con\s*)?(bot|máy|con\s*này|robot|ai)\b",
+    # "bot/em ngu/chó/vl" — gắn đuôi xúc phạm (em ngu = đụ em Linh)
+    r"\bbot\s+(ngu|chó|đần|khùng|điên|vl|vcl|cl|cc)\b",
+    r"\bem\s+(ngu|chó|đần|khùng|điên|vl|vcl)\s*(vl|vcl|cl|cc|quá|thế)?\s*$",
+    # Bảo bot im
+    r"\b(câm\s*mồm|câm\s*đi|im\s*mồm|im\s*đi|biến\s*đi)\b",
+    # Xúc phạm máy / robot
+    r"\b(đồ\s*máy|máy\s*nhân\s*tạo|con\s*máy|đồ\s*robot)\b",
+    # Chửi "con X" — phải có context bot
+    r"\b(con\s*bot|bot\s*chó|bot\s*điên|bot\s*khùng)\b",
+]
+
+
 DEFENSIVE_PATTERNS: list[str] = [
     # lừa đảo / scam / phí gì
     r"\b(lừa\s*đảo|scam|phí\s*gì|tốn\s*tiền|chi\s*phí\s*gì|miễn\s*phí\s*à)\b",

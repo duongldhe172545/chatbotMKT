@@ -18,6 +18,11 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from app.admin.queue import increment_flag_count
+from app.core.abuse_detector import (
+    handle_abuse_escalation,
+    handle_address_blacklist_escalation,
+    is_personal_abuse,
+)
 from app.core.address_blacklist import check_address_blacklist
 from app.core.address_parser import parse_address
 from app.core.brand_check import get_unknown_brands
@@ -130,9 +135,25 @@ def handle_message(
                 session.session_id, message[:80],
             )
 
+    # Personal abuse detect (1C § 5) — short-circuit khỏi flow normal
+    abuse_reply: Optional[str] = None
+    if is_personal_abuse(message) and session.stage == Stage.ASKING:
+        increment_flag_count(session, Flag.ABUSIVE_LANGUAGE)
+        abuse_reply, should_close = handle_abuse_escalation(session)
+        if should_close:
+            session.stage = Stage.DONE
+            mark_session_closed(session)
+
     # Add dealer message to history (giữ raw message — admin sẽ thấy attack pattern)
     now = datetime.now(timezone.utc)
     session.history.append(HistoryMessage(role="dealer", content=message, ts=now))
+
+    # Nếu abuse handled, short-circuit return (KHÔNG xử slot)
+    if abuse_reply is not None:
+        # Auto-rewrite + add bot history (giữ pattern guard cuối)
+        abuse_reply = auto_rewrite(abuse_reply)
+        session.history.append(HistoryMessage(role="bot", content=abuse_reply, ts=now))
+        return (abuse_reply, session, profile)
 
     # Stage-based dispatch
     if session.stage == Stage.GREETING:
@@ -211,6 +232,16 @@ def _handle_asking(
     if should_detect_now(session.turn_count):
         detect_dealer_type(session)
 
+    # 1C § 10: Address blacklist 3 cấp — check RAW message TRƯỚC extract
+    # (vì LLM có thể strip blacklist khỏi extracted address → validator pass nhầm)
+    if current_slot == "1.2" and check_address_blacklist(message):
+        increment_flag_count(session, Flag.ADDRESS_BLACKLIST)
+        reply, should_close = handle_address_blacklist_escalation(session)
+        if should_close:
+            session.stage = Stage.DONE
+            mark_session_closed(session)
+        return reply
+
     # Extract field (Phase 2: 16 slot có extractor)
     extracted: Optional[dict] = None
     if current_slot and current_slot in SLOT_TOOL_SCHEMAS:
@@ -229,11 +260,8 @@ def _handle_asking(
                 for field in hallucinated:
                     increment_flag_count(session, Flag.HALLUCINATE)
                     extracted[field] = None
-        # 1C § 10: Address blacklist count (validator đã reject — đếm tần suất)
-        if extracted and extracted.get("address") is None and current_slot == "1.2":
-            # Validator đã reject — check raw message có blacklist không
-            if check_address_blacklist(message):
-                increment_flag_count(session, Flag.ADDRESS_BLACKLIST)
+        # Note: 1C § 10 address blacklist check moved BEFORE extract
+        # (refer block trên — vì LLM strip blacklist khỏi address)
         # 1C § 11: Brand whitelist check — flag nếu có brand lạ
         if extracted and extracted.get("supplier_brands"):
             unknown = get_unknown_brands(extracted["supplier_brands"])
