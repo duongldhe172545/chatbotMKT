@@ -127,6 +127,25 @@ def post_chat(req: ChatRequest) -> ChatResponse:
         client=client,
     )
 
+    # ----- G4: PII leak guard (Phase 4 R3) -----
+    # Scan reply có chứa PII từ session khác không (cross-session leak).
+    # Nếu hit → log error + override reply + flag (admin queue HIGH).
+    from app.llm.intent_classifier import check_pii_leak
+    from app.admin.queue import increment_flag_count
+    from app.models.enums import Flag
+
+    leaked = check_pii_leak(reply, session.session_id, store)
+    if leaked:
+        increment_flag_count(session, Flag.PII_LEAK)
+        # Override reply với safe response (KHÔNG show leaked data)
+        reply = (
+            "Dạ em xin lỗi, em đang có chút trục trặc. Anh nhắn lại "
+            "giúp em sau ít phút nhé."
+        )
+        # Update last bot message in history (đã append trong handle_message)
+        if session.history and session.history[-1].role == "bot":
+            session.history[-1].content = reply
+
     # ----- Save -----
     store.save_session(session)
     store.save_profile(session_id, profile)

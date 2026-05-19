@@ -44,6 +44,7 @@ from app.core.edge_cases import (
     should_skip_in_rush_mode,
 )
 from app.llm.brand_correction import correct_stt
+from app.llm.intent_classifier import classify_intent_layer2
 from app.core.garbage_detector import is_garbage, is_meaningful_short
 from app.core.greeting import render_greeting
 from app.core.intent import detect_intent
@@ -255,6 +256,23 @@ def _handle_asking(
     """Stage ASKING: extract + state machine + gen reply."""
     intent = detect_intent(message)
     current_slot = session.current_slot
+
+    # Phase 4 R3: Intent Layer 2 LLM fallback nếu Layer 1 trả NORMAL +
+    # message dài (≥ 5 từ) — có thể có defensive/tâm sự/edit ẩn.
+    # Threshold conservative — chỉ call khi confidence Layer 1 thấp.
+    if intent == Intent.NORMAL and len(message.split()) >= 5:
+        l2_intent, l2_confidence = classify_intent_layer2(
+            message, client,
+            stage=session.stage.value,
+            current_slot=current_slot,
+        )
+        if l2_intent is not None and l2_confidence in ("MED", "HIGH"):
+            if l2_intent != Intent.NORMAL:
+                logger.info(
+                    "Intent L2 override: L1=NORMAL → L2=%s (confidence=%s)",
+                    l2_intent.value, l2_confidence,
+                )
+                intent = l2_intent
 
     # Detect dealer type tại turn 3/8/13 (refer F2A.6)
     if should_detect_now(session.turn_count):
