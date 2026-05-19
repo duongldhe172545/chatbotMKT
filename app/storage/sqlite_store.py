@@ -33,6 +33,8 @@ _SESSION_JSON_COLUMNS = {
     "deferred_slots",
     "skipped_slots",
     "flags",
+    "flag_counts",
+    "queue_triggers_fired",
     "dealer_type_history",
     "history",
 }
@@ -76,11 +78,23 @@ class SQLiteStore:
     # ============================================================
 
     def save_session(self, session: SessionState) -> None:
-        """INSERT or REPLACE session. Atomic single statement."""
+        """Save session: INSERT nếu mới, UPDATE nếu đã tồn tại.
+
+        Note: KHÔNG dùng INSERT OR REPLACE vì SQLite implement = DELETE+INSERT,
+        sẽ trigger ON DELETE CASCADE trên admin_queue (FK ref session_id)
+        → xóa mất queue entries. Refer F2C.1 (LUAT_2C v0.1.5).
+        """
         row = self._session_to_row(session)
         cols = list(row.keys())
+        # UPSERT pattern: INSERT ... ON CONFLICT(session_id) DO UPDATE SET ...
+        # Tránh DELETE+INSERT cascade.
+        update_cols = [c for c in cols if c != "session_id"]
+        set_clause = ", ".join(f"{c} = excluded.{c}" for c in update_cols)
         placeholders = ", ".join(f":{c}" for c in cols)
-        sql = f"INSERT OR REPLACE INTO sessions ({', '.join(cols)}) VALUES ({placeholders})"
+        sql = (
+            f"INSERT INTO sessions ({', '.join(cols)}) VALUES ({placeholders}) "
+            f"ON CONFLICT(session_id) DO UPDATE SET {set_clause}"
+        )
         with self._connect() as conn:
             conn.execute(sql, row)
 
@@ -111,13 +125,16 @@ class SQLiteStore:
     # ============================================================
 
     def save_profile(self, session_id: str, profile: DealerProfileRaw) -> None:
-        """INSERT or REPLACE dealer_profile_raw."""
+        """Save profile: UPSERT (INSERT or UPDATE) — tránh DELETE+INSERT cascade."""
         row = self._profile_to_row(profile, session_id)
         cols = list(row.keys())
+        update_cols = [c for c in cols if c != "session_id"]
+        set_clause = ", ".join(f"{c} = excluded.{c}" for c in update_cols)
         placeholders = ", ".join(f":{c}" for c in cols)
         sql = (
-            f"INSERT OR REPLACE INTO dealer_profile_raw "
-            f"({', '.join(cols)}) VALUES ({placeholders})"
+            f"INSERT INTO dealer_profile_raw ({', '.join(cols)}) "
+            f"VALUES ({placeholders}) "
+            f"ON CONFLICT(session_id) DO UPDATE SET {set_clause}"
         )
         with self._connect() as conn:
             conn.execute(sql, row)

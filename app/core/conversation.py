@@ -17,6 +17,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional
 
+from app.admin.queue import increment_flag_count
 from app.core.address_parser import parse_address
 from app.core.card_renderer import render_card
 from app.core.closing import render_closing, render_soft_end_closing
@@ -81,8 +82,12 @@ def handle_message(
         (reply_text, updated_session, updated_profile).
 
     Side effects:
-        - Mutate session: turn_count, history, current_slot, stage, flags, ...
+        - Mutate session: turn_count, history, current_slot, stage, flags,
+          flag_counts (qua guards + state machine)
         - Mutate profile: extracted fields từ message
+
+    Note: admin queue trigger được caller (API layer) gọi SAU khi
+    save_session — vì FK constraint cần session row trong DB trước.
     """
     # Lazy timeout check (Phase 1-3, refer KE_HOACH § 0.4)
     if is_session_timeout(session):
@@ -96,8 +101,7 @@ def handle_message(
     # G1: Prompt injection guard (Layer 1 regex)
     injection_match = check_prompt_injection(message)
     if injection_match:
-        if Flag.PROMPT_INJECTION not in session.flags:
-            session.flags.append(Flag.PROMPT_INJECTION)
+        increment_flag_count(session, Flag.PROMPT_INJECTION)
         # Sanitize message trước khi pass cho LLM
         message = sanitize_injection(message) or message
 
@@ -196,9 +200,9 @@ def _handle_asking(
         if extracted:
             hallucinated = check_hallucinate(extracted, message)
             if hallucinated:
-                if Flag.HALLUCINATE not in session.flags:
-                    session.flags.append(Flag.HALLUCINATE)
+                # Mỗi field hallucinate = 1 lần raise (count tăng theo)
                 for field in hallucinated:
+                    increment_flag_count(session, Flag.HALLUCINATE)
                     extracted[field] = None
         # Merge extracted vào profile + auto-derive Scope 2 fields
         if extracted:

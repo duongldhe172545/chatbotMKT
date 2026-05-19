@@ -159,6 +159,8 @@ class SessionState(BaseModel):
 
     # Flags + admin tracking (15 enum)
     flags: list[Flag] = Field(default_factory=list)
+    flag_counts: dict[str, int] = Field(default_factory=dict)  # Đếm lần raise (vd inject 3 lần)
+    queue_triggers_fired: list[str] = Field(default_factory=list)  # Tránh trigger duplicate
 
     # Dealer type detection — refer F2A.6
     detected_dealer_type: Optional[DealerType] = None

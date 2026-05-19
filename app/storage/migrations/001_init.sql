@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     deferred_slots          TEXT NOT NULL DEFAULT '{}',                 -- JSON {slot_id: {defer_at_turn, recheck_after_n_slots}}
     skipped_slots           TEXT NOT NULL DEFAULT '[]',                 -- JSON list
     flags                   TEXT NOT NULL DEFAULT '[]',                 -- JSON list of 15 flag enum
+    flag_counts             TEXT NOT NULL DEFAULT '{}',                 -- JSON {flag_name: count} — đếm lần raise
+    queue_triggers_fired    TEXT NOT NULL DEFAULT '[]',                 -- JSON list trigger đã fire (tránh duplicate)
     detected_dealer_type    TEXT,                                       -- lua_lo/khoe/lo/ban/unknown
     dealer_type_history     TEXT NOT NULL DEFAULT '[]',                 -- JSON [(turn, type), ...]
     confirmation_status     TEXT NOT NULL DEFAULT 'PENDING',            -- PENDING/CONFIRMED/EDITED

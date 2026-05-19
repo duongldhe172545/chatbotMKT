@@ -131,6 +131,12 @@ def post_chat(req: ChatRequest) -> ChatResponse:
     store.save_session(session)
     store.save_profile(session_id, profile)
 
+    # ----- Admin queue trigger (sau save để tránh FK constraint) -----
+    from app.admin.queue import trigger_queue_if_needed
+    trigger_queue_if_needed(session, profile, store)
+    # Save lại session sau khi update queue_triggers_fired
+    store.save_session(session)
+
     return ChatResponse(
         session_id=session.session_id,
         reply=reply,
