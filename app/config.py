@@ -51,6 +51,11 @@ class Settings(BaseSettings):
     RATE_LIMIT_IP_PER_HOUR: int = 5
     RATE_LIMIT_MSG_PER_MINUTE: int = 30
 
+    # ----- Background scheduler (Phase 4 R1) -----
+    SCHEDULER_ENABLED: bool = True            # False để tắt khi test
+    SCHEDULER_SWEEP_INTERVAL_S: int = 300     # 5 phút sweep timeout
+    SESSION_TIMEOUT_NUDGE_CARD_S: int = 180   # 3 phút sau Card render → flag (Phase 4 R2 push)
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

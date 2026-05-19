@@ -21,6 +21,11 @@ pydantic-settings==2.7.1
 python-dotenv==1.0.1
 
 # ============================================================
+# Background scheduler (Phase 4 R1 — refer F2A.1 lazy timeout)
+# ============================================================
+apscheduler>=3.10,<4              # In-process scheduler (timeout sweep)
+
+# ============================================================
 # Testing (refer KE_HOACH § 0.10 test pyramid)
 # ============================================================
 pytest==8.3.4

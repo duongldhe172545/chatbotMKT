@@ -5,6 +5,7 @@ Run: python -m app.main (dev) hoặc uvicorn app.main:app --port 8000.
 from __future__ import annotations
 
 import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import uvicorn
@@ -16,6 +17,8 @@ from fastapi.staticfiles import StaticFiles
 from app.api.admin import router as admin_router
 from app.api.chat import router as chat_router
 from app.config import get_settings
+from app.scheduler import create_scheduler
+from app.storage.sqlite_store import SQLiteStore
 
 logging.basicConfig(
     level=logging.INFO,
@@ -28,13 +31,38 @@ ROOT = Path(__file__).resolve().parent.parent
 STATIC_DIR = ROOT / "static"
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Startup + shutdown: APScheduler timeout sweep."""
+    settings = get_settings()
+    scheduler = None
+    if settings.SCHEDULER_ENABLED:
+        try:
+            store = SQLiteStore(settings.SQLITE_PATH)
+            scheduler = create_scheduler(store)
+            scheduler.start()
+            app.state.scheduler = scheduler
+            logger.info("Scheduler started (sweep every %ds)", settings.SCHEDULER_SWEEP_INTERVAL_S)
+        except Exception as e:
+            logger.exception("Scheduler start fail: %s", e)
+    yield
+    # Shutdown
+    if scheduler is not None:
+        try:
+            scheduler.shutdown(wait=False)
+            logger.info("Scheduler shutdown")
+        except Exception as e:
+            logger.exception("Scheduler shutdown fail: %s", e)
+
+
 def create_app() -> FastAPI:
     """App factory."""
     settings = get_settings()
     app = FastAPI(
         title="Em Linh MKT — Chatbot Dealer v8",
         version="0.1.0",
-        description="Phase 1 MVP — 3 REQUIRED slot + state machine 6 action + Gemini",
+        description="Phase 1-4 MVP — 17 slot + 12 edge case + scheduler + admin queue",
+        lifespan=lifespan,
     )
 
     # CORS
