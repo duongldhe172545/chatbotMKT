@@ -50,25 +50,21 @@ def validate_phone(value: Optional[str]) -> tuple[bool, Optional[str]]:
 # Address — refer F2A.7 check 3
 # ============================================================
 
-# Blacklist marker (chính trị / tôn giáo / vùng miền slur)
-# Refer 1C § 10 + ADDRESS_BLACKLIST trong 2A F2A.7
-_ADDRESS_BLACKLIST_KEYWORDS: list[str] = [
-    "bác hồ", "tô lâm", "trọng tổng", "nguyễn xuân phúc",
-    "ba đình lăng", "lăng bác",
-    "đức phật", "allah", "chúa trời", "thánh tôn",
-    "bắc kỳ", "nam kỳ", "trung kỳ",
-]
-
 
 def validate_address(value: Optional[str]) -> tuple[bool, Optional[str]]:
     """Address ≥ 3 char, ≤ 500 char, không chứa blacklist keyword.
 
     Refer F2A.7 check 3 + 1C § 10 (address blacklist).
+    Blacklist logic delegate sang `app/core/address_blacklist.py` (load
+    từ `data/address_blacklist.json`).
 
     Returns:
         (True, cleaned_address) nếu valid.
         (False, None) nếu < 3 char, > 500, empty, hoặc chứa blacklist.
     """
+    # Local import để tránh circular (validators được import sớm)
+    from app.core.address_blacklist import is_blacklisted
+
     if value is None or not isinstance(value, str):
         return (False, None)
     cleaned = value.strip()
@@ -76,11 +72,8 @@ def validate_address(value: Optional[str]) -> tuple[bool, Optional[str]]:
         return (False, None)
     if len(cleaned) < 3 or len(cleaned) > 500:
         return (False, None)
-    # Blacklist check — case insensitive
-    lower = cleaned.lower()
-    for blocked in _ADDRESS_BLACKLIST_KEYWORDS:
-        if blocked in lower:
-            return (False, None)
+    if is_blacklisted(cleaned):
+        return (False, None)
     return (True, cleaned)
 
 

@@ -1,0 +1,45 @@
+{
+  "_meta": {
+    "version": "1.0.0",
+    "updated_at": "2026-05-19",
+    "note": "Vocab CẤM bot dùng với dealer. Refer LUAT_2B F2B.8 G3 + CORE § C.1 + GLOSSARY § 6. Drift guard sẽ check + auto-rewrite mapping.",
+    "source": "Phase 3 R1"
+  },
+  "scoring_internal": {
+    "description": "Vocab Backend Scoring nội bộ — TUYỆT ĐỐI cấm lộ với dealer (action: REMOVE)",
+    "keywords": [
+      "Tier",
+      "Tier A",
+      "Tier B",
+      "Tier C",
+      "Tier D",
+      "C-score",
+      "Scoring",
+      "chấm điểm",
+      "đánh giá điểm",
+      "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9",
+      "evaluation",
+      "ranking",
+      "batch",
+      "dealer_id",
+      "dealer ID"
+    ]
+  },
+  "english_to_vietnamese": {
+    "description": "English vocab phải Việt hóa (action: REWRITE)",
+    "mapping": {
+      "BRANDKIT": "bộ thương hiệu",
+      "Brandkit": "bộ thương hiệu",
+      "brandkit": "bộ thương hiệu",
+      "Profile": "hồ sơ",
+      "Namecard": "danh thiếp",
+      "namecard": "danh thiếp",
+      "Slogan": "câu khẩu hiệu",
+      "slogan": "câu khẩu hiệu",
+      "Mini App": "ứng dụng nhỏ",
+      "mini app": "ứng dụng nhỏ",
+      "Marketing": "quảng bá",
+      "marketing": "quảng bá"
+    }
+  }
+}

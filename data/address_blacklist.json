@@ -1,0 +1,47 @@
+{
+  "_meta": {
+    "version": "1.0.0",
+    "updated_at": "2026-05-19",
+    "note": "Keywords cấm trong address dealer — chính trị + tôn giáo + vùng miền slur. Refer KICH_BAN_1C § 10 + LUAT_2A F2A.7. Match case-insensitive substring.",
+    "source": "Phase 3 R1 extract từ app/llm/extractors/validators.py"
+  },
+  "categories": {
+    "chinh_tri": {
+      "description": "Tên lãnh đạo chính trị + địa danh chính trị nhạy cảm",
+      "keywords": [
+        "bác hồ",
+        "hồ chí minh tổng",
+        "tô lâm",
+        "trọng tổng",
+        "nguyễn xuân phúc",
+        "ba đình lăng",
+        "lăng bác",
+        "phủ chủ tịch"
+      ]
+    },
+    "ton_giao": {
+      "description": "Tên thần thánh tôn giáo — tránh xúc phạm",
+      "keywords": [
+        "đức phật",
+        "phật tổ",
+        "allah",
+        "thánh allah",
+        "chúa trời",
+        "đức chúa",
+        "thánh tôn",
+        "đức mẹ maria"
+      ]
+    },
+    "vung_mien_slur": {
+      "description": "Vùng miền slur — tránh kì thị",
+      "keywords": [
+        "bắc kỳ",
+        "nam kỳ",
+        "trung kỳ",
+        "bắc cờ",
+        "rau muống",
+        "cá gỗ"
+      ]
+    }
+  }
+}
