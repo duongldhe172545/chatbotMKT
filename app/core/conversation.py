@@ -26,6 +26,13 @@ from app.core.intent import detect_intent
 from app.core.sanity import check_sanity
 from app.core.session import is_session_timeout, mark_session_closed, touch_session
 from app.core.state_machine import decide_action
+from app.guards import (
+    auto_rewrite,
+    check_hallucinate,
+    check_prompt_injection,
+    has_forbidden_scoring_vocab,
+    sanitize_injection,
+)
 from app.llm.ack_generator import generate_ack
 from app.llm.auto_derive import derive_main_category
 from app.llm.client import LLMClient
@@ -86,7 +93,15 @@ def handle_message(
     touch_session(session)
     session.turn_count += 1
 
-    # Add dealer message to history
+    # G1: Prompt injection guard (Layer 1 regex)
+    injection_match = check_prompt_injection(message)
+    if injection_match:
+        if Flag.PROMPT_INJECTION not in session.flags:
+            session.flags.append(Flag.PROMPT_INJECTION)
+        # Sanitize message trước khi pass cho LLM
+        message = sanitize_injection(message) or message
+
+    # Add dealer message to history (giữ raw message — admin sẽ thấy attack pattern)
     now = datetime.now(timezone.utc)
     session.history.append(HistoryMessage(role="dealer", content=message, ts=now))
 
@@ -99,6 +114,17 @@ def handle_message(
         reply = _handle_confirming(session, profile, message)
     else:  # Stage.DONE
         reply = _handle_done()
+
+    # G3: Drift guard — auto-rewrite vocab cấm trong bot reply
+    # Note: drift là lỗi NỘI BỘ bot (LLM lệch), không flag session.
+    # Scoring vocab leak nghiêm trọng → log warning để admin biết.
+    if reply:
+        if has_forbidden_scoring_vocab(reply):
+            logger.error(
+                "Scoring vocab LEAK trong bot reply session=%s reply=%r",
+                session.session_id, reply[:200],
+            )
+        reply = auto_rewrite(reply)
 
     # Add bot reply to history
     session.history.append(HistoryMessage(role="bot", content=reply, ts=now))
@@ -166,6 +192,14 @@ def _handle_asking(
             dealer_type=session.detected_dealer_type or DealerType.UNKNOWN,
             address_form=session.address_form,
         )
+        # G2: Hallucinate guard — null các field LLM bịa (không có trong message)
+        if extracted:
+            hallucinated = check_hallucinate(extracted, message)
+            if hallucinated:
+                if Flag.HALLUCINATE not in session.flags:
+                    session.flags.append(Flag.HALLUCINATE)
+                for field in hallucinated:
+                    extracted[field] = None
         # Merge extracted vào profile + auto-derive Scope 2 fields
         if extracted:
             _merge_extracted(profile, extracted, client=client)
