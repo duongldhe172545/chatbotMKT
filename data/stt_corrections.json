@@ -1,0 +1,72 @@
+{
+  "_meta": {
+    "version": "1.0.0",
+    "updated_at": "2026-05-19",
+    "note": "Common STT errors VN → correct mapping. Refer LUAT_2B § F2B.5. Phase 4 R2 — brand correction module. Match case-insensitive.",
+    "source": "Phase 4 R2 — kê khai từ common Google STT VN errors + brand mispronunciation"
+  },
+  "brand_corrections": {
+    "description": "STT thường nhầm tên brand → mapping về tên chuẩn",
+    "mapping": {
+      "xinhpha": "Xingfa",
+      "xinh pha": "Xingfa",
+      "sin pha": "Xingfa",
+      "shing pha": "Xingfa",
+      "shingfa": "Xingfa",
+      "viết pháp": "Việt Pháp",
+      "việt pháp": "Việt Pháp",
+      "viet phap": "Việt Pháp",
+      "viet tiệp": "Việt Tiệp",
+      "shu cô": "Schüco",
+      "shuco": "Schüco",
+      "su cô": "Schüco",
+      "rê na": "Reynaers",
+      "rê ners": "Reynaers",
+      "tô stem": "TOSTEM",
+      "tostem": "TOSTEM",
+      "lying": "Liming",
+      "liming": "Liming",
+      "kingsun": "Kingsun",
+      "king sun": "Kingsun",
+      "kingdoor": "Kingdoor",
+      "king door": "Kingdoor",
+      "austdoor": "Austdoor",
+      "ô đột": "Austdoor",
+      "mít a đột": "Mitadoor",
+      "smart đột": "Smartdoor",
+      "đông tiến": "Đồng Tiến",
+      "hyundai đột": "Hyundai Door",
+      "blum": "Blum",
+      "bờ lum": "Blum",
+      "hettich": "Hettich",
+      "hết tích": "Hettich",
+      "hafele": "Hafele",
+      "ha phê lê": "Hafele",
+      "an cường": "An Cường",
+      "đông á": "Đông Á",
+      "long gi": "Longi",
+      "longi": "Longi",
+      "jinko": "Jinko",
+      "gin cô": "Jinko",
+      "ca na đi an": "Canadian Solar",
+      "canadian": "Canadian Solar",
+      "trina": "Trina",
+      "saint gobain": "Saint-Gobain",
+      "viglacera": "Viglacera",
+      "vi gla xê ra": "Viglacera"
+    }
+  },
+  "common_vn_corrections": {
+    "description": "STT nhầm từ tiếng Việt thông dụng (Phase 4 R2 chỉ kê 5-10 case minh hoạ, mở rộng theo log)",
+    "mapping": {
+      "cửa cuồn": "cửa cuốn",
+      "cửa cún": "cửa cuốn",
+      "nhôm chính": "nhôm kính",
+      "nhôm kinh": "nhôm kính",
+      "tủ bếp": "tủ bếp",
+      "tu bep": "tủ bếp",
+      "vách kinh": "vách kính",
+      "kinh cường lực": "kính cường lực"
+    }
+  }
+}

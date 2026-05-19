@@ -35,12 +35,15 @@ from app.core.edge_cases import (
     check_phone_retry_exhausted,
     handle_defensive_escalation,
     handle_tam_su_escalation,
+    handle_voice_fail_escalation,
+    is_voice_fail_message,
     record_optional_refusal,
     record_tam_su,
     reset_optional_refusal,
     reset_tam_su,
     should_skip_in_rush_mode,
 )
+from app.llm.brand_correction import correct_stt
 from app.core.garbage_detector import is_garbage, is_meaningful_short
 from app.core.greeting import render_greeting
 from app.core.intent import detect_intent
@@ -118,6 +121,26 @@ def handle_message(
     # Touch session timestamp + increment turn
     touch_session(session)
     session.turn_count += 1
+
+    # Voice channel preprocess (1C § 8) — Phase 4 R2:
+    # 1. Check voice fail (empty / noise / dealer phàn nàn) → escalation 3 cấp
+    # 2. Apply STT brand correction trước extract (vd "xinhpha" → "Xingfa")
+    from app.models.enums import Channel as _Ch
+    is_voice = session.channel == _Ch.VOICE
+    if is_voice and session.stage == Stage.ASKING:
+        if is_voice_fail_message(message, is_voice_channel=True):
+            increment_flag_count(session, Flag.VOICE_QUALITY_POOR)
+            voice_reply, should_close_v = handle_voice_fail_escalation(session)
+            if should_close_v:
+                session.stage = Stage.DONE
+                mark_session_closed(session)
+            # Append history + return early
+            now = datetime.now(timezone.utc)
+            session.history.append(HistoryMessage(role="dealer", content=message, ts=now))
+            session.history.append(HistoryMessage(role="bot", content=voice_reply, ts=now))
+            return (voice_reply, session, profile)
+        # Brand STT correction (text manipulation, KHÔNG block flow)
+        message = correct_stt(message) or message
 
     # G1: Prompt injection guard (Layer 1 regex)
     injection_match = check_prompt_injection(message)

@@ -236,3 +236,74 @@ def record_tam_su(session: SessionState) -> int:
 def reset_tam_su(session: SessionState) -> None:
     """Reset counter khi dealer ngừng tâm sự."""
     session.consecutive_tam_su = 0
+
+
+# ============================================================
+# 6. Voice STT fail (1C § 8) — Phase 4 R2
+# ============================================================
+
+# Pattern STT fail: empty/noise/dealer phàn nàn không nghe
+import re as _re
+
+_VOICE_FAIL_PATTERNS: list[_re.Pattern] = [
+    _re.compile(r"^\s*$"),                              # empty
+    _re.compile(r"^[\s\.,…]+$"),                        # toàn dấu chấm
+    _re.compile(r"\b(uh|ah|ờm|hớm|hửm)\s*[\.…]?\s*\b", _re.IGNORECASE),  # noise filler
+    _re.compile(r"không nghe rõ|không nghe được|mạng kém|nhiễu", _re.IGNORECASE),
+]
+
+VOICE_FAIL_L1_TEMPLATE = (
+    "Dạ em chưa nghe rõ tiếng anh lắm — có thể do mạng kém ạ. Anh có "
+    "thể gõ chữ giúp em được không?"
+)
+
+VOICE_FAIL_L2_TEMPLATE = (
+    "Dạ em vẫn chưa nghe rõ — anh thử gõ chữ thẳng vào khung chat thì "
+    "em xử lý nhanh hơn ạ. Nếu khó, anh nhắn em qua FB Messenger / SMS "
+    "cũng được."
+)
+
+VOICE_FAIL_L3_TEMPLATE = (
+    "Dạ vâng, em xin lỗi vì sự bất tiện — em tạm dừng phần thu thập qua "
+    "voice ạ. Team người thật bên em sẽ liên hệ anh sau qua kênh khác. "
+    "Cảm ơn anh nhiều! 🌷"
+)
+
+
+def is_voice_fail_message(message: str | None, is_voice_channel: bool = False) -> bool:
+    """True nếu message giống STT fail.
+
+    Args:
+        message: User message (text từ STT)
+        is_voice_channel: True nếu channel là voice (text typed ≠ voice fail)
+    """
+    if not is_voice_channel:
+        return False
+    if not message or not isinstance(message, str):
+        return True
+    for pattern in _VOICE_FAIL_PATTERNS:
+        if pattern.search(message):
+            return True
+    return False
+
+
+def handle_voice_fail_escalation(session: SessionState) -> tuple[str, bool]:
+    """Xử voice fail theo cấp — refer 1C § 8.
+
+    Caller tăng flag VOICE_QUALITY_POOR TRƯỚC khi gọi.
+
+    Returns:
+        (reply, should_close)
+
+    Logic:
+    - count=1: L1 — "anh có thể gõ chữ"
+    - count=2: L2 — "thử kênh khác"
+    - count≥3: L3 — soft-end + raise ESCALATION
+    """
+    count = session.flag_counts.get(Flag.VOICE_QUALITY_POOR.value, 0)
+    if count <= 1:
+        return (VOICE_FAIL_L1_TEMPLATE, False)
+    if count == 2:
+        return (VOICE_FAIL_L2_TEMPLATE, False)
+    raise_escalation(session, reason=f"voice_fail_x{count}")
+    return (VOICE_FAIL_L3_TEMPLATE, True)

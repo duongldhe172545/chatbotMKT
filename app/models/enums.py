@@ -127,3 +127,4 @@ class Channel(str, Enum):
     WEB = "web"
     ZALO = "zalo"
     FB = "fb"
+    VOICE = "voice"   # Phase 4 R2 — STT voice channel (refer 1C § 8)

@@ -17,11 +17,16 @@ from app.core.edge_cases import (
     TAM_SU_L1_TEMPLATE,
     TAM_SU_L2_TEMPLATE,
     TAM_SU_L3_TEMPLATE,
+    VOICE_FAIL_L1_TEMPLATE,
+    VOICE_FAIL_L2_TEMPLATE,
+    VOICE_FAIL_L3_TEMPLATE,
     check_phone_retry_exhausted,
     enter_rush_mode,
     handle_defensive_escalation,
     handle_tam_su_escalation,
+    handle_voice_fail_escalation,
     is_session_escalated,
+    is_voice_fail_message,
     raise_escalation,
     record_optional_refusal,
     record_tam_su,
@@ -293,3 +298,66 @@ class TestTamSuEscalation:
         reply, should_close = handle_tam_su_escalation(s)
         assert reply == TAM_SU_L1_TEMPLATE
         assert should_close is False
+
+
+# ============================================================
+# 6. Voice STT fail (1C § 8) — Phase 4 R2
+# ============================================================
+
+
+class TestVoiceFailDetect:
+    @pytest.mark.parametrize("msg", [
+        "",
+        "   ",
+        "...",
+        ".,..,",
+        "uh uh uh",
+        "ờm ờm",
+        "hớm... hửm",
+        "không nghe rõ",
+        "mạng kém quá",
+    ])
+    def test_voice_fail_detected_when_voice_channel(self, msg):
+        assert is_voice_fail_message(msg, is_voice_channel=True) is True
+
+    @pytest.mark.parametrize("msg", [
+        "anh tên Tùng",
+        "0912345678",
+        "ok em làm đi",
+        "cửa nhôm kính",
+    ])
+    def test_normal_message_not_voice_fail(self, msg):
+        assert is_voice_fail_message(msg, is_voice_channel=True) is False
+
+    def test_text_channel_never_voice_fail(self):
+        """ADVERSARIAL: text channel — không bao giờ là voice fail dù message rỗng."""
+        assert is_voice_fail_message("", is_voice_channel=False) is False
+        assert is_voice_fail_message("uh uh", is_voice_channel=False) is False
+
+
+class TestVoiceFailEscalation:
+    def test_l1(self):
+        s = create_session()
+        from app.admin.queue import increment_flag_count
+        increment_flag_count(s, Flag.VOICE_QUALITY_POOR)
+        reply, should_close = handle_voice_fail_escalation(s)
+        assert reply == VOICE_FAIL_L1_TEMPLATE
+        assert should_close is False
+
+    def test_l2(self):
+        s = create_session()
+        from app.admin.queue import increment_flag_count
+        for _ in range(2):
+            increment_flag_count(s, Flag.VOICE_QUALITY_POOR)
+        reply, _ = handle_voice_fail_escalation(s)
+        assert reply == VOICE_FAIL_L2_TEMPLATE
+
+    def test_l3_triggers_escalation(self):
+        s = create_session()
+        from app.admin.queue import increment_flag_count
+        for _ in range(3):
+            increment_flag_count(s, Flag.VOICE_QUALITY_POOR)
+        reply, should_close = handle_voice_fail_escalation(s)
+        assert reply == VOICE_FAIL_L3_TEMPLATE
+        assert should_close is True
+        assert Flag.ESCALATION in s.flags
