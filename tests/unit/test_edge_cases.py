@@ -14,14 +14,20 @@ from app.core.edge_cases import (
     DEFENSIVE_L3_TEMPLATE,
     OPTIONAL_REFUSAL_THRESHOLD,
     PHONE_RETRY_THRESHOLD,
+    TAM_SU_L1_TEMPLATE,
+    TAM_SU_L2_TEMPLATE,
+    TAM_SU_L3_TEMPLATE,
     check_phone_retry_exhausted,
+    enter_rush_mode,
     handle_defensive_escalation,
+    handle_tam_su_escalation,
     is_session_escalated,
     raise_escalation,
     record_optional_refusal,
+    record_tam_su,
     reset_optional_refusal,
+    reset_tam_su,
     should_skip_in_rush_mode,
-    enter_rush_mode,
 )
 from app.admin.queue import increment_flag_count
 from app.core.session import create_session
@@ -226,3 +232,64 @@ class TestPhoneRetryExhausted:
         # Flag chỉ raise 1 lần
         assert s.flags.count(Flag.PHONE_INVALID_AFTER_RETRY) == 1
         assert s.flag_counts[Flag.PHONE_INVALID_AFTER_RETRY.value] == 1
+
+
+# ============================================================
+# 5. Tâm sự kéo dài (1C § 3)
+# ============================================================
+
+
+class TestTamSuEscalation:
+    def test_l1_first_and_second_turn(self):
+        """Turn 1-2 tâm sự → engage nhẹ."""
+        s = create_session()
+        record_tam_su(s)
+        reply, should_close = handle_tam_su_escalation(s)
+        assert reply == TAM_SU_L1_TEMPLATE
+        assert should_close is False
+
+        record_tam_su(s)  # count=2
+        reply, _ = handle_tam_su_escalation(s)
+        assert reply == TAM_SU_L1_TEMPLATE
+
+    def test_l2_turn_3_polite_cut(self):
+        s = create_session()
+        for _ in range(3):
+            record_tam_su(s)
+        reply, should_close = handle_tam_su_escalation(s)
+        assert reply == TAM_SU_L2_TEMPLATE
+        assert should_close is False
+        assert Flag.ESCALATION not in s.flags
+
+    def test_l2_turn_4_still_polite_cut(self):
+        """ADVERSARIAL: dealer tâm sự turn 4 → vẫn L2 (count 3-4)."""
+        s = create_session()
+        for _ in range(4):
+            record_tam_su(s)
+        reply, _ = handle_tam_su_escalation(s)
+        assert reply == TAM_SU_L2_TEMPLATE
+
+    def test_l3_turn_5_soft_end(self):
+        """Turn 5 tâm sự → soft-end + ESCALATION."""
+        s = create_session()
+        for _ in range(5):
+            record_tam_su(s)
+        reply, should_close = handle_tam_su_escalation(s)
+        assert reply == TAM_SU_L3_TEMPLATE
+        assert should_close is True
+        assert Flag.ESCALATION in s.flags
+
+    def test_reset_clears_counter(self):
+        """Dealer ngừng tâm sự (intent ≠ TAM_SU) → reset count."""
+        s = create_session()
+        for _ in range(3):
+            record_tam_su(s)
+        assert s.consecutive_tam_su == 3
+        reset_tam_su(s)
+        assert s.consecutive_tam_su == 0
+
+    def test_zero_count_returns_l1_safe(self):
+        s = create_session()
+        reply, should_close = handle_tam_su_escalation(s)
+        assert reply == TAM_SU_L1_TEMPLATE
+        assert should_close is False

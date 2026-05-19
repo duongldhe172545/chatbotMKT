@@ -32,8 +32,11 @@ from app.core.dealer_type import detect_dealer_type, should_detect_now
 from app.core.edge_cases import (
     check_phone_retry_exhausted,
     handle_defensive_escalation,
+    handle_tam_su_escalation,
     record_optional_refusal,
+    record_tam_su,
     reset_optional_refusal,
+    reset_tam_su,
     should_skip_in_rush_mode,
 )
 from app.core.garbage_detector import is_garbage, is_meaningful_short
@@ -278,6 +281,10 @@ def _handle_asking(
     # State machine quyết action
     next_slot, action = decide_action(session, intent, extracted)
 
+    # Reset tâm sự counter nếu intent KHÔNG phải TAM_SU (dealer đã quay slot)
+    if intent != Intent.TAM_SU:
+        reset_tam_su(session)
+
     # Gen reply theo action
     if action == Action.PAUSE:
         # PAUSE = defensive / tâm sự — refer state_machine.decide_action
@@ -286,11 +293,18 @@ def _handle_asking(
             increment_flag_count(session, Flag.DEALER_TOO_DEFENSIVE)
             reply, should_close = handle_defensive_escalation(session)
             if should_close:
-                # Escalation L3 → soft-end session
                 session.stage = Stage.DONE
                 mark_session_closed(session)
             return reply
-        # Tâm sự (Phase 3+ sẽ có dedicated handler) — fallback nhẹ
+        if session.paused_for == "tam_su":
+            # 1C § 3: tâm sự kéo dài escalation
+            record_tam_su(session)
+            reply, should_close = handle_tam_su_escalation(session)
+            if should_close:
+                session.stage = Stage.DONE
+                mark_session_closed(session)
+            return reply
+        # Fallback (paused_for None hoặc lạ)
         return _phase_1_pause_fallback(session.paused_for)
 
     # Track edge case: refusal lặp OPTIONAL (1C § 4) — count + flag

@@ -179,3 +179,60 @@ def check_phone_retry_exhausted(session: SessionState) -> bool:
 def is_session_escalated(session: SessionState) -> bool:
     """True nếu session đã raise ESCALATION → caller close + Closing rút gọn."""
     return Flag.ESCALATION in session.flags
+
+
+# ============================================================
+# 5. Tâm sự kéo dài — refer 1C § 3
+# ============================================================
+
+TAM_SU_L1_TEMPLATE = (
+    "Dạ em hiểu mà ạ. Anh chia sẻ em rất quý. À cho em hỏi tiếp xíu nhé?"
+)
+
+TAM_SU_L2_TEMPLATE = (
+    "Em nghe mà thấy thương anh thật ạ. Phần này em ghi lại để team người "
+    "thật bên em có dịp trò chuyện kỹ hơn với anh sau. Mình tiếp tục phần "
+    "thu thập xíu được không anh?"
+)
+
+TAM_SU_L3_TEMPLATE = (
+    "Dạ em hiểu mà anh — em ghi nhận hết những gì anh chia sẻ. Em note "
+    "lại để team người thật sau có dịp chuyện trò kỹ hơn ạ. Mình ngừng "
+    "tại đây nhé, cảm ơn anh đã dành thời gian 🌷"
+)
+
+
+def handle_tam_su_escalation(session: SessionState) -> tuple[str, bool]:
+    """Xử tâm sự theo cấp — refer 1C § 3.
+
+    Caller tăng `session.consecutive_tam_su` TRƯỚC khi gọi.
+    Reset counter khi intent ≠ TAM_SU.
+
+    Returns:
+        (reply, should_close)
+
+    Logic:
+    - count=1: L1 nhẹ (engage 1 nhịp)
+    - count=2: L1 (engage nhịp 2)
+    - count=3-4: L2 (polite cut + offer quay slot)
+    - count≥5: L3 (soft-end + raise ESCALATION)
+    """
+    count = session.consecutive_tam_su
+    if count <= 2:
+        return (TAM_SU_L1_TEMPLATE, False)
+    if count <= 4:
+        return (TAM_SU_L2_TEMPLATE, False)
+    # count ≥ 5 → L3
+    raise_escalation(session, reason=f"tam_su_x{count}")
+    return (TAM_SU_L3_TEMPLATE, True)
+
+
+def record_tam_su(session: SessionState) -> int:
+    """Tăng counter tâm sự. Return new count."""
+    session.consecutive_tam_su += 1
+    return session.consecutive_tam_su
+
+
+def reset_tam_su(session: SessionState) -> None:
+    """Reset counter khi dealer ngừng tâm sự."""
+    session.consecutive_tam_su = 0

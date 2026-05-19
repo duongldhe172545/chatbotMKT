@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     paused_for              TEXT,                                       -- NULL / "defensive" / "tam_su"
     consecutive_optional_refusal INTEGER NOT NULL DEFAULT 0,            -- Phase 3 R4: § 4 (1C) — refusal lặp count
     rush_mode               INTEGER NOT NULL DEFAULT 0,                 -- Phase 3 R4: § 4 (1C) — bool 0/1
+    consecutive_tam_su      INTEGER NOT NULL DEFAULT 0,                 -- Phase 3 R8: § 3 (1C) — tâm sự lặp count
     address_form            TEXT NOT NULL DEFAULT 'anh',                -- anh / chị
     created_at              TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at              TEXT NOT NULL DEFAULT (datetime('now')),
