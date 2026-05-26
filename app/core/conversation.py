@@ -170,6 +170,9 @@ def handle_message(
             )
         reply = auto_rewrite(reply)
 
+        # Bug 11: fix LLM missing-space (e.g. "nàyđể" → "này để")
+        reply = _fix_missing_spaces(reply)
+
         # GLOBAL address_form post-processing — CRITICAL FIX.
         # LLM thường bỏ qua system prompt instruction về address_form.
         # Áp dụng _adapt_address_form lên TOÀN BỘ reply để đảm bảo
@@ -219,6 +222,27 @@ def handle_message(
 # ============================================================
 # Internal helpers
 # ============================================================
+
+
+import re as _re
+
+# Common Vietnamese function words that often get stuck to preceding syllable
+_STUCK_WORDS = (
+    "để", "mà", "và", "thì", "là", "với", "cho", "từ", "của", "này",
+    "đó", "ạ", "nhé", "nha", "rồi", "được", "không", "thêm", "qua",
+    "trong", "ngoài", "trên", "dưới", "cùng", "theo", "về",
+)
+_STUCK_PATTERN = _re.compile(
+    r"([a-zà-ỹ])(" + "|".join(_re.escape(w) for w in _STUCK_WORDS) + r")\b",
+    _re.IGNORECASE,
+)
+
+
+def _fix_missing_spaces(text: str) -> str:
+    """Fix LLM missing spaces: 'nàyđể' → 'này để'."""
+    if not text:
+        return text
+    return _STUCK_PATTERN.sub(r"\1 \2", text)
 
 
 def _is_voice_channel(session: SessionState) -> bool:

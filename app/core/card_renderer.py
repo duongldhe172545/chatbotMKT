@@ -41,7 +41,7 @@ def render_card(profile: DealerProfileRaw, address_form: str = "anh") -> str:
     """
     af = address_form
     lines: list[str] = []
-    lines.append(f"📋 HỒ SƠ CỬa HÀNG — {af} duyệt giúp em ạ")
+    lines.append(f"📋 HỒ SƠ CỬA HÀNG — {af} duyệt giúp em ạ")
     lines.append("")
 
     # ----- Phần 1: 🏪 Danh thiếp cửa hàng -----

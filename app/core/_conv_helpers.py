@@ -99,6 +99,15 @@ def gen_ack_safe(
     if direct_ack:
         return direct_ack
 
+    # Bug 12: extract already-acked brand names to hint LLM
+    acked_brands = [
+        k.split("_brand_", 1)[1] for k in session.acked_direct_keys
+        if "_brand_" in k
+    ]
+    brand_avoid_hint = ""
+    if acked_brands:
+        brand_avoid_hint = f"Đã ack brand {', '.join(acked_brands)} turn trước — KHÔNG nhắc lại."
+
     try:
         ack = generate_ack(
             slot_id=slot_id,
@@ -107,7 +116,7 @@ def gen_ack_safe(
             dealer_type=session.detected_dealer_type or DealerType.UNKNOWN,
             address_form=session.address_form,
             use_fallback_on_error=True,
-            bridge_avoid_hint=get_avoid_hint(session),
+            bridge_avoid_hint=get_avoid_hint(session) + (" " + brand_avoid_hint if brand_avoid_hint else ""),
             recently_acked_name=session.last_acked_name,
             ref_filled_fields=session.last_ref_filled_fields or None,
         )
@@ -138,7 +147,7 @@ def _gen_direct_ack(slot_id: str, extracted_data: dict, address_form: str = "anh
                 return f"Tên cửa hàng cũng là {dealer} ạ."
             return None
         if owner:
-            return f"{af.capitalize()} {owner}, em xưng hô vậy cho đúng nhé."
+            return f"Dạ vâng {af} {owner} 🌷! Em đổi xưng hô cho đúng nhé."
         if dealer:
             return f"Tên cửa hàng mình là {dealer} ạ."
     if slot_id == "1.3" and extracted_data.get("phone_or_zalo"):

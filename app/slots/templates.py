@@ -110,8 +110,8 @@ _SLOT_TEMPLATES: dict[str, SlotTemplate] = {
             "Anh em trong ngành mình thường làm nhiều mảng — cửa cuốn, "
             "nhôm hệ, vách kính, tủ bếp... bên anh đang chủ lực mảng "
             "gì, và cái nào anh tự tin mạnh nhất ạ?",
-            "Anh ơi, bên cửa hàng mình đang phát triển những mảng sản "
-            "phẩm nào ạ, và mảng nào là mạnh nhất?",
+            "Chị ơi, bên cửa hàng mình chuyên những mảng sản phẩm nào ạ, "
+            "và mảng nào là mạnh nhất?",
             "Em hỏi tiếp ạ — danh mục sản phẩm chủ lực của cửa hàng "
             "mình là gì, và cái nào anh tự tin nhất?",
         ],

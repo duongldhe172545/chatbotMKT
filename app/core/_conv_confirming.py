@@ -44,6 +44,13 @@ def handle_confirming(
     intent = detect_intent(message)
     af = _af(session)
 
+    # Bug 10: de-escalate profanity at CONFIRMING
+    if intent == Intent.DEFENSIVE:
+        return (
+            f"Dạ em hiểu {af} đang bực, em xin lỗi nếu làm phiền. "
+            f"{af.capitalize()} duyệt OK hay cần sửa chỗ nào ạ?"
+        )
+
     if intent == Intent.AFFIRMATIVE:
         # Sanity check 5-point trước khi CONFIRMED (F2A.7)
         passed, failed = check_sanity(session, profile)
@@ -97,6 +104,41 @@ def handle_confirming(
         mark_session_closed(session)
         return render_soft_end_closing()
 
+    # Layer 1 = NORMAL → LLM Layer 2 intent detect
+    # Dealer có thể nói "hãng nhập là ốt đo" mà regex không bắt EDIT
+    if intent == Intent.NORMAL and client:
+        l2_intent = _detect_confirming_intent_llm(message, client)
+        if l2_intent == "edit":
+            return _handle_edit(session, profile, message, client)
+        if l2_intent == "confirm":
+            # Treat as affirmative
+            session.confirmation_status = ConfirmationStatus.CONFIRMED
+            session.stage = Stage.DONE
+            mark_session_closed(session)
+            if profile.brandkit_consent == "yes":
+                try:
+                    pack_json = export_brandkit_pack_json(
+                        profile, session.session_id,
+                    )
+                    logger.info(
+                        "Brandkit pack exported: session=%s size=%d",
+                        session.session_id, len(pack_json),
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Brandkit export fail: session=%s err=%s",
+                        session.session_id, e,
+                    )
+            return render_closing(
+                province=profile.province,
+                consent=profile.brandkit_consent,
+                client=client,
+                dealer_type=session.detected_dealer_type or DealerType.UNKNOWN,
+                address_form=session.address_form,
+                session_id=session.session_id,
+                dealer_name=profile.dealer_name,
+            )
+
     # Re-prompt — Fix Lỗi 5: dùng address_form
     return f"{af.capitalize()} duyệt OK / sửa gì giúp em ạ?"
 
@@ -138,9 +180,14 @@ def handle_done(
             system = build_system_prompt(
                 address_form=session.address_form if session else None,
                 task=(
-                    "Session ĐÃ ĐÓNG. Dealer nói thêm sau khi đã xác nhận xong. "
-                    f"Reply NGẮN ≤30 từ, thân thiện. Nhắc {af} rằng em đã chốt thông tin "
-                    "và sẽ gửi qua Zalo. KHÔNG hỏi thêm câu hỏi mới."
+                    "Session ĐÃ ĐÓNG. Dealer tâm sự thêm sau khi đã chốt xong. "
+                    f"Reply TỰ NHIÊN như bạn bè, ≤25 từ. "
+                    "CẤM TUYỆT ĐỐI nhắc lại 'đã chốt thông tin', 'gửi qua Zalo', "
+                    "'em sẽ tổng hợp' — dealer BIẾT RỒI, nhắc lại = spam. "
+                    "Ví dụ: dealer hỏi thời tiết → trả lời thời tiết thực tế "
+                    "(VN tháng 5-6 mùa hè nắng nóng 35-40°C). "
+                    "Dealer tâm sự gia đình → đồng cảm nhẹ nhàng. "
+                    "KHÔNG kéo về business. Trò chuyện bình thường."
                 ),
             )
             reply = client.chat_fast(
@@ -158,6 +205,43 @@ def handle_done(
         f"Dạ em đã chốt thông tin rồi ạ. Nếu {af} cần gì thêm, "
         f"{af} nhắn em trên Zalo nhé!"
     )
+
+
+def _detect_confirming_intent_llm(message: str, client: LLMClient) -> str:
+    """LLM Layer 2: detect intent at CONFIRMING stage.
+
+    Returns: "edit" | "confirm" | "other"
+    """
+    import json
+
+    prompt = (
+        f"Dealer đang xem card xác nhận thông tin. Dealer nói:\n"
+        f"\"{message}\"\n\n"
+        f"Dealer có ý gì?\n"
+        f"- \"edit\": muốn SỬA/ĐỔI/CẬP NHẬT 1 trường thông tin nào đó\n"
+        f"- \"confirm\": xác nhận OK, đồng ý, duyệt\n"
+        f"- \"other\": không rõ / chửi / tâm sự / hỏi\n\n"
+        f"CHỈ trả JSON: {{\"intent\": \"edit/confirm/other\"}}"
+    )
+    try:
+        response = client.chat_fast(
+            system_prompt="Bạn là intent classifier. Chỉ trả JSON.",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=64,
+        )
+        if not response:
+            return "other"
+        text = response.strip()
+        if text.startswith("```"):
+            text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+        data = json.loads(text)
+        intent_val = data.get("intent", "other")
+        if intent_val in ("edit", "confirm"):
+            logger.info("Confirming L2 intent: %r → %s", message[:60], intent_val)
+            return intent_val
+    except Exception as e:
+        logger.debug("Confirming L2 intent fail: %s", e)
+    return "other"
 
 
 def enter_confirming(
@@ -236,6 +320,7 @@ _FIELD_DISPLAY_NAMES: dict[str, str] = {
     "brandkit_consent": "đồng ý nhận bộ thương hiệu",
     "facebook": "Facebook",
     "business_model_signal": "mô hình kinh doanh",
+    "supplier_brands": "hãng nhập",
 }
 
 
@@ -258,6 +343,7 @@ def _parse_edit_llm(
         "phone_or_zalo": profile.phone_or_zalo,
         "main_product": profile.main_product,
         "est_team_size": profile.est_team_size,
+        "supplier_brands": ", ".join(profile.supplier_brands) if profile.supplier_brands else None,
         "color_accent": profile.color_accent,
         "facebook": profile.facebook,
     }
@@ -301,7 +387,7 @@ def _parse_edit_llm(
             valid_fields = {
                 "owner_name", "dealer_name", "address", "phone_or_zalo",
                 "main_product", "est_team_size", "color_accent", "facebook",
-                "business_model_signal", "brandkit_consent",
+                "business_model_signal", "brandkit_consent", "supplier_brands",
             }
             if field in valid_fields:
                 return (field, str(value).strip())

@@ -334,12 +334,22 @@ def _extract_and_merge(
             raw_msg = (message or "").strip()
             addr_to_check = raw_msg if _needs_address_province_confirmation(raw_msg) else extracted.get("address")
             if _needs_address_province_confirmation(addr_to_check):
+                # Known district → confirm with guessed province
                 raw_address = str(addr_to_check or "").strip()
                 canonical = _canonical_address_guess(raw_address)
                 session.pending_address_text = raw_address
                 session.pending_address_canonical = canonical
                 af = session.address_form.value
                 return {"__internal_reply": f"Dạ {canonical} đúng không {af}?"}
+
+            # Unknown short address (1-3 words, no province keyword) → ask province
+            addr_val = extracted.get("address") or raw_msg
+            if addr_val and _is_short_address_without_province(addr_val):
+                af = session.address_form.value
+                return {"__internal_reply": (
+                    f"Dạ {addr_val} thuộc tỉnh/thành nào {af} nhỉ? "
+                    f"Em cần ghi rõ để hỗ trợ đúng khu vực ạ."
+                )}
 
     # Phase 6 R+ fix: code-level reference resolver (LLM_FAST đôi khi miss)
     # Vd "cùng tên anh", "giống vậy" → fill dealer_name = owner_name từ profile.
@@ -904,6 +914,66 @@ def _canonical_address_guess(address: str) -> str:
     if folded in _DISTRICT_PROVINCE_GUESSES:
         return _DISTRICT_PROVINCE_GUESSES[folded]
     return address.strip()
+
+
+# Province keywords that indicate address already has province info
+_PROVINCE_KEYWORDS = {
+    "hà nội", "ha noi", "hcm", "tp hcm", "hồ chí minh", "ho chi minh",
+    "đà nẵng", "da nang", "hải phòng", "hai phong", "cần thơ", "can tho",
+    "tỉnh", "tinh", "thành phố", "thanh pho", "tp.",
+    # Common province names
+    "hải dương", "hai duong", "bắc ninh", "bac ninh", "bắc giang", "bac giang",
+    "hưng yên", "hung yen", "thái bình", "thai binh", "nam định", "nam dinh",
+    "nghệ an", "nghe an", "thanh hóa", "thanh hoa", "quảng ninh", "quang ninh",
+    "đồng nai", "dong nai", "bình dương", "binh duong", "long an",
+    "vĩnh phúc", "vinh phuc", "phú thọ", "phu tho", "thái nguyên", "thai nguyen",
+    "lâm đồng", "lam dong", "đắk lắk", "dak lak", "gia lai", "khánh hòa", "khanh hoa",
+    "bình thuận", "binh thuan", "bình định", "binh dinh", "quảng nam", "quang nam",
+    "quảng ngãi", "quang ngai", "phú yên", "phu yen", "ninh bình", "ninh binh",
+    "hà tĩnh", "ha tinh", "quảng bình", "quang binh", "quảng trị", "quang tri",
+    "thừa thiên huế", "thua thien hue", "huế", "hue",
+    "tiền giang", "tien giang", "bến tre", "ben tre", "vĩnh long", "vinh long",
+    "đồng tháp", "dong thap", "an giang", "kiên giang", "kien giang",
+    "cà mau", "ca mau", "bạc liêu", "bac lieu", "sóc trăng", "soc trang",
+    "trà vinh", "tra vinh", "hậu giang", "hau giang",
+    "lào cai", "lao cai", "yên bái", "yen bai", "sơn la", "son la",
+    "điện biên", "dien bien", "lai châu", "lai chau", "hà giang", "ha giang",
+    "cao bằng", "cao bang", "bắc kạn", "bac kan", "tuyên quang", "tuyen quang",
+    "lạng sơn", "lang son",
+    "tây ninh", "tay ninh", "bình phước", "binh phuoc", "bà rịa", "ba ria",
+    "vũng tàu", "vung tau",
+}
+
+
+def _is_short_address_without_province(address: Optional[str]) -> bool:
+    """True nếu address ngắn (1-3 từ) và KHÔNG chứa province keyword.
+
+    Dùng để trigger hỏi dealer xác nhận tỉnh/thành.
+    Ví dụ: "Gia Lộc" → True (ngắn, không có province)
+           "Gia Lộc, Hải Dương" → False (đã có province)
+           "quận Bình Thạnh tp HCM" → False (có province keyword)
+    """
+    if not address:
+        return False
+    addr = str(address).strip()
+    # Strip common prefixes for counting
+    addr_clean = addr.lower()
+    for prefix in ("chị ở ", "anh ở ", "em ở ", "tôi ở ", "ở "):
+        if addr_clean.startswith(prefix):
+            addr = addr[len(prefix):].strip()
+            break
+
+    words = addr.split()
+    if len(words) > 4 or len(words) == 0:
+        return False  # Long enough → likely has province, or empty
+
+    # Check if any province keyword is present
+    addr_lower = addr.lower()
+    for kw in _PROVINCE_KEYWORDS:
+        if kw in addr_lower:
+            return False  # Already has province info
+
+    return True
 
 
 _DISTRICT_PROVINCE_GUESSES: dict[str, str] = {

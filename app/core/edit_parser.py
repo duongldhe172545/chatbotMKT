@@ -44,6 +44,11 @@ FIELD_KEYWORDS: dict[str, str] = {
     # Color (slot 4.2)
     "màu": "color_accent", "mau": "color_accent",
     "màu sắc": "color_accent",
+    # Supplier brands (slot 2.4)
+    "hãng nhập": "supplier_brands", "hang nhap": "supplier_brands",
+    "tên hãng": "supplier_brands", "ten hang": "supplier_brands",
+    "nhà cung cấp": "supplier_brands", "nha cung cap": "supplier_brands",
+    "hãng": "supplier_brands", "hang": "supplier_brands",
 }
 
 # Patterns nhận diện ý sửa: "sửa X thành Y", "đổi X thành Y", "X là Y", "không phải, X là Y"
@@ -56,7 +61,7 @@ EDIT_PATTERNS = [
 
 
 # Field nào là list — value cần wrap [value]
-LIST_FIELDS: set[str] = set()  # v8: edit qua regex chỉ set string fields
+LIST_FIELDS: set[str] = {"supplier_brands"}
 
 
 def parse_edit_command(message: str) -> tuple[str, object] | None:
