@@ -160,6 +160,13 @@ def handle_message(
             )
         reply = auto_rewrite(reply)
 
+        # GLOBAL address_form post-processing — CRITICAL FIX.
+        # LLM thường bỏ qua system prompt instruction về address_form.
+        # Áp dụng _adapt_address_form lên TOÀN BỘ reply để đảm bảo
+        # "anh" → "chị" khi session.address_form == CHI.
+        from app.core._conv_helpers import _adapt_address_form
+        reply = _adapt_address_form(reply, session) or reply
+
         # B.4 luật #2 (Phase 6 R+): parrot guard — KHÔNG lặp y nguyên
         # đoạn ≥ 4 từ liên tiếp từ dealer message. Chỉ flag để admin
         # review, không tự rewrite (LLM nên rephrase tự nhiên — code

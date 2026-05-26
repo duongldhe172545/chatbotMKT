@@ -268,28 +268,31 @@ def gen_partial_question(
 
 
 def _adapt_address_form(text: Optional[str], session: SessionState) -> Optional[str]:
-    """Replace xưng hô 'anh' → session.address_form in template questions.
+    """Replace xưng hô 'anh' → session.address_form trong MỌI output.
 
-    Only replaces standalone 'anh' used as pronoun (end of sentence, after
-    space+comma, before ạ/ơi/nhé). Does NOT replace 'anh' inside words
-    like 'Anh em', 'danh', 'nhanh'.
+    Dùng \\banh\\b (word boundary) để bắt TẤT CẢ 'anh' standalone:
+    - 'anh Giang' → 'chị Giang'
+    - 'gửi anh' → 'gửi chị'
+    - 'đủ anh.' → 'đủ chị.'
+    - 'Anh có thể' → 'Chị có thể'
+
+    Word boundary đảm bảo KHÔNG match 'danh', 'nhanh', 'anh em thợ'.
+    Trong context chatbot này, 'anh' luôn là đại từ nhân xưng.
     """
     if not text or session.address_form.value == "anh":
         return text
     import re as _re
     af = session.address_form.value  # "chị"
-    # Pattern: standalone "anh" as pronoun in Vietnamese
-    # Matches: "anh ơi", "anh ạ", "anh nhé", "anh?", ", anh", "— anh"
-    # Also "Anh" at start of sentence after ". " or "\n"
-    # Does NOT match "Anh em", "danh", "nhanh", etc.
-    result = _re.sub(
-        r'\banh\b(?=\s*[?!.,;:\n]|\s+ạ|\s+ơi|\s+nhé|\s+nhỉ|\s+nha|\s+cho|\s+có|\s+không|$)',
-        af,
-        text,
-        flags=_re.IGNORECASE,
-    )
-    # Also fix "Anh cho em", "Anh ơi" at sentence start
-    result = _re.sub(r'(?:^|\n)Anh\b', af.capitalize(), result)
+
+    def _replace_anh(m):
+        """Preserve capitalization: Anh → Chị, anh → chị."""
+        matched = m.group(0)
+        if matched[0].isupper():
+            return af.capitalize()
+        return af
+
+    # Bắt tất cả standalone "anh" / "Anh" — word boundary an toàn
+    result = _re.sub(r'\banh\b', _replace_anh, text, flags=_re.IGNORECASE)
     return result
 
 
