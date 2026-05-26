@@ -41,6 +41,7 @@ _SESSION_JSON_COLUMNS = {
     "recent_bridges",
     "partial_retried_slots",
     "last_ref_filled_fields",
+    "acked_direct_keys",
 }
 
 # JSON-serialized columns trong dealer_profile_raw table
@@ -97,7 +98,7 @@ class SQLiteStore:
             row["name"]
             for row in conn.execute("PRAGMA table_info(sessions)").fetchall()
         }
-        for column in ("pending_address_text", "pending_address_canonical"):
+        for column in ("pending_address_text", "pending_address_canonical", "acked_direct_keys"):
             if column not in existing:
                 conn.execute(f"ALTER TABLE sessions ADD COLUMN {column} TEXT")
 
