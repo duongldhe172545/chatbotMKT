@@ -387,17 +387,21 @@ def _extract_and_merge(
             )
 
     # 1A § 2.1: Address form auto-detect sau slot 1.1
+    # CRITICAL: chỉ set nếu CHƯA detect (vẫn là mặc định ANH).
+    # Nếu đã detect CHI từ turn trước, KHÔNG ĐƯỢC overwrite lại ANH.
     if current_slot == "1.1":
         explicit = detect_explicit_address(message)
-        if explicit in ("chị", "anh"):
-            session.address_form = (
-                AddressForm.CHI if explicit == "chị" else AddressForm.ANH
-            )
-        elif extracted.get("owner_name"):
+        if explicit == "chị":
+            session.address_form = AddressForm.CHI
+        elif explicit == "anh" and session.address_form == AddressForm.ANH:
+            # Chỉ confirm ANH nếu chưa set CHI trước đó
+            session.address_form = AddressForm.ANH
+        elif session.address_form == AddressForm.ANH and extracted.get("owner_name"):
+            # Chỉ auto-detect từ tên nếu chưa có signal rõ ràng
             detected = detect_address_form(message, extracted["owner_name"])
-            session.address_form = (
-                AddressForm.CHI if detected == "chị" else AddressForm.ANH
-            )
+            if detected == "chị":
+                session.address_form = AddressForm.CHI
+            # KHÔNG set ANH ở đây — giữ nguyên giá trị hiện tại
 
     # Merge + auto-derive Scope 2
     merge_extracted(profile, extracted, client=client)
