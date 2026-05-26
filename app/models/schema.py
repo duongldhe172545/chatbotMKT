@@ -191,6 +191,9 @@ class SessionState(BaseModel):
     # Dùng để tránh lặp "anh Tùng/Lê Dương..." mỗi turn (1B § 2 rule).
     last_acked_name: Optional[str] = None
 
+    # Dedup deterministic ack — track acked slot:field:value keys (Phase 6 R2 Fix Lỗi 3)
+    acked_direct_keys: list[str] = Field(default_factory=list)
+
     # Reference fill tracking (Phase 6 R+ Fix C) — field nào vừa fill từ
     # reference ("cùng tên anh") để ack explicit "cũng là X".
     last_ref_filled_fields: list[str] = Field(default_factory=list)

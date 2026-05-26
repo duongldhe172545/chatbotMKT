@@ -157,9 +157,13 @@ def _gen_direct_ack(slot_id: str, extracted_data: dict, address_form: str = "anh
             brands = [brands]
         brand_text = ", ".join(str(b).strip() for b in brands if str(b).strip())
         if brand_text:
-            # Fix Lỗi 3: không lặp ack brand nếu đã ack turn trước
-            if session and session.last_acked_name and brand_text.lower() == session.last_acked_name.lower():
-                return None  # để LLM gen ack khác
+            # Fix Lỗi 3: không lặp ack brand — track qua acked_direct_keys
+            ack_key = f"2.4:brand:{brand_text.lower()}"
+            if session and ack_key in session.acked_direct_keys:
+                return None  # đã ack brand này → skip
+            # Track ack
+            if session:
+                session.acked_direct_keys.append(ack_key)
             return f"{brand_text}, em hiểu đúng tên hãng rồi."
     if slot_id == "2.5" and extracted_data.get("primary_contact_channel"):
         channel = str(extracted_data.get("primary_contact_channel") or "").lower()
@@ -270,14 +274,9 @@ def gen_partial_question(
 def _adapt_address_form(text: Optional[str], session: SessionState) -> Optional[str]:
     """Replace xưng hô 'anh' → session.address_form trong MỌI output.
 
-    Dùng \\banh\\b (word boundary) để bắt TẤT CẢ 'anh' standalone:
-    - 'anh Giang' → 'chị Giang'
-    - 'gửi anh' → 'gửi chị'
-    - 'đủ anh.' → 'đủ chị.'
-    - 'Anh có thể' → 'Chị có thể'
-
-    Word boundary đảm bảo KHÔNG match 'danh', 'nhanh', 'anh em thợ'.
-    Trong context chatbot này, 'anh' luôn là đại từ nhân xưng.
+    Dùng \\banh\\b (word boundary) + negative lookahead để:
+    - BẮT: 'anh Giang', 'gửi anh', 'đủ anh.', 'Anh có thể'
+    - SKIP: 'anh chị' (compound), 'anh em' (compound), 'danh', 'nhanh'
     """
     if not text or session.address_form.value == "anh":
         return text
@@ -291,8 +290,13 @@ def _adapt_address_form(text: Optional[str], session: SessionState) -> Optional[
             return af.capitalize()
         return af
 
-    # Bắt tất cả standalone "anh" / "Anh" — word boundary an toàn
-    result = _re.sub(r'\banh\b', _replace_anh, text, flags=_re.IGNORECASE)
+    # Bắt standalone "anh" NHƯNG skip compound "anh chị", "anh em"
+    result = _re.sub(
+        r'\banh\b(?!\s+(?:chị|em\b))',
+        _replace_anh,
+        text,
+        flags=_re.IGNORECASE,
+    )
     return result
 
 
