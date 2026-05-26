@@ -180,6 +180,26 @@ class SessionState(BaseModel):
     rush_mode: bool = False                  # § 4: dealer "ok rút gọn" → chỉ hỏi REQUIRED còn lại
     consecutive_tam_su: int = 0              # § 3: 3+ turn tâm sự liên tiếp → cut nhẹ; 5+ → soft-end
 
+    # Bridge phrase rotation (1A § 2.2) — track 3 bridge gần nhất, tránh lặp
+    recent_bridges: list[str] = Field(default_factory=list)
+
+    # PARTIAL fill tracking (1A § 1.5) — slot nào đã PARTIAL_RETRY rồi (1 lần / slot)
+    # Tránh loop PARTIAL cho OPTIONAL multi-field khi dealer không add thêm.
+    partial_retried_slots: list[str] = Field(default_factory=list)
+
+    # Ack name tracking (Phase 6 R+ Fix B) — tên dealer vừa ack turn trước.
+    # Dùng để tránh lặp "anh Tùng/Lê Dương..." mỗi turn (1B § 2 rule).
+    last_acked_name: Optional[str] = None
+
+    # Reference fill tracking (Phase 6 R+ Fix C) — field nào vừa fill từ
+    # reference ("cùng tên anh") để ack explicit "cũng là X".
+    last_ref_filled_fields: list[str] = Field(default_factory=list)
+
+    # Address confirmation tracking — khi dealer chỉ nói quận/huyện phổ biến
+    # như "Hà Đông", bot hỏi xác nhận tỉnh trước khi lưu vào profile.
+    pending_address_text: Optional[str] = None
+    pending_address_canonical: Optional[str] = None
+
     # Persona config
     address_form: AddressForm = AddressForm.ANH
 

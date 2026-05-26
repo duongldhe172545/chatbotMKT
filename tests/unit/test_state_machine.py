@@ -110,22 +110,46 @@ class TestDefer:
         assert s.slot_attempts["1.1"].total == 1
 
     def test_recheck_deferred_re_asks(self):
-        """Sau N slot khác, deferred slot được re-check + return RETRY."""
+        """Sau N slot khác + current slot done → deferred slot re-check + RETRY.
+
+        Phase 6 R+ fix BUG E: chỉ re-check khi current_slot đã fully_filled.
+        """
+        from app.models.schema import DealerProfileRaw, DeferredSlot
         s = create_session()
         s.current_slot = "1.1"
 
         # Defer slot 1.1 ở turn 0
-        from app.models.schema import DeferredSlot
         s.deferred_slots["1.1"] = DeferredSlot(defer_at_turn=0, recheck_after_n_slots=2)
         s.current_slot = "1.2"
+        # Slot 1.2 đã fill xong (REQUIRED address)
+        profile = DealerProfileRaw(address="Hà Nội")
 
         # Tăng turn_count → mood ok, re-check
         s.turn_count = 3  # gap = 3 >= 2 → re-check
-        next_slot, action = decide_action(s, Intent.NORMAL, None)
+        next_slot, action = decide_action(s, Intent.NORMAL, None, profile=profile)
         # Re-check trigger → return slot 1.1 với RETRY
         assert next_slot == "1.1"
         assert action == Action.RETRY
         assert "1.1" not in s.deferred_slots  # cleared
+
+    def test_recheck_deferred_NOT_trigger_if_current_slot_unfilled(self):
+        """Phase 6 R+ fix BUG E: current slot chưa fill → KHÔNG re-check deferred.
+
+        Dealer đang dở slot 2.2 mà bot lờ đi để quay slot 1.3 deferred → SAI.
+        """
+        from app.models.schema import DealerProfileRaw, DeferredSlot
+        s = create_session()
+        # Defer slot 1.3 ở turn 0
+        s.deferred_slots["1.3"] = DeferredSlot(defer_at_turn=0, recheck_after_n_slots=2)
+        # Đang dở slot 2.2 (REQUIRED business_model_signal chưa fill)
+        s.current_slot = "2.2"
+        s.turn_count = 3  # gap đủ re-check
+        profile = DealerProfileRaw()  # business_model_signal=None
+
+        next_slot, action = decide_action(s, Intent.NORMAL, None, profile=profile)
+        # KHÔNG re-check 1.3 — phải xử slot 2.2 trước
+        assert "1.3" in s.deferred_slots  # KHÔNG cleared
+        assert next_slot != "1.3"
 
 
 # ============================================================
@@ -216,6 +240,53 @@ class TestPartialRetry:
         next_slot, action = decide_action(s, Intent.NORMAL, extracted)
         assert action == Action.ADVANCE
 
+    # Phase 5 R3 Gap 11: OPTIONAL multi-field PARTIAL
+    def test_partial_fill_optional_slot_2_4(self):
+        """Slot 2.4 (OPTIONAL multi-field 3 fields) fill 1/3 → PARTIAL_RETRY."""
+        s = create_session()
+        s.current_slot = "2.4"
+        extracted = {"supplier_brands": ["Xingfa"]}  # thiếu segment + backup
+        next_slot, action = decide_action(s, Intent.NORMAL, extracted)
+        assert action == Action.PARTIAL_RETRY
+        assert next_slot == "2.4"
+        assert "2.4" in s.partial_retried_slots
+
+    def test_partial_fill_slot_3_3_one_field(self):
+        """Slot 3.3 (3 OPTIONAL fields: customer_pain + motivation + usp) fill 1/3."""
+        s = create_session()
+        s.current_slot = "3.3"
+        extracted = {"customer_pain": "khó nhớ khách cũ"}
+        next_slot, action = decide_action(s, Intent.NORMAL, extracted)
+        assert action == Action.PARTIAL_RETRY
+        assert "3.3" in s.partial_retried_slots
+
+    def test_partial_optional_only_fires_once(self):
+        """ADVERSARIAL: PARTIAL OPTIONAL chỉ fire 1 lần (tránh loop)."""
+        s = create_session()
+        s.current_slot = "2.4"
+        # Lần 1: PARTIAL fire
+        extracted = {"supplier_brands": ["Xingfa"]}
+        _, action1 = decide_action(s, Intent.NORMAL, extracted)
+        assert action1 == Action.PARTIAL_RETRY
+
+        # Lần 2: cùng slot, dealer KHÔNG add → PARTIAL không fire lại
+        extracted2 = {"supplier_brands": ["Xingfa"]}  # vẫn 1 field
+        _, action2 = decide_action(s, Intent.NORMAL, extracted2)
+        # Sau khi đã PARTIAL 1 lần, không quay lại PARTIAL — phải ADVANCE/SKIP/RETRY
+        assert action2 != Action.PARTIAL_RETRY
+
+    def test_partial_optional_all_fields_filled_no_partial(self):
+        """Full fill 3/3 OPTIONAL → ADVANCE, không PARTIAL."""
+        s = create_session()
+        s.current_slot = "2.4"
+        extracted = {
+            "supplier_brands": ["Xingfa"],
+            "customer_segment_signal": "nhà dân",
+            "supplier_negotiation_signal": "có 2 NPP backup",
+        }
+        _, action = decide_action(s, Intent.NORMAL, extracted)
+        assert action == Action.ADVANCE
+
 
 # ============================================================
 # PAUSE — defensive / tâm sự
@@ -274,6 +345,57 @@ class TestConsentNo:
         assert action == Action.ADVANCE
         assert next_slot == "4.1"
         assert "4.1" not in s.skipped_slots
+
+
+# ============================================================
+# Phase 6 R1 — Slot 4.1 THÔNG BÁO + Slot 4.2 OPTIONAL flow
+# ============================================================
+
+
+class TestSlot41ThongBao:
+    def test_4_1_advances_on_affirmative(self):
+        """Slot 4.1 THÔNG BÁO + AFFIRMATIVE → ADVANCE 4.2."""
+        s = create_session()
+        s.current_slot = "4.1"
+        next_slot, action = decide_action(s, Intent.AFFIRMATIVE, None)
+        assert action == Action.ADVANCE
+        assert next_slot == "4.2"
+
+    def test_4_1_advances_on_normal(self):
+        """Slot 4.1 + NORMAL (dealer ack tự do) → ADVANCE 4.2."""
+        s = create_session()
+        s.current_slot = "4.1"
+        next_slot, action = decide_action(s, Intent.NORMAL, None)
+        assert action == Action.ADVANCE
+        assert next_slot == "4.2"
+
+    def test_4_1_no_extractor_no_partial_loop(self):
+        """ADVERSARIAL: slot 4.1 no field — extracted={} → vẫn advance, không loop PARTIAL."""
+        s = create_session()
+        s.current_slot = "4.1"
+        next_slot, action = decide_action(s, Intent.NORMAL, {})
+        assert action == Action.ADVANCE
+        assert next_slot == "4.2"
+
+
+class TestSlot42Optional:
+    def test_4_2_color_filled_advances_to_confirming(self):
+        """Slot 4.2 fill color_accent → ADVANCE → next_slot=None (CONFIRMING)."""
+        s = create_session()
+        s.current_slot = "4.2"
+        extracted = {"color_accent": "xanh dương"}
+        next_slot, action = decide_action(s, Intent.NORMAL, extracted)
+        assert action == Action.ADVANCE
+        assert next_slot is None  # Cuối cùng → CONFIRMING
+
+    def test_4_2_skip_on_dealer_declined(self):
+        """Slot 4.2 OPTIONAL + dealer không quan tâm → SKIP advance."""
+        s = create_session()
+        s.current_slot = "4.2"
+        # Optional slot fills with empty extracted → SKIP after first try
+        next_slot, action = decide_action(s, Intent.NORMAL, None)
+        # OPTIONAL fallback → SKIP/ADVANCE (cuối → CONFIRMING)
+        assert action in (Action.SKIP, Action.ADVANCE)
 
 
 # ============================================================

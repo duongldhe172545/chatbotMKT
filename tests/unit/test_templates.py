@@ -93,6 +93,26 @@ class TestGetQuestion:
     def test_invalid_slot_returns_none(self):
         assert get_question("99.99", variant=0) is None
 
+    def test_attempt_offset_cycles_variant(self):
+        """Phase 5 R1 Gap 7: attempt_offset > 0 → đổi variant (avoid repeat)."""
+        sid = "test-session-abc"
+        q0 = get_question("1.1", session_id=sid, attempt_offset=0)
+        q1 = get_question("1.1", session_id=sid, attempt_offset=1)
+        q2 = get_question("1.1", session_id=sid, attempt_offset=2)
+        # Cùng session, attempt_offset khác → variant khác (đủ 3 biến thể)
+        assert q0 != q1
+        assert q1 != q2
+        assert q0 != q2
+
+    def test_attempt_offset_with_explicit_variant(self):
+        """variant + attempt_offset cộng dồn modulo."""
+        q_v0_a0 = get_question("1.1", variant=0, attempt_offset=0)
+        q_v0_a1 = get_question("1.1", variant=0, attempt_offset=1)
+        q_v1_a0 = get_question("1.1", variant=1, attempt_offset=0)
+        # variant=0 + offset=1 == variant=1 + offset=0
+        assert q_v0_a1 == q_v1_a0
+        assert q_v0_a0 != q_v0_a1
+
 
 # ============================================================
 # get_retry_question helper

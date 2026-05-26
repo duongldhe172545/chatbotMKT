@@ -31,6 +31,10 @@ DETECT_AT_TURNS: tuple[int, ...] = (3, 8, 13)
 MIN_CONFIDENCE_SCORE = 2.0   # Dưới → fallback "ban"
 HIGH_THRESH_SWITCH = 5.0     # Re-detect chỉ dời nếu cao hơn ngưỡng này
 
+# Phase 6 R+ fix bug 3: signal mạnh trigger detect immediate (bypass turn 3/8/13)
+# Vd dealer chửi "đéo cho" → Lửa Lò ngay, KHÔNG chờ turn 8.
+IMMEDIATE_DETECT_PROFANITY = True
+
 # ============================================================
 # Signal regex
 # ============================================================
@@ -237,6 +241,98 @@ def detect_dealer_type(
 def should_detect_now(turn_count: int) -> bool:
     """True nếu turn_count là 1 trong các turn detect (3/8/13)."""
     return turn_count in DETECT_AT_TURNS
+
+
+def has_strong_lua_lo_signal(message: str) -> bool:
+    """Phase 6 R+ fix: detect signal Lửa Lò CỰC MẠNH — bypass turn 3/8/13.
+
+    Spec 1B § 2.1: Lửa Lò = COMBINED nhiều dấu hiệu (caps + chửi + cụt + ngắn).
+    KHÔNG upgrade chỉ vì 1 lần "đéo cho" — đó có thể là dealer bực 1 lần.
+    Re-detect Lửa Lò mỗi turn 3/8/13 qua score-based (đã có).
+
+    Immediate trigger CHỈ khi:
+    - Caps lock ≥ 70% TOÀN CÂU + ≥ 3 từ (rõ ràng nóng giận)
+    - HOẶC caps + profanity cùng turn (vd "ĐM CỬA HÀNG NÀO")
+
+    Profanity riêng KHÔNG đủ — score scoring bình thường cộng dồn tới turn detect.
+    """
+    if not message or not message.strip():
+        return False
+    words = [w for w in message.split() if len(w) >= 3 and w.isalpha()]
+    has_profanity = bool(_PROFANITY_PATTERN.search(message))
+    caps_strong = False
+    if len(words) >= 3:
+        caps_ratio = sum(1 for w in words if w.isupper()) / len(words)
+        if caps_ratio >= 0.7:
+            caps_strong = True
+    # Combined: caps + profanity = ngay
+    if caps_strong and has_profanity:
+        return True
+    # Caps mạnh riêng (≥ 5 từ all caps) = đủ
+    if caps_strong and len(words) >= 5:
+        return True
+    # Profanity riêng KHÔNG upgrade (chờ score detect turn 3/8/13)
+    return False
+
+
+def has_persistent_lua_lo_signal(session: SessionState) -> bool:
+    """Phase 6 R+ fix v2: detect Lửa Lò qua MULTIPLE turn liên tục.
+
+    Spec 1B § 2.1 + user feedback 2026-05-21: "khách nhắn ngắn gọn KHÔNG liên
+    quan đến nó lửa lò. Khách phải NÓNG GIẬN, yêu cầu (kiểu chửi đm nói ngắn
+    thôi) thì mới là Lửa Lò".
+
+    → Chỉ trigger nếu chửi LẶP LẠI. 1 lần "đéo cho" giữa các câu trả lời ngắn
+    bình thường KHÔNG đủ (vì câu trả lời ngắn = bình thường khi answer câu hỏi).
+
+    Check 3 turn dealer gần nhất:
+    - ≥ 2 turn CÓ profanity (repeated chửi pattern) HOẶC
+    - ≥ 2 turn COMBINED short + profanity (kiểu chửi đm nói ngắn)
+    """
+    if not session.history:
+        return False
+    dealer_msgs = [
+        h.content for h in session.history
+        if h.role == "dealer" and h.content
+    ][-3:]
+    if len(dealer_msgs) < 3:
+        return False
+    profanity_count = sum(
+        1 for m in dealer_msgs if _PROFANITY_PATTERN.search(m)
+    )
+    # ≥ 2 profanity turns trong 3 gần nhất → repeated chửi
+    if profanity_count >= 2:
+        return True
+    # ≥ 2 turns COMBINED short + profanity cùng turn (kiểu chửi đm nói ngắn)
+    short_and_profanity_count = sum(
+        1 for m in dealer_msgs
+        if len(m.split()) <= 5 and _PROFANITY_PATTERN.search(m)
+    )
+    if short_and_profanity_count >= 2:
+        return True
+    return False
+
+
+def upgrade_to_lua_lo(session: SessionState) -> bool:
+    """Phase 6 R+ fix bug 3: ép detected_dealer_type = LỬA_LÒ ngay lập tức.
+
+    Caller dùng khi `has_strong_lua_lo_signal(message) is True` để bot
+    chuyển tone ngắn/cộc ngay turn kế.
+
+    Returns: True nếu vừa upgrade (chưa từng là Lửa Lò trước đó).
+    """
+    if session.detected_dealer_type == DealerType.LUA_LO:
+        return False
+    session.detected_dealer_type = DealerType.LUA_LO
+    session.dealer_type_history.append(
+        DealerTypeHistoryEntry(
+            turn=session.turn_count,
+            type=DealerType.LUA_LO,
+            score=10.0,  # Score cao để mark immediate detect
+            ts=datetime.now(timezone.utc),
+        )
+    )
+    return True
 
 
 def get_score_breakdown(messages: list[str]) -> dict[str, float]:

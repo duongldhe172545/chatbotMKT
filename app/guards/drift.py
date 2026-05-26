@@ -1,10 +1,12 @@
-"""G3 — Drift guard: forbidden vocab + auto-rewrite.
+"""G3 — Drift guard: forbidden vocab + auto-rewrite + emoji + parrot.
 
-Refer LUAT_2B § F2B.8 G3 + CORE § C.1 + GLOSSARY § 6.
+Refer LUAT_2B § F2B.8 G3 + CORE § C.1 + CORE § B.4 (anti-pattern luật
+#2 KHÔNG lặp y nguyên + luật #5 KHÔNG spam emoji) + GLOSSARY § 6.
 
 Mục đích:
 - LLM hay slip vocab cấm vào bot response (Tier, BRANDKIT, Profile...)
 - Hoặc dùng English thay vì Việt hóa
+- LLM có thể spam emoji (>1/reply) hoặc parrot câu dealer
 - Drift guard check + auto-rewrite trước khi gửi reply cho dealer
 
 Data: data/forbidden_vocab.json (load qua data_loaders).
@@ -13,9 +15,13 @@ Data: data/forbidden_vocab.json (load qua data_loaders).
 
 API:
 - check_drift(text) → list[str] violations (vocab cấm tìm thấy)
-- auto_rewrite(text) → cleaned text (REWRITE + REMOVE applied)
+- auto_rewrite(text) → cleaned text (REWRITE + REMOVE + emoji limit applied)
 - has_forbidden_scoring_vocab(text) → bool (chỉ check scoring vocab —
   dùng cho admin queue trigger "drift" flag, không trigger cho english)
+- count_emojis(text) → int (số emoji trong text)
+- trim_emojis(text, max_count=1) → text với tối đa max_count emoji
+- check_parrot(bot_reply, dealer_message, min_ngram=4) → bool (true nếu
+  bot reply chứa đoạn ≥ min_ngram từ liên tiếp lặp y nguyên dealer)
 """
 from __future__ import annotations
 
@@ -26,6 +32,23 @@ from functools import lru_cache
 from app.cache.data_loaders import _load_json_file
 
 logger = logging.getLogger(__name__)
+
+# CORE B.4 luật #5: emoji ≤ 1/reply. Pattern bắt đầy đủ emoji Unicode
+# (Misc Symbols / Pictographs / Transport / Flags / Supplemental).
+# Refer Unicode 15.1 Emoji block: U+1F300-U+1F9FF + U+2600-U+27BF +
+# U+1F000-U+1F02F + flags U+1F1E6-U+1F1FF.
+_EMOJI_PATTERN = re.compile(
+    "["
+    "\U0001F300-\U0001F9FF"     # symbols/pictographs/emoticons/transport
+    "\U0001FA00-\U0001FAFF"     # extended-A
+    "\U00002600-\U000027BF"     # misc symbols + dingbats (☀ ✨ ✔ ❤)
+    "\U0001F000-\U0001F02F"     # mahjong/dominoes/cards
+    "\U0001F1E6-\U0001F1FF"     # regional indicators (flags)
+    "\U0001F900-\U0001F9FF"     # supplemental symbols
+    "\U00002700-\U000027BF"     # dingbats
+    "]+",
+    flags=re.UNICODE,
+)
 
 
 @lru_cache(maxsize=1)
@@ -128,11 +151,119 @@ def auto_rewrite(text: str) -> str:
             )
             result = pattern.sub("", result)
 
-    # 3. Collapse multi-space + strip stray punctuation
+    # 3. Trim emoji (CORE B.4 luật #5: max 1 emoji/reply)
+    result = trim_emojis(result, max_count=1)
+
+    # 4. Collapse multi-space + strip stray punctuation
     result = re.sub(r"\s+", " ", result).strip()
     # Bỏ space trước dấu câu
     result = re.sub(r"\s+([,.!?;:])", r"\1", result)
     return result
+
+
+def count_emojis(text: str) -> int:
+    """Đếm số ký tự emoji trong text (Phase 6 R+ fix — CORE B.4 luật #5).
+
+    1 cụm emoji liên tiếp (vd "🌷✨") count = 2 (mỗi ký tự là 1 emoji).
+    Skin tone modifier + ZWJ KHÔNG count riêng (1 family emoji = 1).
+    """
+    if not text or not isinstance(text, str):
+        return 0
+    matches = _EMOJI_PATTERN.findall(text)
+    # Mỗi match có thể chứa nhiều emoji liên tiếp — count từng char
+    total = sum(len(m) for m in matches)
+    return total
+
+
+def trim_emojis(text: str, max_count: int = 1) -> str:
+    """Giảm số emoji xuống tối đa max_count (giữ emoji ĐẦU TIÊN, drop sau).
+
+    CORE B.4 luật #5: tối đa 1 emoji/reply.
+
+    Args:
+        text: Bot reply candidate
+        max_count: Số emoji tối đa cho phép (default 1 theo CORE)
+
+    Returns:
+        Text với ≤ max_count emoji. Emoji thừa bị xóa, whitespace cleanup.
+    """
+    if not text or count_emojis(text) <= max_count:
+        return text
+
+    # Iterate qua emoji, giữ max_count đầu, drop rest
+    kept = 0
+    result_chars: list[str] = []
+    for char in text:
+        if _EMOJI_PATTERN.match(char):
+            if kept < max_count:
+                result_chars.append(char)
+                kept += 1
+            # else drop
+        else:
+            result_chars.append(char)
+    result = "".join(result_chars)
+    # Cleanup: collapse multi-space + strip space trước dấu câu
+    result = re.sub(r"\s+", " ", result).strip()
+    result = re.sub(r"\s+([,.!?;:])", r"\1", result)
+    logger.info(
+        "Drift trim emoji: %d → %d (text head=%r)",
+        count_emojis(text), kept, text[:60],
+    )
+    return result
+
+
+def check_parrot(
+    bot_reply: str,
+    dealer_message: str,
+    min_ngram: int = 5,
+) -> bool:
+    """True nếu bot_reply lặp y nguyên đoạn ≥ min_ngram từ liên tiếp từ
+    dealer_message (CORE B.4 luật #2 — KHÔNG lặp y nguyên).
+
+    Args:
+        bot_reply: Reply candidate của bot
+        dealer_message: Message vừa nhận từ dealer
+        min_ngram: Số từ liên tiếp tối thiểu để coi là parrot. Default 5
+            (4 từ thường là tên riêng địa danh: "Quận 1 TP HCM", "Khu CN
+            Sóng Thần"). 5+ từ liên tiếp lặp là parrot cấu trúc câu rõ.
+
+    Returns:
+        True nếu phát hiện parrot. False nếu OK.
+
+    Example:
+        dealer: "anh ở Hà Nội"
+        bot 1: "Dạ Hà Nội — em ghi nhận" (2 từ trùng → OK)
+        bot 2: "Dạ anh ở Hà Nội em ghi nhận anh ở Hà Nội." (5+ từ lặp → PARROT)
+    """
+    if not bot_reply or not dealer_message:
+        return False
+
+    def _normalize(s: str) -> list[str]:
+        s = re.sub(r"[,.!?;:\"'\(\)\[\]]", " ", s.lower())
+        return [w for w in s.split() if w]
+
+    bot_words = _normalize(bot_reply)
+    dealer_words = _normalize(dealer_message)
+
+    if len(dealer_words) < min_ngram or len(bot_words) < min_ngram:
+        return False
+
+    # Build set of n-gram từ dealer
+    dealer_ngrams = set()
+    for i in range(len(dealer_words) - min_ngram + 1):
+        ngram = tuple(dealer_words[i : i + min_ngram])
+        dealer_ngrams.add(ngram)
+
+    # Check bot có ngram nào match dealer không
+    for i in range(len(bot_words) - min_ngram + 1):
+        ngram = tuple(bot_words[i : i + min_ngram])
+        if ngram in dealer_ngrams:
+            logger.warning(
+                "Drift parrot: bot lặp %d-gram từ dealer: %r",
+                min_ngram, " ".join(ngram),
+            )
+            return True
+    return False
 
 
 def clear_cache() -> None:

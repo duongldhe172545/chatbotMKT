@@ -35,18 +35,26 @@ logger = logging.getLogger(__name__)
 
 
 def sweep_timeouts(store: SQLiteStore) -> dict:
-    """Sweep 1 lần — close timeout session + flag.
+    """Sweep 1 lần — close timeout session + flag NUDGE_PENDING cho CONFIRMING.
+
+    Phase 5 R5 Gap 15: thêm 2 ngưỡng cho CONFIRMING (1C § 9):
+    - gap ≥ SESSION_TIMEOUT_NUDGE_CARD_S (3 phút) → mark NUDGE_PENDING (log only,
+      push channel defer Phase 6).
+    - gap ≥ SESSION_TIMEOUT_CONFIRMING_S (10 phút) → soft-close + CONSENT_UNCLEAR.
+    - gap ≥ SESSION_TIMEOUT_S (1 giờ) → soft-close mọi stage.
 
     Args:
         store: SQLiteStore instance
 
     Returns:
-        {"checked": int, "closed": int, "errors": int} — metrics
+        {"checked": int, "closed": int, "nudged": int, "errors": int} — metrics
     """
     settings = get_settings()
     timeout_s = settings.SESSION_TIMEOUT_S
+    confirming_timeout_s = settings.SESSION_TIMEOUT_CONFIRMING_S
+    nudge_card_s = settings.SESSION_TIMEOUT_NUDGE_CARD_S
     now = datetime.now(timezone.utc)
-    metrics = {"checked": 0, "closed": 0, "errors": 0}
+    metrics = {"checked": 0, "closed": 0, "nudged": 0, "errors": 0}
 
     # Query active sessions
     with store._connect() as conn:
@@ -65,47 +73,68 @@ def sweep_timeouts(store: SQLiteStore) -> dict:
             if updated_at.tzinfo is None:
                 updated_at = updated_at.replace(tzinfo=timezone.utc)
             gap_s = (now - updated_at).total_seconds()
-            if gap_s < timeout_s:
-                continue
-            # Timeout — load session, set closed + flag
-            session = store.get_session(sid)
-            if session is None:
-                continue
-            profile = store.get_profile(sid)
-            old_stage = session.stage
+            stage_str = row["stage"]
+            is_confirming = stage_str == "CONFIRMING"
 
-            session.stage = Stage.DONE
-            session.closed_at = now
-
-            # Flag theo stage cũ
-            if old_stage == Stage.CONFIRMING:
-                if session.confirmation_status == ConfirmationStatus.PENDING:
-                    increment_flag_count(session, Flag.CONSENT_UNCLEAR)
-            elif old_stage == Stage.ASKING:
-                # Có thể required missing nếu chưa xong slot REQUIRED
-                # Lazy: chỉ flag nếu profile thiếu owner_name + phone
-                if profile and not (profile.owner_name and profile.phone_or_zalo):
-                    increment_flag_count(session, Flag.REQUIRED_MISSING)
-
-            store.save_session(session)
-            # Trigger admin queue sau khi save
-            if profile:
-                trigger_queue_if_needed(session, profile, store)
-                store.save_session(session)
-
-            metrics["closed"] += 1
-            logger.info(
-                "Sweep: closed timeout session=%s old_stage=%s gap_s=%.0f",
-                sid, old_stage.value, gap_s,
+            # Tính ngưỡng close phù hợp stage
+            close_threshold = (
+                confirming_timeout_s if is_confirming else timeout_s
             )
+
+            if gap_s >= close_threshold:
+                # Timeout — close
+                session = store.get_session(sid)
+                if session is None:
+                    continue
+                profile = store.get_profile(sid)
+                old_stage = session.stage
+
+                session.stage = Stage.DONE
+                session.closed_at = now
+
+                # Flag theo stage cũ
+                if old_stage == Stage.CONFIRMING:
+                    if session.confirmation_status == ConfirmationStatus.PENDING:
+                        increment_flag_count(session, Flag.CONSENT_UNCLEAR)
+                elif old_stage == Stage.ASKING:
+                    if profile and not (profile.owner_name and profile.phone_or_zalo):
+                        increment_flag_count(session, Flag.REQUIRED_MISSING)
+
+                store.save_session(session)
+                if profile:
+                    trigger_queue_if_needed(session, profile, store)
+                    store.save_session(session)
+
+                metrics["closed"] += 1
+                logger.info(
+                    "Sweep: closed timeout session=%s old_stage=%s gap_s=%.0f",
+                    sid, old_stage.value, gap_s,
+                )
+            elif is_confirming and gap_s >= nudge_card_s:
+                # CONFIRMING stale 3+ phút → mark NUDGE_PENDING (1C § 9)
+                # Push channel chưa có (HTTP request-response) — log để admin
+                # / Phase 6 push (Zalo / Mini App) handle.
+                session = store.get_session(sid)
+                if session is None:
+                    continue
+                # Idempotent — chỉ raise nudge 1 lần
+                if Flag.NUDGE_PENDING not in session.flags:
+                    increment_flag_count(session, Flag.NUDGE_PENDING)
+                    store.save_session(session)
+                    metrics["nudged"] += 1
+                    logger.info(
+                        "Sweep: NUDGE_PENDING session=%s gap_s=%.0f (CONFIRMING)",
+                        sid, gap_s,
+                    )
         except Exception as e:
             metrics["errors"] += 1
             logger.exception("Sweep error session=%s: %s", sid, e)
 
-    if metrics["closed"] > 0 or metrics["errors"] > 0:
+    if metrics["closed"] > 0 or metrics["nudged"] > 0 or metrics["errors"] > 0:
         logger.info(
-            "Sweep done: checked=%d closed=%d errors=%d",
-            metrics["checked"], metrics["closed"], metrics["errors"],
+            "Sweep done: checked=%d closed=%d nudged=%d errors=%d",
+            metrics["checked"], metrics["closed"], metrics["nudged"],
+            metrics["errors"],
         )
     return metrics
 

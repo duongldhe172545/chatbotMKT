@@ -139,12 +139,41 @@ def extract_district(address: Optional[str]) -> Optional[str]:
     return None
 
 
-def parse_address(address: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+def parse_address(
+    address: Optional[str],
+    client=None,
+) -> tuple[Optional[str], Optional[str]]:
     """Parse address → (province, district).
 
-    Convenience function gọi cả 2 extractor.
+    3-layer:
+    - Layer 1: regex match whitelist 63 tỉnh + aliases
+    - Layer 2: LLM_FAST fuzzy nếu Layer 1 fail (client passed)
+    - District: regex pattern (luôn áp)
+
+    Args:
+        address: Raw address text
+        client: Optional LLMClient. Nếu provided + Layer 1 fail → Layer 2 LLM.
 
     Returns:
         (province_or_None, district_or_None)
     """
-    return (extract_province(address), extract_district(address))
+    if not address or not isinstance(address, str):
+        return (None, None)
+
+    province = extract_province(address)
+    district = extract_district(address)
+
+    # Layer 2 LLM fallback nếu Layer 1 không match province
+    if province is None and client is not None:
+        try:
+            from app.llm.address_llm import llm_parse_address
+            llm_province, llm_district, _ = llm_parse_address(address, client)
+            if llm_province:
+                province = llm_province
+            if district is None and llm_district:
+                district = llm_district
+        except Exception:
+            # Layer 2 fail → giữ Layer 1 result (None)
+            pass
+
+    return (province, district)

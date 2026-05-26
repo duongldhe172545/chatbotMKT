@@ -225,3 +225,98 @@ class TestExtractSlot:
         # 'ban' = bận tâm trạng). Check qua tone rule content thay.
         assert "Khen CỤ THỂ" in system_prompt or "INSIGHT" in system_prompt
         assert "chị" in system_prompt
+
+
+
+# ============================================================
+# Phase 6 R+ — Profile context cho LLM hiểu reference
+# ============================================================
+
+
+class TestProfileContextReference:
+    def test_profile_context_in_system_prompt(self):
+        """Profile context được pass vào system prompt cho LLM hiểu reference."""
+        from app.llm.extractors import extract_slot
+        client = MagicMock()
+        client.extract_fast.return_value = {
+            "owner_name": "Nguyễn Quốc Vinh",
+            "dealer_name": "Nguyễn Quốc Vinh",
+        }
+        extract_slot(
+            slot_id="1.1",
+            user_message="cùng tên anh luôn",
+            client=client,
+            profile_context={"owner_name": "Nguyễn Quốc Vinh"},
+        )
+        call_kwargs = client.extract_fast.call_args.kwargs
+        sp = call_kwargs["system_prompt"]
+        # LLM thấy owner_name đã có
+        assert "owner_name" in sp
+        assert "Nguyễn Quốc Vinh" in sp
+        # Task hint: hiểu reference
+        assert "reference" in sp.lower() or "cùng tên" in sp.lower()
+
+    def test_profile_context_in_conversation_text(self):
+        """Profile context cũng vào conversation_text."""
+        from app.llm.extractors import extract_slot
+        client = MagicMock()
+        client.extract_fast.return_value = {}
+        extract_slot(
+            slot_id="1.1",
+            user_message="giống vậy",
+            client=client,
+            profile_context={"owner_name": "Vinh"},
+        )
+        conv = client.extract_fast.call_args.kwargs["conversation_text"]
+        assert "Vinh" in conv
+        assert "giống vậy" in conv
+
+    def test_empty_profile_context_no_inject(self):
+        """ADVERSARIAL: profile_context empty → KHÔNG inject vào prompt."""
+        from app.llm.extractors import extract_slot
+        client = MagicMock()
+        client.extract_fast.return_value = {}
+        extract_slot(
+            slot_id="1.1",
+            user_message="anh Tùng",
+            client=client,
+            profile_context={},
+        )
+        conv = client.extract_fast.call_args.kwargs["conversation_text"]
+        # Không có "Context đã ghi nhận" header khi empty
+        assert "Context đã ghi nhận" not in conv
+
+    def test_none_profile_context_backward_compat(self):
+        """Backward compat: KHÔNG pass profile_context → vẫn work."""
+        from app.llm.extractors import extract_slot
+        client = MagicMock()
+        client.extract_fast.return_value = {"owner_name": "Tùng"}
+        # Không pass profile_context
+        result = extract_slot(
+            slot_id="1.1",
+            user_message="anh Tùng",
+            client=client,
+        )
+        assert result.get("owner_name") == "Tùng"
+
+    def test_profile_context_filters_none_empty(self):
+        """ADVERSARIAL: profile_context có None / "" / [] values → filter."""
+        from app.llm.extractors import extract_slot
+        client = MagicMock()
+        client.extract_fast.return_value = {}
+        extract_slot(
+            slot_id="1.1",
+            user_message="hi",
+            client=client,
+            profile_context={
+                "owner_name": "Tùng",
+                "dealer_name": None,
+                "address": "",
+                "category_stack": [],
+            },
+        )
+        conv = client.extract_fast.call_args.kwargs["conversation_text"]
+        assert "Tùng" in conv
+        # None / empty không xuất hiện
+        assert "dealer_name: None" not in conv
+        assert "address: " not in conv

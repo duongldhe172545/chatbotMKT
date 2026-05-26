@@ -171,6 +171,7 @@ def check_pii_leak(
     current_session_id: str,
     store,
     fields_to_check: Optional[list[str]] = None,
+    current_session_values: Optional[list[str]] = None,
 ) -> list[str]:
     """Check bot_response có chứa PII của session khác không.
 
@@ -180,6 +181,9 @@ def check_pii_leak(
         store: SQLiteStore
         fields_to_check: Field cần check (default: phone, address, dealer_name,
                          owner_name).
+        current_session_values: Values dealer just provided (current user
+            message + current profile data). PII value xuất hiện trong list này
+            → KHÔNG flag (false positive: dealer tự nói + bot ack lại).
 
     Returns:
         List session_id mà PII xuất hiện trong response. Empty nếu clean.
@@ -191,6 +195,10 @@ def check_pii_leak(
         return []
     if fields_to_check is None:
         fields_to_check = ["phone_or_zalo", "address", "dealer_name", "owner_name"]
+    own_values = [
+        v.lower() for v in (current_session_values or [])
+        if v and isinstance(v, str)
+    ]
 
     try:
         with store._connect() as conn:
@@ -212,7 +220,11 @@ def check_pii_leak(
             value = row.get(field)
             if not value or not isinstance(value, str) or len(value) < 4:
                 continue
-            # Skip generic ngắn (vd owner_name "An" 2 char) — false positive
+            # Skip nếu value cũng có trong dealer's own current data
+            # (dealer vừa nói → bot ack lại, không phải leak từ session khác)
+            value_lower = value.lower()
+            if any(value_lower in own for own in own_values):
+                continue
             if value in bot_response:
                 logger.error(
                     "PII LEAK: response chứa %s=%r của session=%s (current=%s)",

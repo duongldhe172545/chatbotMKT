@@ -15,6 +15,21 @@ def _basic_auth_header(user: str, pwd: str) -> dict:
     return {"Authorization": f"Basic {token}"}
 
 
+def _seed_session(store, sid: str, **profile_kwargs):
+    """Seed 1 session + profile cho test."""
+    from app.core.session import create_session
+    from app.models.enums import ConfirmationStatus, Stage
+    from app.models.schema import DealerProfileRaw
+    s = create_session()
+    s.session_id = sid
+    s.stage = Stage.DONE
+    s.confirmation_status = ConfirmationStatus.CONFIRMED
+    store.save_session(s)
+    p = DealerProfileRaw(**profile_kwargs)
+    store.save_profile(sid, p)
+    return s, p
+
+
 @pytest.fixture
 def admin_client(tmp_path: Path, monkeypatch):
     """TestClient với DB tạm + admin auth header."""
@@ -274,3 +289,53 @@ class TestQueue:
         # Verify notes saved
         r2 = client.get("/api/admin/queue/q-test-1", headers=auth)
         assert "OK" in r2.json()["notes"]
+
+
+
+# ============================================================
+# Phase 5 R4 Gap 13 — Markdown export endpoint
+# ============================================================
+
+
+class TestMarkdownExport:
+    def test_export_session_md_returns_markdown(self, admin_client):
+        client, auth = admin_client
+        from app.api.chat import _get_store
+        store = _get_store()
+        _seed_session(
+            store, "exp-sess-1",
+            owner_name="Tùng", dealer_name="Nhôm Kính Thanh Tùng",
+            address="123 Lê Lợi, Hoàn Kiếm, Hà Nội", phone_or_zalo="0912345678",
+            main_product="cửa nhôm Xingfa", brandkit_consent="yes",
+        )
+        r = client.get("/api/admin/sessions/exp-sess-1/export", headers=auth)
+        assert r.status_code == 200
+        assert "text/markdown" in r.headers["content-type"]
+        # Filename header
+        assert "attachment" in r.headers.get("content-disposition", "")
+        # Markdown content
+        body = r.text
+        assert "Nhôm Kính Thanh Tùng" in body
+        assert "Tùng" in body
+        assert "Hà Nội" in body or "Hoàn Kiếm" in body
+
+    def test_export_404_for_missing_session(self, admin_client):
+        client, auth = admin_client
+        r = client.get("/api/admin/sessions/no-such-sess/export", headers=auth)
+        assert r.status_code == 404
+
+    def test_export_no_history_flag(self, admin_client):
+        client, auth = admin_client
+        from app.api.chat import _get_store
+        store = _get_store()
+        _seed_session(store, "exp-sess-2", owner_name="Vinh")
+        r = client.get(
+            "/api/admin/sessions/exp-sess-2/export?include_history=false",
+            headers=auth,
+        )
+        assert r.status_code == 200
+
+    def test_export_requires_auth(self, admin_client):
+        client, _ = admin_client
+        r = client.get("/api/admin/sessions/any/export")
+        assert r.status_code == 401

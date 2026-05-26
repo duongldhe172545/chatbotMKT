@@ -138,6 +138,9 @@ def post_chat(req: ChatRequest) -> ChatResponse:
         raise HTTPException(404, detail=f"Session {session_id} không tồn tại")
     profile = store.get_profile(session_id) or DealerProfileRaw()
 
+    # Track phone state TRƯỚC turn (để detect cross-session sau khi fill)
+    phone_before = profile.phone_or_zalo
+
     # ----- Process message -----
     reply, session, profile = handle_message(
         session=session,
@@ -146,6 +149,34 @@ def post_chat(req: ChatRequest) -> ChatResponse:
         client=client,
     )
 
+    # ----- Phase 5 R2 Gap 9: Cross-session dealer return detect (CORE § K.3) -----
+    # Khi phone vừa fill ở turn này + match CONFIRMED session cũ → prepend ack.
+    # KHÔNG auto-fill profile (chống nhầm dealer trùng số). Detect ONCE qua
+    # phone_before != phone_now (chỉ trigger turn fill, không re-trigger).
+    if profile.phone_or_zalo and phone_before != profile.phone_or_zalo:
+        try:
+            match = store.find_confirmed_session_by_phone(
+                profile.phone_or_zalo,
+                exclude_session_id=session.session_id,
+            )
+        except Exception as e:
+            logger.exception("Cross-session detect fail: %s", e)
+            match = None
+        if match:
+            old_sid, _old_profile = match
+            return_ack = (
+                "Dạ em nhớ anh đã đăng ký bên em hôm trước rồi ạ. "
+                "Em xác nhận lại thông tin nhé.\n\n"
+            )
+            reply = return_ack + reply
+            logger.info(
+                "Cross-session dealer return: phone=%s current=%s old=%s",
+                profile.phone_or_zalo, session.session_id, old_sid,
+            )
+            # Update last bot history với return ack prepended
+            if session.history and session.history[-1].role == "bot":
+                session.history[-1].content = reply
+
     # ----- G4: PII leak guard (Phase 4 R3) -----
     # Scan reply có chứa PII từ session khác không (cross-session leak).
     # Nếu hit → log error + override reply + flag (admin queue HIGH).
@@ -153,7 +184,17 @@ def post_chat(req: ChatRequest) -> ChatResponse:
     from app.admin.queue import increment_flag_count
     from app.models.enums import Flag
 
-    leaked = check_pii_leak(reply, session.session_id, store)
+    # Pass dealer's own current data → exclude from leak detection
+    own_values = [
+        req.message or "",
+        profile.owner_name or "",
+        profile.dealer_name or "",
+        profile.address or "",
+        profile.phone_or_zalo or "",
+    ]
+    leaked = check_pii_leak(
+        reply, session.session_id, store, current_session_values=own_values,
+    )
     if leaked:
         increment_flag_count(session, Flag.PII_LEAK)
         # Override reply với safe response (KHÔNG show leaked data)
@@ -198,4 +239,29 @@ def get_session_status(session_id: str) -> dict:
         "turn_count": session.turn_count,
         "confirmation_status": session.confirmation_status.value,
         "flags": [f.value for f in session.flags],
+    }
+
+
+@router.get("/chat/{session_id}/history")
+def get_session_history(session_id: str) -> dict:
+    """Phase 6 R+ fix bug 6: trả history list để frontend F5 restore chat UI.
+
+    Format mỗi message: {role: dealer/bot, content: str, ts: ISO timestamp}.
+    """
+    store = _get_store()
+    session = store.get_session(session_id)
+    if session is None:
+        raise HTTPException(404, detail="Session không tồn tại")
+    return {
+        "session_id": session.session_id,
+        "stage": session.stage.value,
+        "current_slot": session.current_slot,
+        "messages": [
+            {
+                "role": h.role,
+                "content": h.content,
+                "ts": h.ts.isoformat() if h.ts else None,
+            }
+            for h in (session.history or [])
+        ],
     }

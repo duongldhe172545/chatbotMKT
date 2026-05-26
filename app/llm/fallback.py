@@ -15,10 +15,10 @@ import random
 # ============================================================
 
 SAFE_ACK_TEMPLATES: list[str] = [
-    "Dạ, em note rồi ạ.",
-    "Dạ vâng, em ghi nhận ạ.",
-    "Dạ, em hiểu rồi.",
-    "Dạ, em ghi vào hồ sơ rồi ạ.",
+    "Dạ vâng anh.",
+    "Dạ em hiểu rồi.",
+    "Dạ được anh.",
+    "Dạ vâng, mình tiếp nhé.",
     "Dạ vâng ạ.",
 ]
 

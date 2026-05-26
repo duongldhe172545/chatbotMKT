@@ -30,10 +30,15 @@ class Action(str, Enum):
 
 
 class Intent(str, Enum):
-    """7 intent. Refer F2A.2 + GLOSSARY § Intent."""
+    """8 intent. Refer F2A.2 + GLOSSARY § Intent + CORE D.1.
+
+    Phase 6 R+ update 2026-05-22: thêm CONFUSION cho "là sao/là gì" —
+    trước đó fall về NORMAL → bot skip slot, không giải thích (CORE D.1).
+    """
     AFFIRMATIVE = "affirmative"          # ok / ừ / chuẩn / được
     REFUSAL = "refusal"                  # đéo cho / không nói / miễn cho tôi
     KHONG_BIET = "khong_biet"            # không biết / không nhớ / tùy em
+    CONFUSION = "confusion"              # là gì / là sao / ý gì / không hiểu — CORE D.1
     DEFENSIVE = "defensive"              # lừa đảo à / phí gì / em là ai
     TAM_SU = "tam_su"                    # vợ / nhậu / golf / stress
     EDIT = "edit"                        # sửa X thành Y (chỉ valid stage CONFIRMING)
@@ -99,6 +104,11 @@ class Flag(str, Enum):
     # ----- LLM guard (2) — bot lỗi -----
     HALLUCINATE = "hallucinate"
     PII_LEAK = "pii_leak"
+
+    # ----- Lifecycle (1) — Phase 5 R5 (refer 1C § 9) -----
+    # CONFIRMING im lặng ≥ 3 phút → mark cần push channel nhắc dealer.
+    # Phase 5 chỉ log, push thực tế defer Phase 6 (Zalo / Mini App).
+    NUDGE_PENDING = "nudge_pending"
 
 
 class AddressForm(str, Enum):

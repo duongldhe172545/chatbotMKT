@@ -31,6 +31,12 @@ CREATE TABLE IF NOT EXISTS sessions (
     consecutive_optional_refusal INTEGER NOT NULL DEFAULT 0,            -- Phase 3 R4: § 4 (1C) — refusal lặp count
     rush_mode               INTEGER NOT NULL DEFAULT 0,                 -- Phase 3 R4: § 4 (1C) — bool 0/1
     consecutive_tam_su      INTEGER NOT NULL DEFAULT 0,                 -- Phase 3 R8: § 3 (1C) — tâm sự lặp count
+    recent_bridges          TEXT NOT NULL DEFAULT '[]',                 -- Phase 5 Gap 4: 1A § 2.2 — 3 bridge gần nhất (LRU)
+    partial_retried_slots   TEXT NOT NULL DEFAULT '[]',                 -- Phase 5 R3 Gap 11: 1A § 1.5 — slot đã PARTIAL_RETRY 1 lần
+    last_acked_name         TEXT,                                       -- Phase 6 R+ Fix B: tên dealer vừa ack turn trước (tránh lặp)
+    last_ref_filled_fields  TEXT NOT NULL DEFAULT '[]',                 -- Phase 6 R+ Fix C: field fill từ reference (ack explicit "cũng là X")
+    pending_address_text    TEXT,                                       -- Address cần xác nhận tỉnh/thành trước khi lưu
+    pending_address_canonical TEXT,                                     -- Address canonical đang chờ dealer xác nhận
     address_form            TEXT NOT NULL DEFAULT 'anh',                -- anh / chị
     created_at              TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at              TEXT NOT NULL DEFAULT (datetime('now')),

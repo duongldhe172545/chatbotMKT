@@ -27,6 +27,26 @@ function appendBubble(role, content) {
 }
 
 
+// Phase 6 R+ 2026-05-25: button "Bắt đầu chat mới" khi session DONE.
+function _addStartNewButton() {
+  // Tránh add nhiều lần
+  if (document.getElementById("start-new-btn")) return;
+  const btn = document.createElement("button");
+  btn.id = "start-new-btn";
+  btn.textContent = "Bắt đầu chat mới";
+  btn.style.cssText =
+    "margin:12px auto;padding:10px 24px;display:block;" +
+    "background:#4caf50;color:white;border:none;border-radius:6px;" +
+    "cursor:pointer;font-size:14px;";
+  btn.onclick = () => {
+    localStorage.removeItem(SESSION_KEY);
+    location.reload();
+  };
+  chatEl.appendChild(btn);
+  chatEl.scrollTop = chatEl.scrollHeight;
+}
+
+
 function setStatus(text, isError = false) {
   if (statusEl) {
     statusEl.textContent = text;
@@ -135,22 +155,37 @@ async function init() {
   setBusy(true);
   try {
     if (sessionId) {
-      // Resume session existing — fetch status
+      // Resume session existing — fetch history + restore UI
+      // Phase 6 R+ 2026-05-25 (user feedback): KHÔNG auto-clear khi DONE.
+      // Render lịch sử full, hiển thị thông báo session đã đóng + cho dealer
+      // option bắt đầu mới (reload trang).
       try {
-        const statusRes = await fetch(`/api/chat/${sessionId}/status`);
-        if (statusRes.ok) {
-          const status = await statusRes.json();
-          if (status.stage === "DONE") {
-            // Session đã DONE — bắt đầu mới
-            sessionId = null;
-            localStorage.removeItem(SESSION_KEY);
-          } else {
-            setStatus(`Resume session — Stage: ${status.stage}`);
+        const histRes = await fetch(`/api/chat/${sessionId}/history`);
+        if (histRes.ok) {
+          const data = await histRes.json();
+          // Render lịch sử full (cả khi DONE để dealer xem lại)
+          chatEl.innerHTML = "";
+          for (const msg of data.messages || []) {
+            appendBubble(msg.role, msg.content);
+          }
+          if (data.stage === "DONE") {
+            // Session đã đóng — disable input, show notice
+            appendBubble("bot",
+              "── Cuộc trò chuyện này đã kết thúc ──\n\n" +
+              "Anh muốn bắt đầu lại từ đầu thì bấm nút bên dưới nhé.");
+            setStatus(`Session đã đóng — ${(data.messages || []).length} tin nhắn lưu lại`, false);
+            // Disable input + show start-new button
+            if (inputEl) inputEl.disabled = true;
+            if (sendBtn) sendBtn.disabled = true;
+            _addStartNewButton();
             setBusy(false);
             return;
           }
+          setStatus(`Resume — Stage: ${data.stage}, ${(data.messages || []).length} tin nhắn`);
+          setBusy(false);
+          return;
         } else {
-          // Session không tồn tại → clear + new
+          // Session không tồn tại (DB cleared) → clear + new
           sessionId = null;
           localStorage.removeItem(SESSION_KEY);
         }

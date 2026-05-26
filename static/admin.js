@@ -165,11 +165,13 @@ async function loadSessions() {
   if (stage) params.set("stage", stage);
   if (confirmation) params.set("confirmation_status", confirmation);
   if (dealerType) params.set("dealer_type", dealerType);
+  // Phase 6 R+ Fix: load tới max 500 (backend cap), thay vì default 50
+  params.set("limit", "500");
 
   try {
     const sessions = await apiGet(`/sessions?${params.toString()}`);
     renderSessionsTable(sessions);
-    showStatus(`Loaded ${sessions.length} session`);
+    showStatus(`Loaded ${sessions.length} session (max 500)`);
   } catch (err) {
     showStatus(`Lỗi: ${err.message}`, true);
   }
@@ -383,6 +385,7 @@ async function loadQueue() {
   const params = new URLSearchParams();
   params.set("status", status);
   if (priority) params.set("priority", priority);
+  params.set("limit", "500");
 
   try {
     const queue = await apiGet(`/queue?${params.toString()}`);

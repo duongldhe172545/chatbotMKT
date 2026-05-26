@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 
 from google import genai
@@ -27,6 +28,25 @@ RETRYABLE_ERRORS = (
     genai_errors.ServerError,
     genai_errors.APIError,  # bao gồm rate limit
 )
+
+
+def _drop_dead_local_proxy_env() -> None:
+    """Avoid inheriting sandbox/dev proxy values that make Gemini unusable.
+
+    Some local shells set HTTP(S)_PROXY/ALL_PROXY to 127.0.0.1:9. Port 9 is a
+    discard port, so google-genai fails immediately with WinError 10061. Only
+    strip that known-dead value; leave real user proxies intact.
+    """
+    dead_values = {
+        "http://127.0.0.1:9",
+        "https://127.0.0.1:9",
+        "http://localhost:9",
+        "https://localhost:9",
+    }
+    for key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
+        value = os.environ.get(key)
+        if value and value.rstrip("/").lower() in dead_values:
+            os.environ.pop(key, None)
 
 
 def _build_thinking_config(model: str) -> "types.ThinkingConfig | None":
@@ -82,6 +102,7 @@ class GeminiProvider(LLMProvider):
                 "Lấy free tại https://aistudio.google.com/apikey"
             )
         if self._client is None:
+            _drop_dead_local_proxy_env()
             # Timeout cứng 60s — chống hang khi Gemini API overload
             # (đã thấy 1 call hang 8133s = 2.27h trong test).
             # Sau 60s → APIError → retry policy + cuối cùng safe_ack fallback.

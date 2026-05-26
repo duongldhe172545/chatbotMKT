@@ -23,8 +23,8 @@ class TestBuildSystemPrompt:
         assert len(prompt) > 100
         assert "Em Linh" in prompt
         assert "anh" in prompt
-        # UNKNOWN tone: tone Bận (3 turn đầu) — refer _TONE_RULES
-        assert "Default tone Bận" in prompt or "Bận" in prompt
+        # UNKNOWN tone (updated 2026-05-26: 30-50 từ)
+        assert "DEFAULT TONE" in prompt or "30-50" in prompt or "Bận" in prompt
 
     def test_build_with_dealer_type(self):
         """Khoe type → prompt phải có rule khen CỤ THỂ."""
@@ -57,11 +57,12 @@ class TestBuildSystemPrompt:
 
 class TestToneRules:
     @pytest.mark.parametrize("dealer_type,keyword", [
-        (DealerType.LUA_LO, "≤8"),
+        # Phase 6 R+ bump tone → updated 2026-05-26
+        (DealerType.LUA_LO, "8-15"),
         (DealerType.KHOE, "Khen CỤ THỂ"),
-        (DealerType.LO, "cam kết bảo mật"),
-        (DealerType.BAN, "5-12"),
-        (DealerType.UNKNOWN, "Default tone Bận"),
+        (DealerType.LO, "Trấn an"),
+        (DealerType.BAN, "30-50"),
+        (DealerType.UNKNOWN, "DEFAULT TONE"),
     ])
     def test_tone_rules_match_type(self, dealer_type, keyword):
         prompt = build_system_prompt(dealer_type=dealer_type)
@@ -96,20 +97,20 @@ class TestPromptVocabCompliance:
 
 
 # ============================================================
-# Token count ≤ 600 (F2B.1 target)
+# Token count ≤ 1700 (F2B.1 target — Phase 6 R+ bump để fit happy case examples)
 # ============================================================
 
 
 class TestTokenCount:
-    def test_default_under_600_tokens(self):
-        """Default prompt ≤ 600 token estimate."""
+    def test_default_under_1700_tokens(self):
+        """Default prompt ≤ 1700 token estimate."""
         prompt = build_system_prompt()
         tokens = estimate_token_count(prompt)
-        assert tokens <= 600, \
-            f"Default prompt {tokens} token > 600 limit"
+        assert tokens <= 1700, \
+            f"Default prompt {tokens} token > 1700 limit"
 
-    def test_with_all_args_under_600(self):
-        """Với mọi arg fill → vẫn ≤ 600 token."""
+    def test_with_all_args_under_1700(self):
+        """Với mọi arg fill → vẫn ≤ 1700 token."""
         prompt = build_system_prompt(
             dealer_type=DealerType.KHOE,
             address_form=AddressForm.CHI,
@@ -118,7 +119,7 @@ class TestTokenCount:
             task="Sinh ack Khoe có insight cụ thể + hỏi tiếp slot 3.4",
         )
         tokens = estimate_token_count(prompt)
-        assert tokens <= 600, f"Full prompt {tokens} > 600"
+        assert tokens <= 1700, f"Full prompt {tokens} > 1700"
 
     def test_estimate_token_count_reasonable(self):
         """estimate_token_count return positive int."""

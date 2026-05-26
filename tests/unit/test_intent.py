@@ -84,9 +84,34 @@ class TestDefensive:
         "có lộ không",
         "tin được không",
         "sao tin được",
+        # Phase 5 R1 Gap 6: enrich patterns
+        "dùng như nào nhỉ",
+        "sử dụng sao",
+        "hoạt động như nào",
+        "làm việc kiểu gì",
+        # "cái này là gì" / "đây là gì" — moved to CONFUSION (Phase 6 R+ 2026-05-22)
+        "app gì vậy",
+        "tại sao em hỏi",
+        "vì sao em cần",
+        "sao em lại hỏi",
+        "thông tin để làm gì",
+        "data của anh để làm gì",
+        "có spam không",
+        "gọi nhiều không",
+        "có an toàn không",
     ])
     def test_defensive_match(self, msg):
         assert detect_intent_layer1(msg) == Intent.DEFENSIVE
+
+    @pytest.mark.parametrize("msg", [
+        # ADVERSARIAL: KHÔNG defensive — không match nhầm
+        "anh không nhớ đã làm gì cho khách",   # KHONG_BIET / NORMAL
+        "em làm việc với anh A bên kia rồi",    # NORMAL, không phải defensive
+        "hôm nay đẹp trời quá",                  # NORMAL
+        "anh có 10 thợ rồi",                     # NORMAL về số thợ
+    ])
+    def test_defensive_no_false_positive(self, msg):
+        assert detect_intent_layer1(msg) != Intent.DEFENSIVE
 
 
 # ============================================================

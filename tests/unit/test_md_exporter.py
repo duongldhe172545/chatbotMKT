@@ -16,10 +16,17 @@ from app.models.schema import DealerProfileRaw, HistoryMessage
 
 class TestSafeFilename:
     def test_strip_forbidden_chars(self):
-        assert safe_filename('Tên/cửa<hàng>') == "Tên_cửa_hàng"
+        # Phase 5 R4: diacritics stripped → ASCII-safe cho HTTP header
+        assert safe_filename('Tên/cửa<hàng>') == "Ten_cua_hang"
 
     def test_strip_whitespace(self):
-        assert safe_filename("  Tùng  ") == "Tùng"
+        assert safe_filename("  Tùng  ") == "Tung"
+
+    def test_diacritics_stripped_for_http_safe(self):
+        """Phase 5 R4 Gap 13: Việt → ASCII cho Content-Disposition."""
+        assert safe_filename("Nhôm Kính Thanh Tùng") == "Nhom_Kinh_Thanh_Tung"
+        assert safe_filename("Đà Nẵng") == "Da_Nang"
+        assert safe_filename("Đồng Nai") == "Dong_Nai"
 
     def test_empty_returns_untitled(self):
         assert safe_filename("") == "untitled"

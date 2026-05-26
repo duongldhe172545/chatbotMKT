@@ -27,6 +27,7 @@ class TestCorrectStt:
         ("rê na", "Reynaers"),
         ("hết tích", "Hettich"),
         ("blum", "Blum"),
+        ("ốt đo", "Austdoor"),
         ("ha phê lê", "Hafele"),
     ])
     def test_brand_substitution(self, typo, correct):

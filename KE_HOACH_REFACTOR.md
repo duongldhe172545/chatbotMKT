@@ -917,7 +917,7 @@ admin review queue 13 trigger. **Quality first — KHÔNG defer case nào.**
 | R7 | Abuse cá nhân 3 cấp + Address blacklist 3 cấp escalation | ✅ |
 | R8 | Tâm sự kéo dài 5 cấp (L1/L2/L3) — refer 1C § 3 | ✅ |
 | R9 | Wire address_form auto-detect anh/chị + edit_parser CONFIRMING + cleanup file rác | ✅ |
-| R10 | Test end-to-end 5 scenario thật + commit Phase 3 close | ⏳ |
+| R10 | Test end-to-end 5 scenario thật + commit Phase 3 close | ✅ |
 
 **12 edge case File 1C status:**
 - ✅ Defensive lặp (§ 2) — R4
@@ -926,8 +926,8 @@ admin review queue 13 trigger. **Quality first — KHÔNG defer case nào.**
 - ✅ Abuse cá nhân (§ 5) — R7
 - ✅ Troll/inject (§ 6) — R2 Layer 1 (Layer 2 LLM defer Phase 4)
 - ✅ Garbage input (§ 7) — R6
-- ⏳ Voice fail (§ 8) — phụ thuộc STT MVP, defer Phase 4 (cùng voice channel)
-- ⏳ Im lặng kéo dài (§ 9) — phụ thuộc background scheduler, defer Phase 4
+- ✅ Voice fail (§ 8) — done Phase 4 R2 (STT client + brand correction)
+- ✅ Im lặng kéo dài (§ 9) — done Phase 4 R1 (background scheduler + nudge)
 - ✅ Address blacklist (§ 10) — R7 3 cấp
 - ✅ Brand unknown (§ 11) — R6
 - ✅ Phone invalid (§ 12) — R4
@@ -953,8 +953,8 @@ admin review queue 13 trigger. **Quality first — KHÔNG defer case nào.**
 - Hallucinate: LLM bịa → null field + flag ✓
 - Drift auto-rewrite: BRANDKIT → "bộ thương hiệu", scoring vocab REMOVE ✓
 - Admin queue trigger 13/13 rule (escalation HIGH + abuse + address_bl + sanity_fail + 4 MEDIUM + 2 LOW)
-- 10/12 edge case test pass (2 còn defer kỹ thuật — voice + im lặng)
-- Tests: 830 pass
+- 12/12 edge case test pass (voice + im lặng đã done Phase 4)
+- Tests: 830 pass (Phase 3) → 1180 pass (Phase 6 R+)
 
 ---
 

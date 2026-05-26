@@ -1,15 +1,17 @@
 """Main conversation orchestrator — F2A.1 stage dispatcher.
 
 Refer:
-- F2A.1 (LUAT_2A_core v0.2.4) — stage transitions
+- F2A.1 (LUAT_2A_core) — stage transitions
 - F2A.4 — state machine decide_action
 - CORE § G — khung chạy 4 stage
 - KE_HOACH § action 20 — orchestrator ≤ 300 dòng
 
-Phase 1 design:
-- handle_message: pure function (session + profile + message + client → reply)
-- Storage adapter inject Round 6 (API layer)
-- Defensive/tâm sự handler: Phase 1 dùng safe fallback (LLM_QUALITY handler Phase 2+)
+Phase 6 R2 refactor: file gốc 979 dòng → split thành submodules:
+- `_conv_greeting.py`: GREETING handler + start_session
+- `_conv_asking.py`: ASKING handler (extract + state machine + reply gen)
+- `_conv_confirming.py`: CONFIRMING + DONE + edit handler
+- `_conv_derive.py`: merge_extracted + auto-derive Scope 2
+- `_conv_helpers.py`: ack/partial question/variant rotate/summarize/PAUSE fallback
 """
 from __future__ import annotations
 
@@ -18,81 +20,41 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from app.admin.queue import increment_flag_count
+from app.core._conv_asking import handle_asking
+from app.core._conv_confirming import handle_confirming, handle_done
+from app.core._conv_greeting import handle_greeting, start_session
 from app.core.abuse_detector import (
     handle_abuse_escalation,
-    handle_address_blacklist_escalation,
     is_personal_abuse,
 )
-from app.core.address_blacklist import check_address_blacklist
-from app.core.address_form import detect_address_form, detect_explicit_address
-from app.core.address_parser import parse_address
-from app.core.brand_check import get_unknown_brands
-from app.core.card_renderer import render_card
-from app.core.closing import render_closing, render_soft_end_closing
-from app.core.dealer_type import detect_dealer_type, should_detect_now
-from app.core.edit_parser import parse_edit_command
+from app.core.bridge_rotation import record_bridge
+from app.core.closing import render_soft_end_closing
 from app.core.edge_cases import (
-    check_phone_retry_exhausted,
-    handle_defensive_escalation,
-    handle_tam_su_escalation,
     handle_voice_fail_escalation,
     is_voice_fail_message,
-    record_optional_refusal,
-    record_tam_su,
-    reset_optional_refusal,
-    reset_tam_su,
-    should_skip_in_rush_mode,
 )
-from app.llm.brand_correction import correct_stt
-from app.llm.intent_classifier import classify_intent_layer2
 from app.core.garbage_detector import is_garbage, is_meaningful_short
-from app.core.greeting import render_greeting
-from app.core.intent import detect_intent
-from app.core.sanity import check_sanity
 from app.core.session import is_session_timeout, mark_session_closed, touch_session
-from app.core.state_machine import decide_action
-from app.slots.definitions import is_optional, is_required
 from app.guards import (
     auto_rewrite,
-    check_hallucinate,
+    check_ack_hallucinate,
+    check_parrot,
     check_prompt_injection,
     has_forbidden_scoring_vocab,
     sanitize_injection,
 )
-from app.llm.ack_generator import generate_ack
-from app.llm.auto_derive import (
-    derive_brand_short,
-    derive_main_category,
-    gen_initial_single,
-    gen_initials_full,
-    gen_slogans,
-)
+from app.llm.brand_correction import correct_stt
 from app.llm.client import LLMClient
-from app.llm.extractors import extract_slot
-from app.llm.extractors.schemas import SLOT_TOOL_SCHEMAS
-from app.llm.fallback import safe_ack
-from app.models.enums import (
-    Action,
-    ConfirmationStatus,
-    DealerType,
-    Flag,
-    Intent,
-    Stage,
-)
+from app.models.enums import Channel, Flag, Stage
 from app.models.schema import (
     DealerProfileRaw,
     HistoryMessage,
     SessionState,
 )
-from app.slots.definitions import is_thong_bao
-from app.slots.templates import get_question, get_retry_question
+
+__all__ = ["handle_message", "start_session"]
 
 logger = logging.getLogger(__name__)
-
-
-# ============================================================
-# Main entry
-# ============================================================
 
 
 def handle_message(
@@ -104,10 +66,10 @@ def handle_message(
     """Process 1 dealer message. Stage-based dispatch.
 
     Args:
-        session: SessionState hiện tại (mutated in-place)
-        profile: DealerProfileRaw hiện tại (mutated in-place)
+        session: SessionState (mutated in-place)
+        profile: DealerProfileRaw (mutated in-place)
         message: Text từ dealer
-        client: LLMClient (test inject mock)
+        client: LLMClient
 
     Returns:
         (reply_text, updated_session, updated_profile).
@@ -116,11 +78,8 @@ def handle_message(
         - Mutate session: turn_count, history, current_slot, stage, flags,
           flag_counts (qua guards + state machine)
         - Mutate profile: extracted fields từ message
-
-    Note: admin queue trigger được caller (API layer) gọi SAU khi
-    save_session — vì FK constraint cần session row trong DB trước.
     """
-    # Lazy timeout check (Phase 1-3, refer KE_HOACH § 0.4)
+    # Lazy timeout check (1C § 9)
     if is_session_timeout(session):
         mark_session_closed(session)
         return (render_soft_end_closing(), session, profile)
@@ -129,35 +88,24 @@ def handle_message(
     touch_session(session)
     session.turn_count += 1
 
-    # Voice channel preprocess (1C § 8) — Phase 4 R2:
-    # 1. Check voice fail (empty / noise / dealer phàn nàn) → escalation 3 cấp
-    # 2. Apply STT brand correction trước extract (vd "xinhpha" → "Xingfa")
-    from app.models.enums import Channel as _Ch
-    is_voice = session.channel == _Ch.VOICE
-    if is_voice and session.stage == Stage.ASKING:
-        if is_voice_fail_message(message, is_voice_channel=True):
-            increment_flag_count(session, Flag.VOICE_QUALITY_POOR)
-            voice_reply, should_close_v = handle_voice_fail_escalation(session)
-            if should_close_v:
-                session.stage = Stage.DONE
-                mark_session_closed(session)
-            # Append history + return early
-            now = datetime.now(timezone.utc)
-            session.history.append(HistoryMessage(role="dealer", content=message, ts=now))
-            session.history.append(HistoryMessage(role="bot", content=voice_reply, ts=now))
-            return (voice_reply, session, profile)
-        # Brand STT correction (text manipulation, KHÔNG block flow)
-        message = correct_stt(message) or message
+    # Voice channel preprocess (1C § 8 — Phase 4 R2)
+    voice_reply = _check_voice_fail(session, message)
+    if voice_reply is not None:
+        now = datetime.now(timezone.utc)
+        session.history.append(HistoryMessage(role="dealer", content=message, ts=now))
+        session.history.append(HistoryMessage(role="bot", content=voice_reply, ts=now))
+        return (voice_reply, session, profile)
+    # Brand/STT correction also helps typed text in chat tests, e.g. dealer
+    # corrects "ốt đo" -> Austdoor. Apply before guards/extractors.
+    message = correct_stt(message) or message
 
     # G1: Prompt injection guard (Layer 1 regex)
     injection_match = check_prompt_injection(message)
     if injection_match:
         increment_flag_count(session, Flag.PROMPT_INJECTION)
-        # Sanitize message trước khi pass cho LLM
         message = sanitize_injection(message) or message
 
-    # Garbage input detect (1C § 7) — flag nếu lặp 2 lần cùng slot.
-    # Short "ok"/"có" KHÔNG phải garbage (whitelist).
+    # Garbage input detect (1C § 7) — flag nếu lặp 2 lần cùng slot
     if (
         not is_meaningful_short(message)
         and is_garbage(message)
@@ -170,7 +118,7 @@ def handle_message(
                 session.session_id, message[:80],
             )
 
-    # Personal abuse detect (1C § 5) — short-circuit khỏi flow normal
+    # Personal abuse detect (1C § 5) — short-circuit
     abuse_reply: Optional[str] = None
     if is_personal_abuse(message) and session.stage == Stage.ASKING:
         increment_flag_count(session, Flag.ABUSIVE_LANGUAGE)
@@ -179,31 +127,32 @@ def handle_message(
             session.stage = Stage.DONE
             mark_session_closed(session)
 
-    # Add dealer message to history (giữ raw message — admin sẽ thấy attack pattern)
+    # Add dealer message to history
     now = datetime.now(timezone.utc)
     session.history.append(HistoryMessage(role="dealer", content=message, ts=now))
 
-    # Nếu abuse handled, short-circuit return (KHÔNG xử slot)
+    # Nếu abuse handled, short-circuit return
     if abuse_reply is not None:
-        # Auto-rewrite + add bot history (giữ pattern guard cuối)
         abuse_reply = auto_rewrite(abuse_reply)
         session.history.append(HistoryMessage(role="bot", content=abuse_reply, ts=now))
         return (abuse_reply, session, profile)
 
+    stage_before_dispatch = session.stage
+
     # Stage-based dispatch
     if session.stage == Stage.GREETING:
-        reply = _handle_greeting(session, message)
+        reply = handle_greeting(session, message, client, profile=profile)
     elif session.stage == Stage.ASKING:
-        reply = _handle_asking(session, profile, message, client)
+        reply = handle_asking(session, profile, message, client)
     elif session.stage == Stage.CONFIRMING:
-        reply = _handle_confirming(session, profile, message)
+        reply = handle_confirming(session, profile, message, client)
     else:  # Stage.DONE
-        reply = _handle_done()
+        reply = handle_done()
 
     # G3: Drift guard — auto-rewrite vocab cấm trong bot reply
-    # Note: drift là lỗi NỘI BỘ bot (LLM lệch), không flag session.
-    # Scoring vocab leak nghiêm trọng → log warning để admin biết.
     if reply:
+        if stage_before_dispatch == Stage.ASKING:
+            reply = _soften_repeated_opening(reply, session)
         if has_forbidden_scoring_vocab(reply):
             logger.error(
                 "Scoring vocab LEAK trong bot reply session=%s reply=%r",
@@ -211,466 +160,89 @@ def handle_message(
             )
         reply = auto_rewrite(reply)
 
+        # B.4 luật #2 (Phase 6 R+): parrot guard — KHÔNG lặp y nguyên
+        # đoạn ≥ 4 từ liên tiếp từ dealer message. Chỉ flag để admin
+        # review, không tự rewrite (LLM nên rephrase tự nhiên — code
+        # rewrite có thể phá ý).
+        if check_parrot(reply, message, min_ngram=4):
+            increment_flag_count(session, Flag.HALLUCINATE)
+            logger.warning(
+                "Drift parrot detect: session=%s reply head=%r",
+                session.session_id, reply[:100],
+            )
+
+        # Phase 6 R+ fix 2026-05-22 (user feedback Lỗi 6c): check ack
+        # hallucinate adjective "cao cấp / sang trọng / quy mô lớn" mà
+        # dealer chưa nói. Flag HALLUCINATE để admin review (KHÔNG tự
+        # rewrite vì có thể phá ý câu — LLM cần được hint qua prompt).
+        dealer_history_text = " ".join(
+            h.content for h in session.history if h.role == "dealer" and h.content
+        )
+        ack_hallucinated = check_ack_hallucinate(
+            ack_text=reply,
+            dealer_message=message,
+            dealer_history=dealer_history_text,
+        )
+        if ack_hallucinated:
+            increment_flag_count(session, Flag.HALLUCINATE)
+            logger.warning(
+                "Ack hallucinate adjective: session=%s adjective=%s reply head=%r",
+                session.session_id, ack_hallucinated, reply[:120],
+            )
+
+    # Record bridge phrase used (1A § 2.2)
+    record_bridge(session, reply)
+
     # Add bot reply to history
     session.history.append(HistoryMessage(role="bot", content=reply, ts=now))
 
     return (reply, session, profile)
 
 
-def start_session(session: SessionState) -> str:
-    """Render greeting cho session mới. Gọi 1 lần khi session bắt đầu.
-
-    Args:
-        session: SessionState mới tạo (stage=GREETING)
-
-    Returns:
-        Greeting text. Caller add vào history.
-    """
-    return render_greeting(session.session_id)
-
-
 # ============================================================
-# Stage handlers
+# Internal helpers
 # ============================================================
 
 
-def _handle_greeting(session: SessionState, message: str) -> str:
-    """Stage GREETING: dealer ack greeting → chuyển ASKING + hỏi slot 1.1."""
-    intent = detect_intent(message)
-
-    if intent == Intent.AFFIRMATIVE or intent == Intent.NORMAL:
-        # Chuyển ASKING + ask slot 1.1
-        session.stage = Stage.ASKING
-        session.current_slot = "1.1"
-        return get_question("1.1", variant=0) or "Anh cho em xin tên và tên cửa hàng nhé."
-
-    if intent == Intent.REFUSAL:
-        # Dealer từ chối ngay greeting → soft-close
-        mark_session_closed(session)
-        return render_soft_end_closing()
-
-    # Defensive/khong_biet/khác → re-prompt
-    return "Dạ anh sẵn sàng chưa ạ? Mình bắt đầu được không?"
+def _is_voice_channel(session: SessionState) -> bool:
+    """True nếu session channel = VOICE."""
+    return session.channel == Channel.VOICE
 
 
-def _handle_asking(
+def _check_voice_fail(
     session: SessionState,
-    profile: DealerProfileRaw,
     message: str,
-    client: LLMClient,
-) -> str:
-    """Stage ASKING: extract + state machine + gen reply."""
-    intent = detect_intent(message)
-    current_slot = session.current_slot
+) -> Optional[str]:
+    """Check voice fail (1C § 8). Returns voice escalation reply nếu fail, None nếu ok."""
+    if not _is_voice_channel(session) or session.stage != Stage.ASKING:
+        return None
+    if not is_voice_fail_message(message, is_voice_channel=True):
+        return None
+    increment_flag_count(session, Flag.VOICE_QUALITY_POOR)
+    voice_reply, should_close = handle_voice_fail_escalation(session)
+    if should_close:
+        session.stage = Stage.DONE
+        mark_session_closed(session)
+    return voice_reply
 
-    # Phase 4 R3: Intent Layer 2 LLM fallback nếu Layer 1 trả NORMAL +
-    # message dài (≥ 5 từ) — có thể có defensive/tâm sự/edit ẩn.
-    # Threshold conservative — chỉ call khi confidence Layer 1 thấp.
-    if intent == Intent.NORMAL and len(message.split()) >= 5:
-        l2_intent, l2_confidence = classify_intent_layer2(
-            message, client,
-            stage=session.stage.value,
-            current_slot=current_slot,
-        )
-        if l2_intent is not None and l2_confidence in ("MED", "HIGH"):
-            if l2_intent != Intent.NORMAL:
-                logger.info(
-                    "Intent L2 override: L1=NORMAL → L2=%s (confidence=%s)",
-                    l2_intent.value, l2_confidence,
-                )
-                intent = l2_intent
 
-    # Detect dealer type tại turn 3/8/13 (refer F2A.6)
-    if should_detect_now(session.turn_count):
-        detect_dealer_type(session)
-
-    # 1C § 10: Address blacklist 3 cấp — check RAW message TRƯỚC extract
-    # (vì LLM có thể strip blacklist khỏi extracted address → validator pass nhầm)
-    if current_slot == "1.2" and check_address_blacklist(message):
-        increment_flag_count(session, Flag.ADDRESS_BLACKLIST)
-        reply, should_close = handle_address_blacklist_escalation(session)
-        if should_close:
-            session.stage = Stage.DONE
-            mark_session_closed(session)
+def _soften_repeated_opening(reply: str, session: SessionState) -> str:
+    """Avoid every ASKING reply starting with "Dạ"."""
+    if not reply:
+        return reply
+    stripped = reply.lstrip()
+    if not stripped.startswith("Dạ"):
+        return reply
+    previous_bot = next((h.content for h in reversed(session.history) if h.role == "bot"), "")
+    if not previous_bot.lstrip().startswith("Dạ"):
         return reply
 
-    # Extract field (Phase 2: 16 slot có extractor)
-    extracted: Optional[dict] = None
-    if current_slot and current_slot in SLOT_TOOL_SCHEMAS:
-        extracted = extract_slot(
-            slot_id=current_slot,
-            user_message=message,
-            client=client,
-            dealer_type=session.detected_dealer_type or DealerType.UNKNOWN,
-            address_form=session.address_form,
-        )
-        # G2: Hallucinate guard — null các field LLM bịa (không có trong message)
-        if extracted:
-            hallucinated = check_hallucinate(extracted, message)
-            if hallucinated:
-                # Mỗi field hallucinate = 1 lần raise (count tăng theo)
-                for field in hallucinated:
-                    increment_flag_count(session, Flag.HALLUCINATE)
-                    extracted[field] = None
-        # Note: 1C § 10 address blacklist check moved BEFORE extract
-        # (refer block trên — vì LLM strip blacklist khỏi address)
-        # 1C § 11: Brand whitelist check — flag nếu có brand lạ
-        if extracted and extracted.get("supplier_brands"):
-            unknown = get_unknown_brands(extracted["supplier_brands"])
-            if unknown:
-                increment_flag_count(session, Flag.BRAND_NOT_IN_WHITELIST)
-                logger.info(
-                    "Brand không trong whitelist: session=%s brands=%s",
-                    session.session_id, unknown,
-                )
-
-        # 1A § 2.1: Address form auto-detect — sau khi extract slot 1.1
-        # (owner_name) hoặc dealer explicit request "gọi tôi là chị/anh".
-        if current_slot == "1.1" and extracted:
-            from app.models.enums import AddressForm
-            explicit = detect_explicit_address(message)
-            if explicit in ("chị", "anh"):
-                session.address_form = (
-                    AddressForm.CHI if explicit == "chị" else AddressForm.ANH
-                )
-            elif extracted.get("owner_name"):
-                detected = detect_address_form(message, extracted["owner_name"])
-                session.address_form = (
-                    AddressForm.CHI if detected == "chị" else AddressForm.ANH
-                )
-        # Merge extracted vào profile + auto-derive Scope 2 fields
-        if extracted:
-            _merge_extracted(profile, extracted, client=client)
-
-    # State machine quyết action
-    next_slot, action = decide_action(session, intent, extracted)
-
-    # Reset tâm sự counter nếu intent KHÔNG phải TAM_SU (dealer đã quay slot)
-    if intent != Intent.TAM_SU:
-        reset_tam_su(session)
-
-    # Gen reply theo action
-    if action == Action.PAUSE:
-        # PAUSE = defensive / tâm sự — refer state_machine.decide_action
-        if session.paused_for == "defensive":
-            # Raise flag DEALER_TOO_DEFENSIVE + xử theo cấp 1C § 2
-            increment_flag_count(session, Flag.DEALER_TOO_DEFENSIVE)
-            reply, should_close = handle_defensive_escalation(session)
-            if should_close:
-                session.stage = Stage.DONE
-                mark_session_closed(session)
-            return reply
-        if session.paused_for == "tam_su":
-            # 1C § 3: tâm sự kéo dài escalation
-            record_tam_su(session)
-            reply, should_close = handle_tam_su_escalation(session)
-            if should_close:
-                session.stage = Stage.DONE
-                mark_session_closed(session)
-            return reply
-        # Fallback (paused_for None hoặc lạ)
-        return _phase_1_pause_fallback(session.paused_for)
-
-    # Track edge case: refusal lặp OPTIONAL (1C § 4) — count + flag
-    rush_offer: Optional[str] = None
-    if action == Action.SKIP and current_slot and is_optional(current_slot):
-        if record_optional_refusal(session):
-            # Vừa đạt 3 OPTIONAL refuse liên tiếp → flag + offer message
-            # (rush_mode logic đầy đủ defer Phase 4 — Phase 3 R4 chỉ flag + offer text)
-            from app.core.edge_cases import RUSH_MODE_OFFER_TEMPLATE
-            rush_offer = RUSH_MODE_OFFER_TEMPLATE
-    elif action == Action.ADVANCE:
-        # Dealer fill OK → reset counter
-        reset_optional_refusal(session)
-
-    # Edge case: phone invalid 3 retry exhausted (1C § 12)
-    # State machine SKIP slot 1.3 khi total >= MAX_RETRY_TOTAL (3) →
-    # raise PHONE_INVALID_AFTER_RETRY thay required_missing generic.
-    if action == Action.SKIP and current_slot == "1.3":
-        check_phone_retry_exhausted(session)
-
-    # Check transition tới CONFIRMING (hết slot — bất kỳ action nào trừ RETRY/PAUSE)
-    if next_slot is None and action in (Action.ADVANCE, Action.SKIP, Action.DEFER):
-        session.stage = Stage.CONFIRMING
-        return _enter_confirming(profile)
-
-    if action in (Action.ADVANCE, Action.SKIP, Action.DEFER):
-        # Ack + question for next slot
-        ack = _gen_ack_safe(
-            slot_id=current_slot or "",
-            extracted_data=extracted or {},
-            client=client,
-            session=session,
-        )
-        question = _get_slot_question_for_attempt(next_slot, session)
-        # Nếu vừa offer rush_mode, prepend offer (dealer trả lời ok/không ở turn sau)
-        if rush_offer:
-            base = f"{ack}\n\n{rush_offer}" if ack else rush_offer
-            if question:
-                return f"{base}\n\n{question}"
-            return base
-        if question:
-            return f"{ack}\n\n{question}" if ack else question
-        return ack or "Dạ vâng ạ."
-
-    if action == Action.RETRY:
-        # Stay current slot, retry tone
-        attempts = session.slot_attempts.get(current_slot)
-        attempt_num = attempts.total if attempts else 1
-        retry_q = get_retry_question(current_slot, attempt=attempt_num)
-        return retry_q or (get_question(current_slot, variant=0) or "Anh cho em thêm thông tin nhé?")
-
-    if action == Action.PARTIAL_RETRY:
-        # Ack phần đã cho + hỏi field còn thiếu
-        ack = _gen_ack_safe(
-            slot_id=current_slot or "",
-            extracted_data=extracted or {},
-            client=client,
-            session=session,
-        )
-        # Phase 1 simplified: hỏi lại slot. Phase 2+ ask field cụ thể.
-        return f"{ack}\n\nAnh cho em thêm thông tin còn thiếu nha?" if ack else "Anh cho em thêm thông tin còn thiếu nha?"
-
-    # Fallback
-    return safe_ack()
-
-
-def _handle_confirming(
-    session: SessionState,
-    profile: DealerProfileRaw,
-    message: str,
-) -> str:
-    """Stage CONFIRMING: dealer xác nhận card."""
-    intent = detect_intent(message)
-
-    if intent == Intent.AFFIRMATIVE:
-        # Sanity check 5-point trước khi CONFIRMED
-        passed, failed = check_sanity(session, profile)
-        if not passed:
-            logger.warning("Sanity check fail: %s", failed)
-            if Flag.SANITY_CHECK_FAILED not in session.flags:
-                session.flags.append(Flag.SANITY_CHECK_FAILED)
-            # Vẫn cho confirm — admin queue sẽ review (refer F2A.7)
-
-        session.confirmation_status = ConfirmationStatus.CONFIRMED
-        session.stage = Stage.DONE
-        mark_session_closed(session)
-        return render_closing(
-            province=profile.province,
-            consent=profile.brandkit_consent,
-        )
-
-    if intent == Intent.EDIT:
-        # Phase 3 R9: parse edit command qua regex
-        parsed = parse_edit_command(message)
-        if parsed:
-            field, new_value = parsed
-            if hasattr(profile, field):
-                setattr(profile, field, new_value)
-                logger.info(
-                    "Edit applied: session=%s field=%s value=%r",
-                    session.session_id, field, new_value,
-                )
-                # Re-render card với data mới
-                return (
-                    f"Dạ em đã cập nhật {field} thành {new_value!r} rồi ạ. "
-                    f"Em hiển thị lại card mình cùng check nhé:\n\n"
-                    + render_card(profile)
-                )
-            else:
-                logger.warning("Edit parsed field không có trong profile: %s", field)
-        # Parse fail / field không tồn tại → ask dealer ghi rõ
-        return (
-            "Dạ anh ghi rõ giúp em — sửa phần nào, thành gì ạ? "
-            "(Vd: 'sửa SĐT thành 0901234567', 'tên là Vinh', "
-            "'đổi địa chỉ thành Quận 5')"
-        )
-
-    if intent == Intent.REFUSAL:
-        # Dealer từ chối confirm — soft-close
-        session.confirmation_status = ConfirmationStatus.PENDING
-        session.stage = Stage.DONE
-        mark_session_closed(session)
-        return render_soft_end_closing()
-
-    # Re-prompt
-    return "Anh duyệt OK / sửa gì giúp em ạ?"
-
-
-def _handle_done() -> str:
-    """Stage DONE: session đóng, chỉ trả message thông báo."""
-    return (
-        "Em đã chốt thông tin của anh rồi ạ. Em hẹn anh trên Zalo nhé — "
-        "bộ thương hiệu + kế hoạch nền tảng số em gửi trong ít giờ tới."
-    )
-
-
-# ============================================================
-# Helpers
-# ============================================================
-
-
-def _enter_confirming(profile: DealerProfileRaw) -> str:
-    """Render card khi vào CONFIRMING."""
-    return (
-        "Em đã ghi nhận đủ thông tin rồi ạ. Anh xem giúp em qua card này nhé:\n\n"
-        + render_card(profile)
-    )
-
-
-def _merge_extracted(
-    profile: DealerProfileRaw,
-    extracted: dict,
-    client: Optional[LLMClient] = None,
-) -> None:
-    """Merge extracted dict vào profile (chỉ field non-None).
-
-    Auto-derive Scope 2 fields sau khi merge:
-    - address → province + district (qua address_parser Layer 1 regex)
-    - main_product → main_category (LLM_FAST, không substring match)
-    """
-    for field, value in extracted.items():
-        if value is None:
-            continue
-        if not hasattr(profile, field):
-            logger.warning("Extracted field %s không có trong DealerProfileRaw", field)
-            continue
-        setattr(profile, field, value)
-
-    # Auto-derive province + district sau khi address fill (Scope 2)
-    if "address" in extracted and extracted.get("address") and not profile.province:
-        province, district = parse_address(profile.address)
-        if province:
-            profile.province = province
-        if district:
-            profile.district = district
-
-    # Auto-derive main_category từ main_product (LLM_FAST)
-    if (
-        client is not None
-        and "main_product" in extracted
-        and extracted.get("main_product")
-        and not profile.main_category
-    ):
-        context = ""
-        if profile.category_stack:
-            context = f"category_stack: {', '.join(profile.category_stack)}"
-        derived = derive_main_category(profile.main_product, client, context)
-        if derived:
-            profile.main_category = derived
-            logger.info(
-                "Auto-derive main_category: %r → %s",
-                profile.main_product, derived,
-            )
-        else:
-            logger.warning(
-                "Auto-derive main_category fail/null cho main_product=%r",
-                profile.main_product,
-            )
-
-    # Phase 5 R0: Auto-derive Scope 2 còn lại (F2B.7)
-    # 1. brand_short + initials_full + initial_single + contact_name —
-    #    sau slot 1.1 fill dealer_name + owner_name
-    if (
-        client is not None
-        and "dealer_name" in extracted
-        and extracted.get("dealer_name")
-    ):
-        if not profile.brand_name_short:
-            short = derive_brand_short(profile.dealer_name, client)
-            if short:
-                profile.brand_name_short = short
-                logger.info("Auto-derive brand_short: %r → %r", profile.dealer_name, short)
-        if not profile.initials_full:
-            initials = gen_initials_full(profile.dealer_name)
-            if initials:
-                profile.initials_full = initials
-                if not profile.initial_single:
-                    profile.initial_single = gen_initial_single(initials)
-    if "owner_name" in extracted and extracted.get("owner_name") and not profile.contact_name:
-        profile.contact_name = profile.owner_name
-        # contact_role default = "Chủ cửa hàng" (schema), không cần set
-
-    # 2. hotline = phone_or_zalo — sau slot 1.3 fill phone
-    if "phone_or_zalo" in extracted and extracted.get("phone_or_zalo") and not profile.hotline:
-        profile.hotline = profile.phone_or_zalo
-
-    # 3. slogan_options — sau slot 2.1 fill main_product
-    #    Cần dealer_name + main_product → gen ngay khi đủ.
-    if (
-        client is not None
-        and "main_product" in extracted
-        and extracted.get("main_product")
-        and profile.dealer_name
-        and not profile.slogan_options
-    ):
-        slogans = gen_slogans(
-            dealer_name=profile.dealer_name,
-            main_product=profile.main_product,
-            client=client,
-            province=profile.province,
-            use_quality=True,
-        )
-        if slogans:
-            profile.slogan_options = slogans
-            logger.info(
-                "Auto-derive slogans: dealer=%r → %d options",
-                profile.dealer_name, len(slogans),
-            )
-
-
-def _gen_ack_safe(
-    slot_id: str,
-    extracted_data: dict,
-    client: LLMClient,
-    session: SessionState,
-) -> str:
-    """Gen ack với fallback safe."""
-    if not slot_id or not extracted_data:
-        return safe_ack()
-    try:
-        return generate_ack(
-            slot_id=slot_id,
-            extracted_data=extracted_data,
-            client=client,
-            dealer_type=session.detected_dealer_type or DealerType.UNKNOWN,
-            address_form=session.address_form,
-            use_fallback_on_error=True,
-        )
-    except Exception as e:
-        logger.exception("Ack gen fail: %s", e)
-        return safe_ack()
-
-
-def _get_slot_question_for_attempt(
-    slot_id: Optional[str],
-    session: SessionState,
-) -> Optional[str]:
-    """Lấy câu hỏi slot phù hợp attempt (retry tone giảm dần)."""
-    if not slot_id:
-        return None
-    # Slot THÔNG BÁO (4.1) — get_question lấy "câu thông báo"
-    if is_thong_bao(slot_id):
-        return get_question(slot_id, variant=0)
-    # Slot có retry → check attempts
-    attempts = session.slot_attempts.get(slot_id)
-    attempt_num = attempts.total + 1 if attempts else 1
-    if attempt_num <= 1:
-        return get_question(slot_id, variant=0)
-    # Retry tone giảm dần
-    return get_retry_question(slot_id, attempt=attempt_num) or get_question(slot_id, variant=0)
-
-
-def _phase_1_pause_fallback(paused_for: Optional[str]) -> str:
-    """Safe response cho PAUSE (defensive/tâm sự). Phase 2+ dùng F2B.4b handler."""
-    if paused_for == "defensive":
-        return (
-            "Dạ anh yên tâm — em không thu phí gì đâu ạ, em chỉ thu thập "
-            "thông tin để team bên em hỗ trợ anh tốt hơn. Dữ liệu em lưu nội "
-            "bộ, không share ra ngoài. Mình tiếp tục được không ạ?"
-        )
-    if paused_for == "tam_su":
-        return (
-            "Dạ em hiểu mà ạ. Anh chia sẻ em rất quý. À cho em hỏi tiếp xíu nhé?"
-        )
-    return "Dạ em hiểu ạ. Mình tiếp tục được không anh?"
+    for prefix in ("Dạ vâng anh, ", "Dạ vâng, ", "Dạ anh, ", "Dạ anh ", "Dạ, ", "Dạ "):
+        if stripped.startswith(prefix):
+            softened = stripped[len(prefix):].lstrip()
+            break
+    else:
+        softened = stripped[2:].lstrip(" ,")
+    if not softened:
+        return reply
+    return softened[:1].upper() + softened[1:]

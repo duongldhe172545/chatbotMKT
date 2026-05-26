@@ -7,6 +7,7 @@ Refer:
 from __future__ import annotations
 
 import re
+import unicodedata
 from datetime import datetime
 from typing import Optional
 
@@ -14,13 +15,25 @@ from app.models.schema import DealerProfileRaw, SessionState
 
 
 def safe_filename(name: str, max_len: int = 80) -> str:
-    """Sanitize string thành filename hợp lệ (Windows + Unix)."""
+    """Sanitize string thành filename hợp lệ (Windows + Unix) + HTTP-safe.
+
+    Phase 5 R4 Gap 13: strip diacritics (Việt → ASCII) cho HTTP
+    Content-Disposition header (chỉ accept Latin-1). Filename không
+    cần đẹp — chỉ cần unique + sortable.
+    """
     if not name:
         return "untitled"
+    # Strip Vietnamese diacritics: "Nhôm Kính" → "Nhom Kinh"
+    nfkd = unicodedata.normalize("NFKD", name)
+    ascii_only = "".join(c for c in nfkd if not unicodedata.combining(c))
+    # Đặc biệt: đ/Đ không có combining char → manual replace
+    ascii_only = ascii_only.replace("đ", "d").replace("Đ", "D")
     # Strip + replace forbidden chars
-    cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", name.strip())
+    cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", ascii_only.strip())
     cleaned = re.sub(r"\s+", "_", cleaned)
     cleaned = cleaned.strip("._")
+    # Đảm bảo ASCII printable only
+    cleaned = "".join(c if 32 <= ord(c) < 127 else "_" for c in cleaned)
     return cleaned[:max_len] or "untitled"
 
 

@@ -47,12 +47,12 @@ class TestEnumCounts:
             "ADVANCE", "RETRY", "PARTIAL_RETRY", "DEFER", "SKIP", "PAUSE"
         }
 
-    def test_intent_has_7_values(self):
-        """7 intent — refer F2A.2 + GLOSSARY § 3."""
-        assert len(list(Intent)) == 7
+    def test_intent_has_8_values(self):
+        """8 intent — refer F2A.2 + GLOSSARY § 3 + CORE D.1 (CONFUSION added 2026-05-22)."""
+        assert len(list(Intent)) == 8
         assert {i.value for i in Intent} == {
-            "affirmative", "refusal", "khong_biet", "defensive",
-            "tam_su", "edit", "normal",
+            "affirmative", "refusal", "khong_biet", "confusion",
+            "defensive", "tam_su", "edit", "normal",
         }
 
     def test_dealer_type_has_5_values(self):
@@ -62,10 +62,10 @@ class TestEnumCounts:
             "lua_lo", "khoe", "lo", "ban", "unknown"
         }
 
-    def test_flag_has_16_values_in_5_groups(self):
-        """16 flag chia 5 nhóm — Phase 3 R4 add ESCALATION.
-        Refer STRATEGY D12 + F2A.3 + GLOSSARY § 4."""
-        assert len(list(Flag)) == 16
+    def test_flag_has_17_values_in_6_groups(self):
+        """17 flag chia 6 nhóm — Phase 3 R4 add ESCALATION, Phase 5 R5 add NUDGE_PENDING.
+        Refer STRATEGY D12 + F2A.3 + GLOSSARY § 4 + 1C § 9."""
+        assert len(list(Flag)) == 17
         behavior = {
             Flag.DEALER_DECLINED, Flag.REQUIRED_MISSING,
             Flag.CONSENT_UNCLEAR, Flag.MULTIPLE_REFUSAL_IN_ROW,
@@ -80,13 +80,15 @@ class TestEnumCounts:
             Flag.VOICE_QUALITY_POOR, Flag.BRAND_NOT_IN_WHITELIST,
         }
         llm_guard = {Flag.HALLUCINATE, Flag.PII_LEAK}
+        lifecycle = {Flag.NUDGE_PENDING}
         assert len(behavior) == 4
         assert len(abuse) == 5
         assert len(escalation) == 1
         assert len(data_quality) == 4
         assert len(llm_guard) == 2
-        # Union = 15, không overlap
-        assert len(behavior | abuse | data_quality | llm_guard) == 15
+        assert len(lifecycle) == 1
+        # Union = 17, không overlap
+        assert len(behavior | abuse | escalation | data_quality | llm_guard | lifecycle) == 17
 
     def test_address_form_has_2(self):
         assert {a.value for a in AddressForm} == {"anh", "chị"}

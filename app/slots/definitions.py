@@ -39,7 +39,23 @@ OPTIONAL_SLOTS: list[str] = [
 ]
 
 # 1 THÔNG BÁO slot — bot độc thoại, không hỏi, không extractor (GLOSSARY § 1)
+# Refer LUAT_2A F2A.5: rule "no_ask + no_retry + no_extractor + auto-advance".
 THONG_BAO_SLOTS: list[str] = ["4.1"]
+# Alias chính thức theo spec LUAT 2A v0.2.6 (English name) — same list,
+# code có thể dùng tên này cho dev không quen tiếng Việt.
+NOTIFICATION_SLOTS: list[str] = THONG_BAO_SLOTS
+
+# Validation invariant — refer LUAT_2A F2A.5:
+# REQUIRED ∪ OPTIONAL ∪ NOTIFICATION phải = SLOT_PRIORITY_ORDER (17 slot).
+# Test unit: tests/unit/test_slot_definitions.py
+assert (
+    set(REQUIRED_SLOTS) | set(OPTIONAL_SLOTS) | set(NOTIFICATION_SLOTS)
+    == set(SLOT_PRIORITY_ORDER)
+), "Invariant fail: REQUIRED ∪ OPTIONAL ∪ NOTIFICATION ≠ 17 slot"
+assert (
+    len(REQUIRED_SLOTS) + len(OPTIONAL_SLOTS) + len(NOTIFICATION_SLOTS)
+    == len(SLOT_PRIORITY_ORDER)
+), "Invariant fail: slot overlap detected"
 
 # 7 multi-field slot — refer 1A § 1.5 + F2A.4 step 2.6 (PARTIAL_RETRY)
 MULTI_FIELD_SLOTS: list[str] = [
@@ -197,22 +213,65 @@ def is_multi_field(slot_id: str) -> bool:
     return slot_id in MULTI_FIELD_SLOTS
 
 
-def next_slot(current: str, skipped: Optional[list[str]] = None) -> Optional[str]:
-    """Trả slot tiếp theo trong SLOT_PRIORITY_ORDER, bỏ qua skipped.
+def next_slot(
+    current: str,
+    skipped: Optional[list[str]] = None,
+    profile=None,
+) -> Optional[str]:
+    """Trả slot tiếp theo trong SLOT_PRIORITY_ORDER, bỏ qua skipped + slot đã fill.
+
+    Phase 6 R+ fix Lỗi 3+5: nếu profile passed → check slot.required_fields đã
+    fill chưa. Slot REQUIRED fill rồi → skip (tránh hỏi lại slot 2.1 đã có
+    main_product="nội thất" khi recheck deferred làm flow loop).
 
     Args:
         current: Slot hiện tại (vd "1.1"). Nếu không trong list → bắt đầu từ đầu.
         skipped: List slot đã skip (refer SessionState.skipped_slots).
+        profile: Optional DealerProfileRaw — check fill state qua REQUIRED fields.
 
     Returns:
-        Slot kế tiếp, hoặc None nếu hết slot (chuyển CONFIRMING).
+        Slot kế tiếp chưa fill, hoặc None nếu hết slot (chuyển CONFIRMING).
     """
     skipped = skipped or []
     try:
         idx = SLOT_PRIORITY_ORDER.index(current)
     except ValueError:
-        idx = -1                                       # current invalid → bắt đầu từ slot đầu
+        idx = -1
     for next_id in SLOT_PRIORITY_ORDER[idx + 1:]:
-        if next_id not in skipped:
-            return next_id
+        if next_id in skipped:
+            continue
+        # Phase 6 R+: skip slot đã fill (REQUIRED) — tránh hỏi lại
+        if profile is not None and _is_slot_required_filled(next_id, profile):
+            continue
+        return next_id
     return None
+
+
+def _is_slot_required_filled(slot_id: str, profile) -> bool:
+    """True nếu slot REQUIRED fields đều fill trong profile.
+
+    Helper cho `next_slot()` skip slot đã có data.
+    """
+    required = SLOT_TO_REQUIRED_FIELDS.get(slot_id, [])
+    if not required:
+        # Slot OPTIONAL/THONG_BAO: check tất cả fields có ít nhất 1 filled
+        all_fields = SLOT_TO_ALL_FIELDS.get(slot_id, [])
+        if not all_fields:
+            return False  # THONG_BAO không có field — không skip
+        return any(
+            _field_filled(profile, f) for f in all_fields
+        )
+    # REQUIRED: tất cả required fields phải fill
+    return all(_field_filled(profile, f) for f in required)
+
+
+def _field_filled(profile, field: str) -> bool:
+    """True nếu profile.field có giá trị non-empty."""
+    v = getattr(profile, field, None)
+    if v is None:
+        return False
+    if isinstance(v, str) and not v.strip():
+        return False
+    if isinstance(v, list) and not v:
+        return False
+    return True

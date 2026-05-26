@@ -29,22 +29,23 @@ def extract_slot(
     client: LLMClient,
     dealer_type: Optional[DealerType] = None,
     address_form: AddressForm = AddressForm.ANH,
+    profile_context: Optional[dict] = None,
 ) -> dict:
     """Extract fields cho slot từ user message.
 
     Args:
-        slot_id: vd "1.1", "1.2", "4.0" (Phase 1 chỉ 3 slot có schema)
+        slot_id: vd "1.1", "1.2", "4.0"
         user_message: text từ dealer
         client: LLMClient (test có thể inject mock)
         dealer_type: Detected dealer type (UNKNOWN default Phase 1)
         address_form: anh / chị
+        profile_context: Optional {field: value} từ profile (Phase 6 R+ —
+            cho LLM hiểu reference, vd "cùng tên anh luôn" → dealer_name =
+            owner_name đã biết).
 
     Returns:
         Dict {field_name: validated_value_or_none}.
-        Empty dict nếu:
-        - slot_id không có schema (Phase 2+ slot)
-        - LLM fail / không extract được
-        - Tất cả field invalid sau validate
+        Empty dict nếu slot_id không có schema / LLM fail / invalid all.
     """
     tool = get_tool_schema(slot_id)
     if tool is None:
@@ -54,22 +55,50 @@ def extract_slot(
     if not user_message or not user_message.strip():
         return {}
 
-    # Build system prompt cho extractor
+    # Build task instruction — include profile context nếu có
+    task = (
+        f"Extract field cho slot {slot_id} từ message của dealer. "
+        f"Tuân thủ tool schema strict. Field dealer chưa cho → null."
+    )
+    if profile_context:
+        ctx_parts = [
+            f"{k}={v}" for k, v in profile_context.items()
+            if v is not None and v != "" and v != []
+        ]
+        if ctx_parts:
+            task += (
+                f"\n\nProfile context dealer đã cho ở turn trước: "
+                f"{', '.join(ctx_parts)}.\n"
+                f"Nếu dealer reference field cũ (vd 'cùng tên', 'như trên', "
+                f"'giống vậy', 'cũng vậy', 'theo anh') → fill field tương "
+                f"ứng từ context (vd dealer_name = owner_name)."
+            )
+
     system = build_system_prompt(
         dealer_type=dealer_type,
         address_form=address_form,
         current_slot=slot_id,
-        task=(
-            f"Extract field cho slot {slot_id} từ message của dealer. "
-            f"Tuân thủ tool schema strict. Field dealer chưa cho → null."
-        ),
+        task=task,
     )
+
+    # Conversation text: include profile context để LLM thấy rõ
+    conv_text = f"Dealer: {user_message}"
+    if profile_context:
+        ctx_lines = [
+            f"  - {k}: {v}" for k, v in profile_context.items()
+            if v is not None and v != "" and v != []
+        ]
+        if ctx_lines:
+            conv_text = (
+                "Context đã ghi nhận:\n" + "\n".join(ctx_lines)
+                + "\n\nDealer message hiện tại: " + user_message
+            )
 
     # Call LLM_FAST với JSON mode (extract_structured)
     try:
         raw_output = client.extract_fast(
             system_prompt=system,
-            conversation_text=user_message,
+            conversation_text=conv_text,
             tool_name=tool["name"],
             tool_description=tool["description"],
             input_schema=tool["input_schema"],

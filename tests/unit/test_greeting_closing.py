@@ -19,9 +19,10 @@ from app.core.greeting import (
 
 
 class TestGreeting:
-    def test_has_3_variants(self):
-        """3 biến thể greeting — refer 1A § 3.2."""
-        assert get_num_variants() == 3
+    def test_has_1_variant_chot(self):
+        """Phase 6 R+ 2026-05-25 (user feedback): chốt 1 variant duy nhất
+        (bỏ rotation 3 variant). Refer 1A § 3.2 update."""
+        assert get_num_variants() == 1
 
     def test_render_returns_text(self):
         text = render_greeting("test-session-id-1")
@@ -34,11 +35,10 @@ class TestGreeting:
         b = render_greeting("session-abc")
         assert a == b
 
-    def test_different_session_potentially_different(self):
-        """Different session_id → may have different variant."""
+    def test_all_sessions_same_variant(self):
+        """Phase 6 R+ 2026-05-25: chỉ 1 variant → mọi session_id trả cùng greeting."""
         variants = {render_greeting(f"sess-{i}") for i in range(20)}
-        # Probabilistic — 20 sessions thường cover cả 3 variants
-        assert len(variants) >= 2
+        assert len(variants) == 1, "Chỉ có 1 variant greeting duy nhất"
 
     def test_mentions_em_linh(self):
         text = render_greeting("session-1")
@@ -169,3 +169,57 @@ class TestClosingVocab:
                      "Profile", "Namecard", "Mini App", "Marketing"]
         for word in forbidden:
             assert word not in text
+
+
+
+# ============================================================
+# Phase 6 R4 — Closing 3 biến thể consent=yes (1A § 7.3)
+# ============================================================
+
+
+class TestClosing3Variants:
+    def test_has_3_variants(self):
+        from app.core.closing import get_num_closing_variants
+        assert get_num_closing_variants() == 3
+
+    def test_deterministic_per_session(self):
+        """Cùng session_id → cùng variant."""
+        from app.core.closing import render_closing
+        r1 = render_closing(
+            consent="yes", session_id="sess-abc-123",
+            dealer_name="Thanh Tùng",
+        )
+        r2 = render_closing(
+            consent="yes", session_id="sess-abc-123",
+            dealer_name="Thanh Tùng",
+        )
+        assert r1 == r2
+
+    def test_different_session_potentially_different(self):
+        """5 session khác → có ít nhất 2 variant khác nhau."""
+        from app.core.closing import render_closing
+        results = set()
+        for i in range(5):
+            r = render_closing(
+                consent="yes", session_id=f"sess-{i}",
+                dealer_name="X",
+            )
+            results.add(r)
+        assert len(results) >= 2
+
+    def test_dealer_name_filled(self):
+        """Placeholder {dealer_name} được fill."""
+        from app.core.closing import render_closing
+        r = render_closing(
+            consent="yes", session_id="sess-name-test",
+            dealer_name="Nhôm Kính Thanh Tùng",
+        )
+        assert "Nhôm Kính Thanh Tùng" in r
+        assert "{dealer_name}" not in r
+
+    def test_no_dealer_name_uses_fallback(self):
+        """Không có dealer_name → dùng "cửa hàng mình" fallback."""
+        from app.core.closing import render_closing
+        r = render_closing(consent="yes", session_id="x")
+        assert "{dealer_name}" not in r
+        assert "cửa hàng mình" in r or "cửa hàng" in r

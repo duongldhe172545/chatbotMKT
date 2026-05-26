@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -37,6 +38,9 @@ _SESSION_JSON_COLUMNS = {
     "queue_triggers_fired",
     "dealer_type_history",
     "history",
+    "recent_bridges",
+    "partial_retried_slots",
+    "last_ref_filled_fields",
 }
 
 # JSON-serialized columns trong dealer_profile_raw table
@@ -48,8 +52,32 @@ class SQLiteStore:
 
     def __init__(self, db_path: str):
         self.db_path = db_path
+        self._lock = threading.RLock()
+        self._conn: Optional[sqlite3.Connection] = None
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self._init_schema()
+
+    def _ensure_connection(self) -> sqlite3.Connection:
+        """Return one persistent connection per store instance.
+
+        Opening/closing a WAL SQLite connection is very slow on this Windows
+        dev machine (close can take ~3s). Keeping the connection open removes
+        that per-request tax while still serializing access with `_lock`.
+        """
+        if self._conn is None:
+            conn = sqlite3.connect(
+                self.db_path,
+                isolation_level=None,
+                check_same_thread=False,
+                timeout=30,
+            )
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA foreign_keys = ON")
+            conn.execute("PRAGMA busy_timeout = 30000")
+            conn.execute("PRAGMA journal_mode = WAL")
+            conn.execute("PRAGMA synchronous = NORMAL")
+            self._conn = conn
+        return self._conn
 
     def _init_schema(self) -> None:
         """Apply migrations/001_init.sql (idempotent — CREATE IF NOT EXISTS)."""
@@ -60,18 +88,30 @@ class SQLiteStore:
         with self._connect() as conn:
             sql = migration_path.read_text(encoding="utf-8")
             conn.executescript(sql)
+            self._ensure_runtime_columns(conn)
             conn.commit()
+
+    def _ensure_runtime_columns(self, conn: sqlite3.Connection) -> None:
+        """Add columns introduced after initial SQLite DB creation."""
+        existing = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(sessions)").fetchall()
+        }
+        for column in ("pending_address_text", "pending_address_canonical"):
+            if column not in existing:
+                conn.execute(f"ALTER TABLE sessions ADD COLUMN {column} TEXT")
 
     @contextmanager
     def _connect(self):
-        conn = sqlite3.connect(self.db_path, isolation_level=None)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
-        conn.execute("PRAGMA journal_mode = WAL")
-        try:
-            yield conn
-        finally:
-            conn.close()
+        with self._lock:
+            yield self._ensure_connection()
+
+    def close(self) -> None:
+        """Close persistent connection, mainly for tests/shutdown hooks."""
+        with self._lock:
+            if self._conn is not None:
+                self._conn.close()
+                self._conn = None
 
     # ============================================================
     # Session CRUD
@@ -159,6 +199,43 @@ class SQLiteStore:
             )
             row = cursor.fetchone()
             return self._row_to_profile(row) if row else None
+
+    def find_confirmed_session_by_phone(
+        self,
+        phone: str,
+        exclude_session_id: Optional[str] = None,
+    ) -> Optional[tuple[str, DealerProfileRaw]]:
+        """Cross-session dealer return detect — chỉ trả session CONFIRMED khác.
+
+        Phase 5 R2 Gap 9: bot greet "em nhớ anh" khi phone match session cũ
+        đã CONFIRMED. Loại session hiện tại để tránh self-match.
+
+        Args:
+            phone: phone_or_zalo dealer vừa fill
+            exclude_session_id: session ID hiện tại (skip self-match)
+
+        Returns:
+            (other_session_id, profile) nếu có session khác CONFIRMED match,
+            None nếu không.
+        """
+        if not phone:
+            return None
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "SELECT p.session_id, p.* "
+                "FROM dealer_profile_raw p "
+                "JOIN sessions s ON s.session_id = p.session_id "
+                "WHERE p.phone_or_zalo = ? "
+                "  AND s.confirmation_status = 'CONFIRMED' "
+                "  AND p.session_id != ? "
+                "ORDER BY s.updated_at DESC LIMIT 1",
+                (phone, exclude_session_id or ""),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
+            other_sid = row["session_id"]
+            return (other_sid, self._row_to_profile(row))
 
     # ============================================================
     # Admin queue

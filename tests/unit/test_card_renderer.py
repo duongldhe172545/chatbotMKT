@@ -174,3 +174,60 @@ def _full_profile() -> DealerProfileRaw:
         province="TP.HCM",
         main_category="cua_nhom_kinh",
     )
+
+
+
+# ============================================================
+# Phase 5 R5 Gap 16 — Adversarial null handling
+# ============================================================
+
+
+class TestNullHandling:
+    def test_completely_empty_profile_no_crash(self):
+        """ADVERSARIAL: profile rỗng hoàn toàn → card render OK, không crash."""
+        from app.models.schema import DealerProfileRaw
+        empty = DealerProfileRaw()
+        text = render_card(empty)
+        # Có 5 phần header
+        assert "DANH THIẾP" in text
+        assert "CÔNG VIỆC" in text
+        assert "KHÁCH CŨ" in text
+        assert "BỘ THƯƠNG HIỆU" in text
+        assert "TRONG 3 NGÀY" in text
+        # REQUIRED null → placeholder
+        assert "(chưa có" in text
+
+    def test_empty_string_treated_as_null(self):
+        """ADVERSARIAL: chuỗi rỗng "" cũng → placeholder."""
+        from app.models.schema import DealerProfileRaw
+        p = DealerProfileRaw(owner_name="", dealer_name="   ")
+        text = render_card(p)
+        assert "(chưa có" in text
+
+    def test_partial_section_2_empty_placeholder(self):
+        """Phần 2 không có field nào → placeholder (chưa thu thập phần này)."""
+        profile = _full_profile()
+        # Clear all section 2 fields
+        profile.main_product = None
+        profile.category_stack = []
+        profile.business_model_signal = None
+        profile.est_team_size = None
+        profile.supplier_brands = []
+        profile.primary_contact_channel = None
+        text = render_card(profile)
+        assert "chưa thu thập" in text
+
+    def test_facebook_optional_skipped_when_null(self):
+        """OPTIONAL null → skip line (không render rác)."""
+        profile = _full_profile()
+        profile.facebook = None
+        text = render_card(profile)
+        # KHÔNG có dòng Facebook trống
+        assert "Facebook:" not in text
+
+    def test_team_size_zero_renders(self):
+        """ADVERSARIAL: est_team_size=0 (số 0 hợp lệ) vẫn render."""
+        profile = _full_profile()
+        profile.est_team_size = 0
+        text = render_card(profile)
+        assert "0 người" in text

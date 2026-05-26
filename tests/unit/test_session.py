@@ -54,15 +54,24 @@ class TestIsSessionTimeout:
         assert not is_session_timeout(s)
 
     def test_timeout_after_threshold(self):
-        """updated_at 2 giờ trước, threshold 1h → timeout."""
+        """Phase 6 R+ 2026-05-22: SESSION_TIMEOUT_S = 999 ngày (effectively
+        vĩnh viễn). Test với explicit 1h threshold để verify function logic."""
         s = create_session()
         s.updated_at = datetime.now(timezone.utc) - timedelta(hours=2)
-        assert is_session_timeout(s, timeout_s=SESSION_TIMEOUT_S)
+        # Explicit threshold 1h (3600s) — KHÔNG dùng SESSION_TIMEOUT_S vì giờ vĩnh viễn
+        assert is_session_timeout(s, timeout_s=3600)
 
     def test_not_timeout_before_threshold(self):
         """updated_at 30 phút trước, threshold 1h → không timeout."""
         s = create_session()
         s.updated_at = datetime.now(timezone.utc) - timedelta(minutes=30)
+        assert not is_session_timeout(s, timeout_s=3600)
+
+    def test_session_persists_long_term(self):
+        """Phase 6 R+ 2026-05-22: session lưu vĩnh viễn — 30 ngày inactive
+        vẫn KHÔNG timeout với SESSION_TIMEOUT_S = 999 ngày."""
+        s = create_session()
+        s.updated_at = datetime.now(timezone.utc) - timedelta(days=30)
         assert not is_session_timeout(s, timeout_s=SESSION_TIMEOUT_S)
 
     def test_done_session_never_timeout(self):

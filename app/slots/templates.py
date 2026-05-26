@@ -44,17 +44,16 @@ _SLOT_TEMPLATES: dict[str, SlotTemplate] = {
     "1.1": SlotTemplate(
         slot_id="1.1",
         questions=[
-            "Dạ em cảm ơn anh đã sẵn sàng. Đầu tiên cho em xin tên anh "
-            "và tên cửa hàng mình ạ — để em xưng hô đúng và lưu hồ sơ "
-            "cho chuẩn từ đầu nhé.",
+            "Em cảm ơn anh đã sẵn sàng. Đầu tiên cho em xin tên anh "
+            "và tên cửa hàng mình ạ — để em xưng hô cho đúng nhé.",
             "Dạ anh ơi, bắt đầu nhé. Em xin tên anh và tên cửa hàng "
             "mình trước để em xưng hô cho đúng ạ.",
             "Em cảm ơn anh nhận lời. Anh cho em xin tên + tên cửa hàng "
-            "để em ghi hồ sơ chuẩn nha.",
+            "để em gọi đúng từ đầu nha.",
         ],
         retry_questions=[
             "Dạ em xin tên để em biết xưng hô anh cho đúng ạ — em chỉ "
-            "lưu trong hồ sơ nội bộ thôi. Anh cho em tên + cửa hàng "
+            "dùng trong cuộc trao đổi này thôi. Anh cho em tên + cửa hàng "
             "mình nhé?",
             "Anh không muốn đưa tên thật cũng OK ạ — em ghi tên anh "
             "muốn em gọi là gì cũng được, miễn để em xưng hô cho lịch "
@@ -67,18 +66,12 @@ _SLOT_TEMPLATES: dict[str, SlotTemplate] = {
     "1.2": SlotTemplate(
         slot_id="1.2",
         questions=[
-            "Cho em xin địa chỉ cửa hàng mình nha — đủ tỉnh + quận để "
-            "em ghép anh vào nhóm cộng đồng đúng khu vực. Tiện đây "
-            "khách bên anh chủ yếu đến từ khu vực gần, hay từ xa cũng "
-            "có ạ?",
-            "Anh cho em xin địa chỉ cửa hàng mình ạ. Khách hay đến từ "
-            "trong bán kính bao xa anh?",
-            "Em xin địa chỉ cửa hàng + khách thường đến từ bao xa nha "
-            "anh?",
+            "Cho em xin địa chỉ cửa hàng mình nha — tỉnh/thành và quận/huyện là đủ anh.",
+            "Anh cho em xin khu vực cửa hàng mình đang ở tỉnh/thành nào, quận/huyện nào nhé.",
+            "Em xin địa chỉ khu vực của cửa hàng mình trước nha anh.",
         ],
         retry_questions=[
-            "Anh cho em xin địa chỉ cửa hàng — em lưu hồ sơ nội bộ "
-            "thôi, không share ra ngoài đâu ạ.",
+            "Anh cho em xin tỉnh/thành + quận/huyện của cửa hàng là được ạ.",
             "Anh ngại địa chỉ cụ thể thì cho em tỉnh + quận thôi cũng "
             "được ạ. Vd 'Hà Nội, Cầu Giấy' là đủ.",
         ],
@@ -97,10 +90,12 @@ _SLOT_TEMPLATES: dict[str, SlotTemplate] = {
             "+ team em tiện liên hệ. Anh cho em được không?",
         ],
         retry_questions=[
-            "Dạ em hiểu anh ngại — em xin số chỉ để hỗ trợ anh sau này, "
-            "anh có quyền yêu cầu xoá bất cứ lúc nào ạ. Anh cho em số nhé?",
-            "Anh ngại để số chính cũng OK ạ — anh cho em Zalo phụ cũng "
-            "được, hoặc số nào tiện liên hệ. Không gì bất tiện đâu anh.",
+            # Phase 6 R+ Fix F+G: retry tone trung tính + hint format 10-11 số.
+            # KHÔNG dùng số ví dụ thực (trùng PII session khác) — dạng generic.
+            "Anh cho em xin lại số liên hệ ạ — đủ 10-11 chữ số bắt đầu "
+            "bằng 0 (vd 09xx xxx xxx). Em chỉ dùng nội bộ thôi, không spam.",
+            "Số liên hệ em chưa nhận đủ ạ. Anh check lại số đầy đủ giúp "
+            "em — 10-11 chữ số bắt đầu bằng 0 nhé. Zalo phụ cũng OK ạ.",
         ],
         has_full_question_set=True,
     ),
@@ -151,7 +146,7 @@ _SLOT_TEMPLATES: dict[str, SlotTemplate] = {
     "2.3": SlotTemplate(
         slot_id="2.3",
         questions=[
-            "Đội thợ là tài sản số 1 của dealer ngành cửa — bên mình "
+            "Đội thợ là tài sản số 1 trong ngành mình — bên mình "
             "hiện có tổng bao nhiêu thợ, và mọi người gắn bó với anh "
             "lâu chưa ạ?",
             "Em hỏi thêm — bên anh có đội thợ riêng không, bao nhiêu "
@@ -165,14 +160,11 @@ _SLOT_TEMPLATES: dict[str, SlotTemplate] = {
     "2.4": SlotTemplate(
         slot_id="2.4",
         questions=[
-            "Quay lại chuyện cửa hàng xíu — hiện anh đang nhập hàng từ "
-            "những hãng nào là chính, và nếu một hãng đứt nguồn anh có "
-            "backup khác không ạ? Phân khúc khách của anh chắc đa dạng "
-            "nên nguồn cũng phải linh động nhỉ.",
-            "Bên cửa hàng mình đang nhập hàng từ hãng nào là chính? "
-            "Có backup nguồn không nếu hãng đó đứt?",
-            "Em hỏi xíu về nguồn cung — anh nhập từ những hãng nào, "
-            "và có chủ động chọn được không ạ?",
+            # Phase 6 R+ Fix B.4 #4: 1 câu hỏi/lượt (combined supplier + backup
+            # vào 1 câu duy nhất). Backup question hỏi turn sau qua PARTIAL.
+            "Hiện anh đang nhập hàng từ những hãng nào là chính ạ?",
+            "Bên cửa hàng mình đang nhập từ hãng nào là chủ lực anh nhỉ?",
+            "Em hỏi xíu về nguồn cung — anh nhập từ những hãng nào là chính ạ?",
         ],
         has_full_question_set=True,
     ),
@@ -191,15 +183,9 @@ _SLOT_TEMPLATES: dict[str, SlotTemplate] = {
     "2.6": SlotTemplate(
         slot_id="2.6",
         questions=[
-            "À, mạng lưới thợ và đối tác quanh khu vực anh — có nhiều "
-            "người hay giới thiệu khách cho mình không ạ? Loại quan hệ "
-            "kiểu đó là \"đại sứ miễn phí\" mà em rất quan tâm khi tư "
-            "vấn cho dealer.",
-            "Anh có dùng Facebook cho cửa hàng không? Và trong khu vực "
-            "có nhiều thợ / đối tác hay giới thiệu khách cho anh không?",
-            "Em hỏi 2 ý nhỏ — Facebook anh có trang chưa, và mạng lưới "
-            "thợ / đối tác xung quanh có ai hay giới thiệu khách cho "
-            "mình không ạ?",
+            "Cửa hàng mình có fanpage Facebook chưa anh?",
+            "Anh có dùng Facebook riêng cho cửa hàng không ạ?",
+            "Facebook bên mình hiện có trang cửa hàng chưa anh?",
         ],
         has_full_question_set=True,
     ),
@@ -357,13 +343,23 @@ def get_template(slot_id: str) -> Optional[SlotTemplate]:
     return _SLOT_TEMPLATES.get(slot_id)
 
 
-def get_question(slot_id: str, variant: int = 0) -> Optional[str]:
-    """Lấy câu hỏi biến thể `variant` (0/1/2) cho slot.
+def get_question(
+    slot_id: str,
+    variant: Optional[int] = None,
+    session_id: Optional[str] = None,
+    attempt_offset: int = 0,
+) -> Optional[str]:
+    """Lấy câu hỏi biến thể `variant` cho slot (refer 1A § 1.2 rotation).
 
     Args:
         slot_id: vd "1.1"
-        variant: 0/1/2 (engine chọn theo hash(session_id + slot_id) mod 3)
-                 — refer 1A § 1.2 rotation
+        variant: 0/1/2 chỉ định trực tiếp (test). None → tự pick theo session.
+        session_id: Khi variant=None + có session_id → hash(session_id+slot_id)
+            mod len(questions) để giữ variant cố định CẢ SESSION (consistent).
+            Default 0 nếu cả 2 đều None.
+        attempt_offset: Offset cộng vào variant khi retry không có retry template
+            (Phase 5 R1 Gap 7) — ép đổi variant để KHÔNG lặp câu y hệt.
+            Default 0 (giữ behavior cũ).
 
     Returns:
         Câu hỏi tiếng Việt, hoặc None nếu slot không có template.
@@ -371,7 +367,14 @@ def get_question(slot_id: str, variant: int = 0) -> Optional[str]:
     tpl = _SLOT_TEMPLATES.get(slot_id)
     if not tpl or not tpl.questions:
         return None
-    return tpl.questions[variant % len(tpl.questions)]
+    if variant is not None:
+        return tpl.questions[(variant + attempt_offset) % len(tpl.questions)]
+    if session_id:
+        import hashlib
+        h = hashlib.md5(f"{session_id}|{slot_id}".encode("utf-8")).hexdigest()
+        idx = (int(h, 16) + attempt_offset) % len(tpl.questions)
+        return tpl.questions[idx]
+    return tpl.questions[attempt_offset % len(tpl.questions)]
 
 
 def get_retry_question(slot_id: str, attempt: int) -> Optional[str]:

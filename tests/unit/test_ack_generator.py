@@ -202,3 +202,80 @@ class TestPromptContext:
         )
         call_kwargs = client.chat_fast.call_args.kwargs
         assert "chị" in call_kwargs["system_prompt"]
+
+
+
+# ============================================================
+# Phase 6 R3 — Tone Matrix coverage (1B § 2.1-2.4)
+# Verify system_prompt cho mỗi dealer_type chứa tone rules đúng spec
+# ============================================================
+
+
+class TestToneMatrixContent:
+    def test_lua_lo_tone_rules_in_prompt(self):
+        """Lửa Lò → prompt chứa ngắn cộc + KHÔNG nịnh + KHÔNG emoji.
+
+        Phase 6 R+ bump: 8-15 từ thay 5-12 (theo CORE B.2).
+        """
+        client = _make_client()
+        generate_ack("1.1", {"owner_name": "Hùng"}, client,
+                     dealer_type=DealerType.LUA_LO)
+        sp = client.chat_fast.call_args.kwargs["system_prompt"]
+        assert "NGẮN cộc" in sp or "8-15" in sp or "Ngắn" in sp
+        assert "KHÔNG nịnh" in sp or "KHÔNG bridge" in sp
+        assert "KHÔNG emoji" in sp or "không emoji" in sp.lower()
+
+    def test_khoe_tone_rules_in_prompt(self):
+        """Khoe → prompt yêu cầu khen CỤ THỂ vào số liệu + INSIGHT."""
+        client = _make_client()
+        generate_ack("2.3", {"est_team_size": 12}, client,
+                     dealer_type=DealerType.KHOE)
+        sp = client.chat_quality.call_args.kwargs["system_prompt"]
+        assert "CỤ THỂ" in sp or "cụ thể" in sp
+        assert "INSIGHT" in sp or "insight" in sp.lower()
+        assert "generic" in sp.lower()  # cấm generic
+
+    def test_lo_tone_3_component_in_prompt(self):
+        """Lo → prompt yêu cầu 3-thành-phần (trấn an + bảo mật + slot)."""
+        client = _make_client()
+        generate_ack("1.3", {"phone_or_zalo": "0912345678"}, client,
+                     dealer_type=DealerType.LO)
+        sp = client.chat_quality.call_args.kwargs["system_prompt"]
+        assert "3-thành-phần" in sp or "Trấn an" in sp
+        assert "bảo mật" in sp.lower() or "lưu nội bộ" in sp
+
+    def test_ban_tone_short_in_prompt(self):
+        """Bận → prompt yêu cầu 30-50 từ."""
+        client = _make_client()
+        generate_ack("1.2", {"address": "Hà Nội"}, client,
+                     dealer_type=DealerType.BAN)
+        sp = client.chat_fast.call_args.kwargs["system_prompt"]
+        assert "30-50" in sp or "VỮA" in sp or "Ngắn" in sp
+        assert "trung tính" in sp.lower() or "đi thẳng" in sp.lower() or "không lạnh" in sp.lower()
+
+    def test_unknown_defaults_to_ban_tone(self):
+        """UNKNOWN dealer type → default tone Bận (D8 STRATEGY)."""
+        client = _make_client()
+        generate_ack("1.1", {"owner_name": "X"}, client,
+                     dealer_type=DealerType.UNKNOWN)
+        # Dùng chat_fast (Bận tier)
+        client.chat_fast.assert_called_once()
+        sp = client.chat_fast.call_args.kwargs["system_prompt"]
+        assert "Default tone Bận" in sp or "default" in sp.lower()
+
+    def test_universal_ack_rules_appended_all_types(self):
+        """Mọi tone đều có cấu trúc reply BẮT BUỘC (refer CORE B.2 + happy case)."""
+        for dtype in [DealerType.LUA_LO, DealerType.KHOE, DealerType.LO, DealerType.BAN]:
+            client = _make_client()
+            generate_ack("1.1", {"owner_name": "X"}, client, dealer_type=dtype)
+            sp = (client.chat_fast.call_args or client.chat_quality.call_args).kwargs["system_prompt"]
+            # Phase 6 R+ bump rule strict — check anti-hallucinate + happy case examples
+            assert (
+                "CẤU TRÚC REPLY" in sp
+                or "CẤU TRÚC ACK" in sp
+                or "ACK CỤ THỂ" in sp
+                or "ACK CÓ NỊNH" in sp
+                or "BẮT BUỘC" in sp
+            )
+            assert "BỊA" in sp or "CẤM" in sp  # anti-hallucinate rule
+            assert "VÍ DỤ HAPPY CASE" in sp or "VÍ DỤ ACK CHUẨN" in sp or "happy case" in sp.lower() or "Tùng" in sp

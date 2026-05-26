@@ -191,6 +191,65 @@ class TestProfileCRUD:
     def test_find_by_phone_not_found(self, store: SQLiteStore):
         assert store.find_profile_by_phone("0000000000") is None
 
+    def test_find_confirmed_session_by_phone(self, store: SQLiteStore):
+        """Phase 5 R2 Gap 9: cross-session detect CHỈ trả session CONFIRMED."""
+        # Session A: CONFIRMED
+        s_a = SessionState(
+            session_id="old-confirmed",
+            confirmation_status=ConfirmationStatus.CONFIRMED,
+        )
+        store.save_session(s_a)
+        store.save_profile(
+            "old-confirmed",
+            DealerProfileRaw(phone_or_zalo="0912345678", owner_name="Tùng"),
+        )
+
+        # Session B: PENDING (chưa CONFIRMED — không match)
+        s_b = SessionState(
+            session_id="old-pending",
+            confirmation_status=ConfirmationStatus.PENDING,
+        )
+        store.save_session(s_b)
+        store.save_profile(
+            "old-pending",
+            DealerProfileRaw(phone_or_zalo="0987654321", owner_name="Vinh"),
+        )
+
+        # Phone match CONFIRMED session
+        match = store.find_confirmed_session_by_phone(
+            "0912345678", exclude_session_id="current-session"
+        )
+        assert match is not None
+        old_sid, old_profile = match
+        assert old_sid == "old-confirmed"
+        assert old_profile.owner_name == "Tùng"
+
+        # Phone match nhưng session PENDING → không trả
+        no_match = store.find_confirmed_session_by_phone(
+            "0987654321", exclude_session_id="current-session"
+        )
+        assert no_match is None
+
+    def test_find_confirmed_excludes_self(self, store: SQLiteStore):
+        """ADVERSARIAL: exclude_session_id loại self-match."""
+        s = SessionState(
+            session_id="self-session",
+            confirmation_status=ConfirmationStatus.CONFIRMED,
+        )
+        store.save_session(s)
+        store.save_profile(
+            "self-session",
+            DealerProfileRaw(phone_or_zalo="0912345678"),
+        )
+        # Tự match → return None (exclude self)
+        assert store.find_confirmed_session_by_phone(
+            "0912345678", exclude_session_id="self-session"
+        ) is None
+
+    def test_find_confirmed_empty_phone(self, store: SQLiteStore):
+        assert store.find_confirmed_session_by_phone("") is None
+        assert store.find_confirmed_session_by_phone(None) is None
+
 
 # ============================================================
 # Admin queue

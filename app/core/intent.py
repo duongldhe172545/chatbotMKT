@@ -12,17 +12,22 @@ from typing import Optional
 
 from app.core.regex_markers import (
     AFFIRMATIVE_PATTERNS,
+    CONFUSION_PATTERNS,
     DEFENSIVE_PATTERNS,
     EDIT_PATTERNS,
     KHONG_BIET_PATTERNS,
     REFUSAL_PATTERNS,
     TAM_SU_PATTERNS,
+    TECHNICAL_INQUIRY_PATTERNS,
 )
 from app.models.enums import Intent
 
 
 # Priority list — order quyết định kết quả nếu message match nhiều intent
+# CONFUSION priority TRƯỚC DEFENSIVE/TAM_SU: "là sao?" có thể match nhiều
+# pattern nhưng confusion là intent dealer cần giải thích (CORE D.1).
 _INTENT_PRIORITY: list[tuple[Intent, list[str]]] = [
+    (Intent.CONFUSION, CONFUSION_PATTERNS),  # CORE D.1 — chủ động giải thích
     (Intent.DEFENSIVE, DEFENSIVE_PATTERNS),
     (Intent.TAM_SU, TAM_SU_PATTERNS),
     (Intent.REFUSAL, REFUSAL_PATTERNS),
@@ -84,3 +89,73 @@ def detect_intent(message: str) -> Intent:
         Intent (luôn có value, không None).
     """
     return detect_intent_layer1(message) or Intent.NORMAL
+
+
+# Pre-compile TECHNICAL_INQUIRY patterns (module-level perf)
+_TECHNICAL_INQUIRY_COMPILED: list[re.Pattern] = [
+    re.compile(p, _RE_FLAGS) for p in TECHNICAL_INQUIRY_PATTERNS
+]
+
+# Phase 6 R+ fix 2026-05-22 (user feedback bug slot 3.5):
+# Pattern index theo TECHNICAL_INQUIRY_PATTERNS thứ tự định nghĩa:
+#   0. Báo giá
+#   1. Bảo hành / khiếu nại / sửa chữa  ← slot 3.5 reply data
+#   2. Tư vấn kỹ thuật chuyên sâu
+#   3. Hợp tác / phân phối
+#   4. Pháp lý / thuế
+#   5. Y tế
+#   6. Tài chính cá nhân
+_WARRANTY_PATTERN_INDEX = 1
+
+# Map slot_id → set pattern indexes cần SKIP (vì dealer expected reply
+# về topic đó, KHÔNG phải technical inquiry).
+_SLOT_TECHNICAL_SKIP_MAP: dict[str, set[int]] = {
+    "3.5": {_WARRANTY_PATTERN_INDEX},  # slot 3.5 hỏi warranty_responsibility
+}
+
+
+def detect_technical_inquiry(
+    message: str,
+    current_slot: Optional[str] = None,
+) -> bool:
+    """CORE E.3: detect dealer hỏi câu chuyên môn ngoài tầm bot.
+
+    7 nhóm pattern:
+    1. Báo giá (giá bao nhiêu, chiết khấu)
+    2. Bảo hành / khiếu nại / sửa chữa
+    3. Tư vấn kỹ thuật chuyên sâu (loại nhôm/kính nào tốt, hợp biển)
+    4. Hợp tác / đối tác / phân phối / nhượng quyền
+    5. Pháp lý / thuế / hợp đồng
+    6. Y tế (HỎI advice, không phải tâm sự)
+    7. Tài chính cá nhân (vay, đầu tư)
+
+    Phase 6 R+ fix 2026-05-22: skip pattern theo current_slot context.
+    Vd slot 3.5 hỏi "bảo hành ai chịu?" → dealer reply "anh chịu bảo hành"
+    là valid DATA, KHÔNG phải technical inquiry → skip pattern #2.
+
+    Args:
+        message: dealer text
+        current_slot: slot đang hỏi. Nếu trong _SLOT_TECHNICAL_SKIP_MAP →
+            skip pattern tương ứng (avoid false positive).
+
+    Returns: True nếu match 1+ pattern (sau khi loại skip).
+    """
+    if not message or not message.strip():
+        return False
+    msg_lower = message.strip().lower()
+    skip_indexes = _SLOT_TECHNICAL_SKIP_MAP.get(current_slot or "", set())
+    for idx, pattern in enumerate(_TECHNICAL_INQUIRY_COMPILED):
+        if idx in skip_indexes:
+            continue
+        if pattern.search(msg_lower):
+            return True
+    return False
+
+
+# Reply template cho technical inquiry escalation.
+# Refer CORE § E.3 + KICH_BAN_1C § 13 escalation L2.
+TECHNICAL_INQUIRY_ESCALATE_TEMPLATE = (
+    "Dạ cái này anh để em chuyển team chuyên môn liên hệ nhé — "
+    "họ sẽ tư vấn anh kỹ hơn em nhiều ạ. Mình tiếp tục phần em "
+    "đang hỏi luôn được không anh?"
+)

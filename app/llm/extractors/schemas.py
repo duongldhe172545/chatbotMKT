@@ -25,7 +25,8 @@ TOOL_SLOT_1_1: dict = {
         "Extract tên cá nhân (owner_name) + tên cửa hàng (dealer_name) từ "
         "message dealer. Đây là slot multi-field: dealer có thể trả lời 1 "
         "hoặc cả 2 trong 1 câu. Field nào dealer chưa cho → null. "
-        "Bỏ tiền tố anh/chị/bác khỏi owner_name."
+        "Bỏ tiền tố anh/chị/bác khỏi owner_name. GIỮ FULL họ + tên đệm + "
+        "tên gọi (vd 'Lê Dương' KHÔNG cắt thành 'Dương')."
     ),
     "input_schema": {
         "type": "object",
@@ -33,9 +34,11 @@ TOOL_SLOT_1_1: dict = {
             "owner_name": {
                 "type": ["string", "null"],
                 "description": (
-                    "Tên cá nhân chủ cửa hàng. Vd: 'Tùng', 'Quốc Vinh', "
-                    "'Lan'. KHÔNG kèm 'anh'/'chị'/'bác'/'em'. Null nếu "
-                    "dealer chưa cho hoặc chỉ cho tên cửa hàng."
+                    "Tên ĐẦY ĐỦ chủ cửa hàng (họ + tên đệm + tên gọi). "
+                    "Vd: 'Nguyễn Quốc Vinh' (KHÔNG chỉ 'Vinh'), 'Lê Dương' "
+                    "(KHÔNG chỉ 'Dương'), 'Trần Thị Lan' (KHÔNG chỉ 'Lan'). "
+                    "Nếu dealer cho 1 từ thì giữ 1 từ. KHÔNG kèm 'anh'/"
+                    "'chị'/'bác'/'em' tiền tố. Null nếu dealer chưa cho."
                 ),
                 "maxLength": 100,
             },
@@ -204,7 +207,9 @@ TOOL_SLOT_2_2: dict = {
     "name": "extract_slot_2_2",
     "description": (
         "Extract mô hình kinh doanh (business_model_signal — raw text). "
-        "Vd 'phân phối thuần', 'bán + thi công', 'có xưởng sản xuất'."
+        "Phase 6 R+ enrich: HIỂU RỘNG — bất kỳ tín hiệu nào về cách dealer "
+        "làm việc đều fill (vd 'lắp đặt', 'thi công', 'làm thợ', 'có xưởng', "
+        "'bán lẻ', 'gia công', 'đại lý')."
     ),
     "input_schema": {
         "type": "object",
@@ -212,8 +217,13 @@ TOOL_SLOT_2_2: dict = {
             "business_model_signal": {
                 "type": ["string", "null"],
                 "description": (
-                    "Mô hình KD raw text. Vd 'phân phối thuần', 'bán + "
-                    "thi công', 'có xưởng tự sản xuất', 'đại lý bán lẻ'."
+                    "Mô hình KD raw text. Bất kỳ tín hiệu cách làm việc:\n"
+                    "- 'phân phối thuần' / 'bán lẻ' / 'đại lý' → bán lại hàng\n"
+                    "- 'có xưởng' / 'tự sản xuất' / 'gia công' → sản xuất riêng\n"
+                    "- 'lắp đặt' / 'thi công' / 'làm thợ' → đội thi công riêng\n"
+                    "- 'kết hợp' / 'bán + thi công' / 'cả hai' → mô hình hybrid\n"
+                    "GIỮ NGUYÊN văn từ dealer cho, KHÔNG diễn dịch lại. "
+                    "Null CHỈ KHI dealer không đề cập gì về mô hình kinh doanh."
                 ),
                 "maxLength": 500,
             },
@@ -232,8 +242,10 @@ TOOL_SLOT_2_3: dict = {
     "name": "extract_slot_2_3",
     "description": (
         "Extract số thợ (est_team_size: int) + tín hiệu ổn định đội "
-        "(team_stability_signal: raw text). Dealer nói '1 mình' → "
-        "est_team_size=1, signal='tự làm'."
+        "(team_stability_signal: raw text). Phase 6 R+ update 2026-05-22: "
+        "HIỂU colloquial number (dealer Việt hay nói 'tầm chục', 'vài "
+        "chục', 'mươi mấy người') — KHÔNG được trả null khi rõ ràng có "
+        "ước lượng số."
     ),
     "input_schema": {
         "type": "object",
@@ -241,8 +253,20 @@ TOOL_SLOT_2_3: dict = {
             "est_team_size": {
                 "type": ["integer", "null"],
                 "description": (
-                    "Số thợ chính (int). Null nếu dealer không cho con "
-                    "số cụ thể. '1 mình' → 1."
+                    "Số thợ chính (int). HIỂU colloquial Vietnamese:\n"
+                    "- '1 mình' / 'một mình' → 1\n"
+                    "- 'tầm chục' / 'khoảng chục' / 'chục thằng' / 'chục đứa' / 'chục người' → 10\n"
+                    "- 'vài chục' / 'hai chục' → 20\n"
+                    "- 'nửa chục' / 'năm sáu người' → 5\n"
+                    "- 'mươi mấy' / 'hơn mười' / 'mười mấy' → 12 (mid-estimate)\n"
+                    "- 'vài người' / 'mấy người' → 3 (mid-estimate)\n"
+                    "- 'đôi ba thợ' / 'hai ba thợ' → 3\n"
+                    "- '8-9 người' / '5 đến 7' → mid-estimate 8 / 6\n"
+                    "- 'đông lắm' / 'cả tá' → 12\n"
+                    "- 'một xưởng to' / 'mấy chục' → 30\n"
+                    "Null CHỈ khi dealer KHÔNG đề cập số nào (vd 'chưa nhớ', "
+                    "'để xem lại'). Luôn ưu tiên estimate trung bình thay "
+                    "vì null nếu có hint số."
                 ),
                 "minimum": 0,
                 "maximum": 200,
@@ -250,8 +274,10 @@ TOOL_SLOT_2_3: dict = {
             "team_stability_signal": {
                 "type": ["string", "null"],
                 "description": (
-                    "Tín hiệu ổn định đội raw. Vd '2 thợ chính gắn bó "
-                    "4-5 năm', 'thợ vụ theo dự án', 'mới thuê 6 tháng'."
+                    "Tín hiệu ổn định đội raw, GIỮ NGUYÊN cách dealer nói. "
+                    "Vd '2 thợ chính gắn bó 4-5 năm', 'thợ vụ theo dự án', "
+                    "'mới thuê 6 tháng', 'tầm chục thằng làm lâu rồi', "
+                    "'đội cũ hết', 'thuê thêm khi có dự án'."
                 ),
                 "maxLength": 500,
             },
@@ -289,6 +315,14 @@ TOOL_SLOT_2_4: dict = {
                 "description": (
                     "Tín hiệu chủ động nguồn raw. Vd '2 NPP quen thân', "
                     "'có backup nếu đứt', 'chỉ 1 nguồn duy nhất'."
+                ),
+                "maxLength": 500,
+            },
+            "customer_segment_signal": {
+                "type": ["string", "null"],
+                "description": (
+                    "Nhóm khách chính raw. Vd 'nhà dân', 'dự án thầu', "
+                    "'chủ yếu chung cư', 'công trình dân dụng'."
                 ),
                 "maxLength": 500,
             },

@@ -16,7 +16,10 @@ from app.models.schema import SessionState
 
 
 # Default config — refer F2A.4 tham số config + 2C F2C.1
-SESSION_TIMEOUT_S = 3600                # 1 giờ inactive → soft-end (refer GLOSSARY § Session)
+# Phase 6 R+ 2026-05-22 (user feedback): set vĩnh viễn (999 ngày).
+# Session chỉ DONE qua: (1) confirm card → CONFIRMING, (2) escalate L3.
+# Scheduler nudge (3 phút sau Card render) vẫn chạy nhưng KHÔNG close session.
+SESSION_TIMEOUT_S = 999 * 24 * 3600     # ~ vĩnh viễn (refer GLOSSARY § Session)
 
 
 def create_session(
