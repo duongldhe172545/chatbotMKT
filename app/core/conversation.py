@@ -45,7 +45,7 @@ from app.guards import (
 )
 from app.llm.brand_correction import correct_stt
 from app.llm.client import LLMClient
-from app.models.enums import Channel, Flag, Stage
+from app.models.enums import AddressForm, Channel, Flag, Stage
 from app.models.schema import (
     DealerProfileRaw,
     HistoryMessage,
@@ -98,6 +98,16 @@ def handle_message(
     # Brand/STT correction also helps typed text in chat tests, e.g. dealer
     # corrects "ốt đo" -> Austdoor. Apply before guards/extractors.
     message = correct_stt(message) or message
+
+    # GLOBAL address_form detection — chạy ở MỌI stage, MỌI turn.
+    # Nếu dealer nói "tao là chị", "chị tên X", "em là nữ" ở bất kỳ đâu
+    # (greeting, asking, confirming) → set address_form = CHI ngay lập tức.
+    # Chỉ UPGRADE ANH→CHI, KHÔNG BAO GIỜ downgrade CHI→ANH.
+    if session.address_form == AddressForm.ANH:
+        from app.core.address_form import detect_address_form
+        _detected_af = detect_address_form(message, owner_name=None)
+        if _detected_af == "chị":
+            session.address_form = AddressForm.CHI
 
     # G1: Prompt injection guard (Layer 1 regex)
     injection_match = check_prompt_injection(message)

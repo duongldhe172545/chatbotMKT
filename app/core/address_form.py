@@ -185,8 +185,14 @@ def detect_address_form(text: str, owner_name: str | None) -> str:
         # Tự xưng nữ rõ ràng
         if "em là nữ" in low or "tôi là nữ" in low or "tao là nữ" in low:
             return "chị"
-        # Dealer tự xưng "chị" trong câu
-        if low.startswith("chị ") or " chị " in low or low.startswith("chị,"):
+        # Tự xưng chị rõ ràng: "tao là chị", "mình là chị", "là chị mà"
+        if "là chị" in low or "tao là chị" in low or "mình là chị" in low:
+            return "chị"
+        # Phàn nàn bot gọi anh: "chị mà anh cái gì", "chị chứ không phải anh"
+        if "chị mà" in low or "chị chứ" in low:
+            return "chị"
+        # Dealer tự xưng "chị" trong câu (bao gồm cuối câu)
+        if low.startswith("chị ") or " chị " in low or low.startswith("chị,") or low.endswith(" chị") or low == "chị":
             if "đừng gọi" not in low:
                 return "chị"
         # Correct case sau khi bot gọi nhầm
