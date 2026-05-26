@@ -64,10 +64,10 @@ function setBusy(busy) {
 
 // ---------- Typing indicator ----------
 const TYPING_MESSAGES = [
-  "Em đang đọc tin nhắn của anh...",
+  "Em đang đọc tin nhắn...",
   "Em đang nghĩ xíu...",
   "Em sắp xong rồi ạ...",
-  "Anh chờ em chút nha...",
+  "Chờ em chút nha...",
 ];
 
 function createTypingBubble() {

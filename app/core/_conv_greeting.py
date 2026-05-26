@@ -35,13 +35,13 @@ logger = logging.getLogger(__name__)
 
 
 _GREETING_GARBAGE_REPROMPT = (
-    "Dạ em chưa rõ ý anh lắm ạ. Mình bắt đầu chứ anh? Em chỉ cần "
+    "Dạ em chưa rõ ý lắm ạ. Mình bắt đầu chứ ạ? Em chỉ cần "
     "trò chuyện 4-5 phút thôi nhé."
 )
 
 
 _GREETING_FALLBACK_REPROMPT = (
-    "Dạ anh sẵn sàng chưa ạ? Mình bắt đầu được không?"
+    "Dạ sẵn sàng chưa ạ? Mình bắt đầu được không?"
 )
 
 
@@ -126,8 +126,8 @@ def handle_greeting(
                 return handle_asking(session, profile, message, client)
             # Fallback nếu profile None (test/edge)
             return (
-                "Dạ em ghi nhận ạ. Để chính xác từ đầu — anh cho em xin "
-                "lại tên anh và tên cửa hàng mình nhé?"
+                "Dạ em ghi nhận ạ. Để chính xác từ đầu — cho em xin "
+                "lại tên và tên cửa hàng mình nhé?"
             )
         return (
             get_question("1.1", session_id=session.session_id)
@@ -215,7 +215,7 @@ def _handle_greeting_tam_su(
         client=client,
         history_summary=summarize_history(session),
         current_slot=None,
-        next_slot_hint="Anh sẵn sàng bắt đầu cuộc trò chuyện chưa ạ?",
+        next_slot_hint="Sẵn sàng bắt đầu cuộc trò chuyện chưa ạ?",
         bridge_avoid_hint=get_avoid_hint(session),
     )
     if llm_reply:

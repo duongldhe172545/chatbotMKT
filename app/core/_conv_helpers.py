@@ -95,7 +95,7 @@ def gen_ack_safe(
             session.last_ref_filled_fields = []
             return ack
 
-    direct_ack = _gen_direct_ack(slot_id, extracted_data, address_form=session.address_form.value)
+    direct_ack = _gen_direct_ack(slot_id, extracted_data, address_form=session.address_form.value, session=session)
     if direct_ack:
         return direct_ack
 
@@ -124,8 +124,11 @@ def gen_ack_safe(
     return ack
 
 
-def _gen_direct_ack(slot_id: str, extracted_data: dict, address_form: str = "anh") -> Optional[str]:
-    """Deterministic ack for fragile correction cases."""
+def _gen_direct_ack(slot_id: str, extracted_data: dict, address_form: str = "anh", session=None) -> Optional[str]:
+    """Deterministic ack for fragile correction cases.
+
+    Fix Lỗi 3: check session.last_acked_name để tránh lặp ack brand.
+    """
     af = address_form
     if slot_id == "1.1":
         owner = str(extracted_data.get("owner_name") or "").strip()
@@ -154,6 +157,9 @@ def _gen_direct_ack(slot_id: str, extracted_data: dict, address_form: str = "anh
             brands = [brands]
         brand_text = ", ".join(str(b).strip() for b in brands if str(b).strip())
         if brand_text:
+            # Fix Lỗi 3: không lặp ack brand nếu đã ack turn trước
+            if session and session.last_acked_name and brand_text.lower() == session.last_acked_name.lower():
+                return None  # để LLM gen ack khác
             return f"{brand_text}, em hiểu đúng tên hãng rồi."
     if slot_id == "2.5" and extracted_data.get("primary_contact_channel"):
         channel = str(extracted_data.get("primary_contact_channel") or "").lower()
@@ -170,6 +176,8 @@ def _strip_trailing_question(text: str) -> str:
     Engine sẽ append slot question riêng. Để tránh 2 câu hỏi/lượt
     (anti-pattern CORE B.4 #4), strip câu cuối nếu kết bằng '?'.
     Giữ nếu ack chỉ có 1 câu duy nhất (đó là statement chính).
+
+    Fix Lỗi 1: xử lý emoji sau dấu '?' (vd '...ạ? 🌷')
     """
     if not text or "?" not in text:
         return text
@@ -178,7 +186,8 @@ def _strip_trailing_question(text: str) -> str:
     sentences = [s for s in sentences if s.strip()]
     if len(sentences) <= 1:
         return text
-    while sentences and sentences[-1].rstrip().endswith("?"):
+    # Fix Lỗi 1: strip emoji/whitespace sau ? trước khi check endswith
+    while sentences and _re.search(r'\?\s*[\U0001F300-\U0001FAF8\u2600-\u27BF\s]*$', sentences[-1]):
         sentences.pop()
     if not sentences:
         return text
@@ -202,7 +211,7 @@ def _strip_storage_cliche(text: str) -> str:
     for pattern in patterns:
         cleaned = _re.sub(pattern, "", cleaned, flags=_re.IGNORECASE)
     cleaned = _re.sub(r"\s{2,}", " ", cleaned).strip(" -—,")
-    return cleaned or "Dạ vâng anh."
+    return cleaned or "Dạ vâng."
 
 
 def _gen_reference_ack(
@@ -222,20 +231,23 @@ def _gen_reference_ack(
             return f"Dạ tên cửa hàng cũng là {val} ạ."
         if "owner_name" in ref_fields and extracted_data.get("owner_name"):
             val = extracted_data["owner_name"]
-            return f"Dạ tên anh cũng là {val} ạ."
+            return f"Dạ tên cũng là {val} ạ."
     return None
 
 
 def gen_partial_question(
     slot_id: Optional[str],
     profile: DealerProfileRaw,
+    session: Optional[SessionState] = None,
 ) -> str:
     """Hỏi field cụ thể còn thiếu trong slot multi-field (1A § 1.5).
 
     Phase 5 R3 Gap 11+12: ưu tiên REQUIRED field, fallback OPTIONAL/all_fields.
+    Fix Lỗi 5: adapt address_form cho mọi partial question.
     """
+    fallback = "Cho em thêm thông tin còn thiếu nha?"
     if not slot_id:
-        return "Anh cho em thêm thông tin còn thiếu nha?"
+        return _adapt_address_form(fallback, session) if session else fallback
     from app.slots.definitions import SLOT_TO_ALL_FIELDS, SLOT_TO_REQUIRED_FIELDS
 
     required = SLOT_TO_REQUIRED_FIELDS.get(slot_id, [])
@@ -243,7 +255,7 @@ def gen_partial_question(
         if getattr(profile, f, None) is None:
             q = _PARTIAL_FIELD_QUESTIONS.get(f)
             if q:
-                return q
+                return _adapt_address_form(q, session) if session else q
     all_fields = SLOT_TO_ALL_FIELDS.get(slot_id, [])
     for f in all_fields:
         if f in required:
@@ -251,8 +263,8 @@ def gen_partial_question(
         if getattr(profile, f, None) is None:
             q = _PARTIAL_FIELD_QUESTIONS.get(f)
             if q:
-                return q
-    return "Anh cho em thêm thông tin còn thiếu nha?"
+                return _adapt_address_form(q, session) if session else q
+    return _adapt_address_form(fallback, session) if session else fallback
 
 
 def _adapt_address_form(text: Optional[str], session: SessionState) -> Optional[str]:
@@ -335,16 +347,19 @@ def summarize_history(session: SessionState, max_turns: int = 10) -> str:
     return " | ".join(parts) if parts else "(chưa có)"
 
 
-def phase_1_pause_fallback(paused_for: Optional[str]) -> str:
-    """Safe response cho PAUSE (defensive/tâm sự) khi LLM handler fail."""
+def phase_1_pause_fallback(paused_for: Optional[str], session: Optional[SessionState] = None) -> str:
+    """Safe response cho PAUSE (defensive/tâm sự) khi LLM handler fail.
+
+    Fix Lỗi 5: dùng text trung tính, adapt address_form.
+    """
     if paused_for == "defensive":
-        return (
-            "Dạ anh yên tâm — em không thu phí gì đâu ạ, em chỉ thu thập "
-            "thông tin để team bên em hỗ trợ anh tốt hơn. Dữ liệu em lưu nội "
+        text = (
+            "Dạ yên tâm — em không thu phí gì đâu ạ, em chỉ thu thập "
+            "thông tin để team bên em hỗ trợ tốt hơn. Dữ liệu em lưu nội "
             "bộ, không share ra ngoài. Mình tiếp tục được không ạ?"
         )
-    if paused_for == "tam_su":
-        return (
-            "Dạ em hiểu mà ạ. Anh chia sẻ em rất quý. À cho em hỏi tiếp xíu nhé?"
-        )
-    return "Dạ em hiểu ạ. Mình tiếp tục được không anh?"
+    elif paused_for == "tam_su":
+        text = "Dạ em hiểu mà ạ. Chia sẻ vậy em rất quý. À cho em hỏi tiếp xíu nhé?"
+    else:
+        text = "Dạ em hiểu ạ. Mình tiếp tục được không ạ?"
+    return _adapt_address_form(text, session) if session else text

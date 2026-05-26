@@ -14,23 +14,34 @@ from app.models.schema import DealerProfileRaw
 
 # Placeholder strings (Việt hóa)
 _PLACEHOLDER_REQUIRED_MISSING = "(chưa có — team em sẽ hỏi lại sau)"
-_PLACEHOLDER_OPTIONAL_DECLINED = "(em sẽ đề xuất, anh duyệt sau)"
+_PLACEHOLDER_OPTIONAL_DECLINED = "(em sẽ đề xuất, duyệt sau)"
 _PLACEHOLDER_CATEGORY_EMPTY = "(chưa thu thập phần này)"
 
 
-def render_card(profile: DealerProfileRaw) -> str:
-    """Render confirmation card 5 phần ASCII.
+# Fix Lỗi 18: mapping category code → display name tiếng Việt
+_CATEGORY_DISPLAY_NAMES: dict[str, str] = {
+    "tu_bep": "tủ bếp",
+    "nhom_kinh": "nhôm kính",
+    "cua_cuon": "cửa cuốn",
+    "cua_nhom": "cửa nhôm",
+    "cua_go": "cửa gỗ",
+    "vlxd": "VLXD",
+    "noi_that": "nội thất",
+    "dien_mat_troi": "điện mặt trời",
+    "kinh_cuong_luc": "kính cường lực",
+}
 
-    Args:
-        profile: DealerProfileRaw đã extract đầy đủ Phase 1
 
-    Returns:
-        Card text ASCII (multi-line). Hiển thị cho dealer review trong stage CONFIRMING.
+def render_card(profile: DealerProfileRaw, address_form: str = "anh") -> str:
+    """Render confirmation card 5 phần.
+
+    Fix Lỗi 5: nhận address_form param.
+    Fix Lỗi 10: bỏ box drawing border, dùng emoji separator.
+    Fix Lỗi 18: category code → display name.
     """
+    af = address_form
     lines: list[str] = []
-    lines.append("┌────────────────────────────────────────────┐")
-    lines.append("│  📋 HỒ SƠ CỬA HÀNG — anh duyệt giúp em ạ  │")
-    lines.append("└────────────────────────────────────────────┘")
+    lines.append(f"📋 HỒ SƠ CỬa HÀNG — {af} duyệt giúp em ạ")
     lines.append("")
 
     # ----- Phần 1: 🏪 Danh thiếp cửa hàng -----
@@ -50,11 +61,11 @@ def render_card(profile: DealerProfileRaw) -> str:
     lines.append("")
 
     # ----- Phần 5: ⏰ Trong 3 ngày tới -----
-    lines.append(_render_section_5_trong_3_ngay(profile))
+    lines.append(_render_section_5_trong_3_ngay(profile, af))
     lines.append("")
 
-    lines.append("═══════════════════════════════════════════════")
-    lines.append("Anh duyệt OK hay cần chỉnh chỗ nào ạ?")
+    lines.append("═" * 40)
+    lines.append(f"{af.capitalize()} duyệt OK hay cần chỉnh chỗ nào ạ?")
 
     return "\n".join(lines)
 
@@ -128,7 +139,8 @@ def _render_section_4_brandkit(profile: DealerProfileRaw) -> str:
 
     if profile.brandkit_consent == "yes":
         # Phong cách logo (4.1) — bot chọn theo ngành
-        category_name = profile.main_category or "ngành mình"
+        raw_category = profile.main_category or "ngành mình"
+        category_name = _CATEGORY_DISPLAY_NAMES.get(raw_category, raw_category)
         lines.append(f"   • Phong cách logo: em chọn theo {category_name}")
         # Màu + phong thủy (4.2)
         if profile.color_accent:
@@ -141,16 +153,16 @@ def _render_section_4_brandkit(profile: DealerProfileRaw) -> str:
     return "\n".join(lines)
 
 
-def _render_section_5_trong_3_ngay(profile: DealerProfileRaw) -> str:
-    """Phần 5: Trong 3 ngày tới (next action)."""
+def _render_section_5_trong_3_ngay(profile: DealerProfileRaw, af: str = "anh") -> str:
+    """Phần 5: Trong 3 ngày tới (next action). Fix Lỗi 5: dùng af."""
     lines = ["⏰ TRONG 3 NGÀY TỚI"]
     if profile.brandkit_consent == "yes":
-        lines.append("   • Em gửi anh kế hoạch chiến lược nền tảng số đầy đủ qua Zalo")
-        lines.append("   • Bộ thương hiệu (logo + danh thiếp + video) gửi trong ứng dụng nhỏ Zalo")
-        lines.append("   • Nhóm Cộng Đồng Thợ 4.0 phù hợp khu vực + ngành mình")
+        lines.append(f"   • Em gửi {af} kế hoạch chiến lược nền tảng số đầy đủ qua Zalo")
+        lines.append(f"   • Bộ thương hiệu (logo + danh thiếp + video) gửi trong ứng dụng nhỏ Zalo")
+        lines.append(f"   • Nhóm Cộng Đồng Thợ 4.0 phù hợp khu vực + ngành mình")
     else:
-        lines.append("   • Em gửi anh kế hoạch chiến lược nền tảng số qua Zalo")
-        lines.append("   • Nhóm Cộng Đồng Thợ 4.0 phù hợp")
+        lines.append(f"   • Em gửi {af} kế hoạch chiến lược nền tảng số qua Zalo")
+        lines.append(f"   • Nhóm Cộng Đồng Thợ 4.0 phù hợp")
     return "\n".join(lines)
 
 

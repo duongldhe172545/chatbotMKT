@@ -173,7 +173,7 @@ def handle_asking(
             return llm_reply
         # Fallback nếu LLM fail: ack rồi retry slot
         question = get_slot_question_for_attempt(current_slot, session)
-        ack = "Dạ em hỏi lại — ý em là anh chia sẻ thêm chút thông tin để em hoàn thiện hồ sơ giúp anh ạ."
+        ack = "Dạ em hỏi lại — ý em là chia sẻ thêm chút thông tin để em hoàn thiện hồ sơ ạ."
         return f"{ack}\n\n{question}" if question else ack
 
     # Extract field (Phase 2: 16 slot có extractor)
@@ -191,7 +191,7 @@ def handle_asking(
 
     # PAUSE = defensive / tâm sự (F2B.4b)
     if action == Action.PAUSE:
-        return _handle_pause(session, message, client, current_slot)
+        return _handle_pause(session, message, client, current_slot, profile=profile)
 
     # Track edge case: refusal lặp OPTIONAL (1C § 4)
     rush_offer: Optional[str] = None
@@ -210,7 +210,7 @@ def handle_asking(
     if next_slot is None and action in (Action.ADVANCE, Action.SKIP, Action.DEFER):
         from app.core._conv_confirming import enter_confirming
         session.stage = Stage.CONFIRMING
-        return enter_confirming(profile)
+        return enter_confirming(profile, session=session)
 
     # ADVANCE / SKIP / DEFER → ack + question for next slot
     if action in (Action.ADVANCE, Action.SKIP, Action.DEFER):
@@ -224,7 +224,7 @@ def handle_asking(
             not _has_extracted_value(extracted)
             and (intent == Intent.AFFIRMATIVE or _is_ack_only(message))
         ):
-            ack = "Dạ vâng anh."
+            ack = "Dạ vâng."
         else:
             ack = gen_ack_safe(
                 slot_id=current_slot or "",
@@ -408,12 +408,12 @@ def _extract_and_merge(
 # Refer 1A § 1.6 + spec D11 — dealer từ chối → ack tôn trọng + chuyển slot.
 # Bug 3: Lửa Lò → tone ngắn ≤8 từ (1B § 2.1)
 _DEFER_REFUSAL_ACK_TEMPLATES: dict[str, str] = {
-    "1.1": "Dạ vâng anh không tiện chia sẻ tên thì em hỏi sau nhé.",
-    "1.2": "Dạ vâng, anh chưa muốn cho địa chỉ thì em ghi nhận, mình tiếp tục nhé.",
-    "1.3": "Dạ vâng anh, em hiểu — số liên hệ anh chưa tiện thì em hỏi sau ạ.",
+    "1.1": "Dạ vâng, không tiện chia sẻ tên thì em hỏi sau nhé.",
+    "1.2": "Dạ vâng, chưa muốn cho địa chỉ thì em ghi nhận, mình tiếp tục nhé.",
+    "1.3": "Dạ vâng, em hiểu — số liên hệ chưa tiện thì em hỏi sau ạ.",
     "2.1": "Dạ vâng, mình tiếp tục nhé.",
     "2.2": "Dạ vâng, mình tiếp tục nhé.",
-    "4.0": "Dạ vâng, em tôn trọng anh — mình ghi nhận tới đây nhé.",
+    "4.0": "Dạ vâng, em tôn trọng — mình ghi nhận tới đây nhé.",
 }
 
 # Lửa Lò: tone cộc ≤8 từ — KHÔNG nịnh, KHÔNG giải thích dài
@@ -426,7 +426,7 @@ _DEFER_REFUSAL_ACK_LUA_LO: dict[str, str] = {
     "4.0": "Dạ. Em ghi nhận.",
 }
 
-_DEFER_REFUSAL_ACK_DEFAULT = "Dạ vâng anh, mình tiếp tục nhé."
+_DEFER_REFUSAL_ACK_DEFAULT = "Dạ vâng, mình tiếp tục nhé."
 _DEFER_REFUSAL_ACK_LUA_LO_DEFAULT = "Dạ. Tiếp ạ."
 
 
@@ -835,7 +835,7 @@ def _handle_repeat_complaint(
         question = get_slot_question_for_attempt(next_id, session)
     else:
         question = get_slot_question_for_attempt(current_slot, session)
-    apology = "Em xin lỗi anh, đoạn đó em hỏi lặp."
+    apology = "Em xin lỗi, đoạn đó em hỏi lặp."
     return f"{apology}\n\n{question}" if question else apology
 
 
@@ -849,7 +849,7 @@ def _handle_boundary_flirt(
     if not any(p in msg for p in patterns):
         return None
     question = get_slot_question_for_attempt(current_slot, session)
-    bridge = "Em chỉ trao đổi công việc ở đây thôi anh. Mình quay lại thông tin cửa hàng nhé."
+    bridge = "Em chỉ trao đổi công việc ở đây thôi ạ. Mình quay lại thông tin cửa hàng nhé."
     return f"{bridge}\n\n{question}" if question else bridge
 
 
@@ -951,6 +951,7 @@ def _handle_pause(
     message: str,
     client: LLMClient,
     current_slot: Optional[str],
+    profile=None,
 ) -> str:
     """PAUSE = defensive / tâm sự — F2B.4b LLM handler."""
     if session.paused_for == "defensive":
@@ -985,7 +986,18 @@ def _handle_pause(
     if session.paused_for == "tam_su":
         record_tam_su(session)
         tam_su_count = session.consecutive_tam_su
-        next_slot_hint = get_slot_question_for_attempt(current_slot, session)
+        # Fix Lỗi 7: sau TAM_SU, advance slot nếu current slot đã có data
+        # để tránh hỏi lại câu hỏi đã hỏi trước đó.
+        advance_slot = current_slot
+        if current_slot and _slot_has_any_profile_value(current_slot, profile):
+            advance_slot = get_next_slot(
+                current_slot, session.skipped_slots, profile=profile
+            )
+            if advance_slot:
+                session.current_slot = advance_slot
+        next_slot_hint = get_slot_question_for_attempt(
+            advance_slot or current_slot, session
+        )
         llm_reply = handle_tam_su_llm(
             dealer_message=message,
             tam_su_count=tam_su_count,
@@ -993,7 +1005,7 @@ def _handle_pause(
             address_form=session.address_form,
             client=client,
             history_summary=summarize_history(session),
-            current_slot=current_slot,
+            current_slot=advance_slot or current_slot,
             next_slot_hint=next_slot_hint,
             bridge_avoid_hint=get_avoid_hint(session),
         )

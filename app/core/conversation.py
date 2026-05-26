@@ -82,7 +82,7 @@ def handle_message(
     # Lazy timeout check (1C § 9)
     if is_session_timeout(session):
         mark_session_closed(session)
-        return (render_soft_end_closing(), session, profile)
+        return (render_soft_end_closing(address_form=session.address_form), session, profile)
 
     # Touch session timestamp + increment turn
     touch_session(session)
@@ -147,7 +147,7 @@ def handle_message(
     elif session.stage == Stage.CONFIRMING:
         reply = handle_confirming(session, profile, message, client)
     else:  # Stage.DONE
-        reply = handle_done()
+        reply = handle_done(session=session, message=message, client=client)
 
     # G3: Drift guard — auto-rewrite vocab cấm trong bot reply
     if reply:
@@ -227,7 +227,11 @@ def _check_voice_fail(
 
 
 def _soften_repeated_opening(reply: str, session: SessionState) -> str:
-    """Avoid every ASKING reply starting with "Dạ"."""
+    """Avoid every ASKING reply starting with "Dạ".
+
+    Fix Lỗi 13: đảm bảo có dấu cách sau khi strip prefix.
+    Fix Lỗi 21: mở rộng prefix list cho 'chị'.
+    """
     if not reply:
         return reply
     stripped = reply.lstrip()
@@ -237,7 +241,13 @@ def _soften_repeated_opening(reply: str, session: SessionState) -> str:
     if not previous_bot.lstrip().startswith("Dạ"):
         return reply
 
-    for prefix in ("Dạ vâng anh, ", "Dạ vâng, ", "Dạ anh, ", "Dạ anh ", "Dạ, ", "Dạ "):
+    af = session.address_form.value if session else "anh"
+    prefixes = [
+        f"Dạ vâng {af}, ", "Dạ vâng, ",
+        f"Dạ {af}, ", f"Dạ {af} ",
+        "Dạ, ", "Dạ ",
+    ]
+    for prefix in prefixes:
         if stripped.startswith(prefix):
             softened = stripped[len(prefix):].lstrip()
             break
@@ -245,4 +255,10 @@ def _soften_repeated_opening(reply: str, session: SessionState) -> str:
         softened = stripped[2:].lstrip(" ,")
     if not softened:
         return reply
-    return softened[:1].upper() + softened[1:]
+    result = softened[:1].upper() + softened[1:]
+    # Fix Lỗi 13: đảm bảo có space sau từ đầu tiên nếu bị dính
+    import re as _re
+    stuck = _re.match(r'^(Vâng|Vângạ|\u1ede|\u1eea|Ok|Oke)(\S)', result)
+    if stuck:
+        result = stuck.group(1) + ' ' + stuck.group(2) + result[stuck.end():]
+    return result

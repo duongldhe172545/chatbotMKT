@@ -27,33 +27,30 @@ from app.models.enums import AddressForm, DealerType
 # Phase 6 R4: 3 biến thể consent=yes (refer 1A § 7.3) — rotate hash session_id
 # Placeholder {dealer_name} điền từ profile, {local_hook} từ LLM gen.
 _CLOSING_CONSENT_YES_VARIANTS: list[str] = [
-    # Biến thể 1 (chuẩn — có chỗ chèn hook địa phương LLM gen)
     (
-        "Em cảm ơn anh đã dành thời gian trò chuyện cùng em hôm nay ạ 🌷.\n\n"
+        "Em cảm ơn {af} đã dành thời gian trò chuyện cùng em hôm nay ạ 🌷.\n\n"
         "Bộ thương hiệu (logo + danh thiếp + video giới thiệu) cho cửa hàng "
-        "{dealer_name} em đang gen — em sẽ gửi anh trong ứng dụng nhỏ Zalo "
-        "của em, anh nhận sau ít phút nha.\n\n"
-        "Trong 3 ngày tới em cũng gửi anh kế hoạch chiến lược phát triển nền "
+        "{dealer_name} em đang gen — em sẽ gửi {af} trong ứng dụng nhỏ Zalo "
+        "của em, {af} nhận sau ít phút nha.\n\n"
+        "Trong 3 ngày tới em cũng gửi {af} kế hoạch chiến lược phát triển nền "
         "tảng số đầy đủ qua Zalo — đó là phần em đã hứa từ đầu ạ.\n\n"
-        "Chúc anh một ngày làm việc nhiều đơn hàng ạ! Hẹn gặp lại anh."
+        "Chúc {af} một ngày làm việc nhiều đơn hàng ạ! Hẹn gặp lại {af}."
     ),
-    # Biến thể 2 (gọn hơn)
     (
-        "Em cảm ơn anh nhiều ạ 🌷!\n\n"
-        "Bộ thương hiệu của cửa hàng {dealer_name} em đang làm — em gửi anh "
+        "Em cảm ơn {af} nhiều ạ 🌷!\n\n"
+        "Bộ thương hiệu của cửa hàng {dealer_name} em đang làm — em gửi {af} "
         "trong ứng dụng nhỏ Zalo trong ít phút.\n\n"
-        "Kế hoạch chiến lược nền tảng số đầy đủ em gửi anh trong 3 ngày tới "
+        "Kế hoạch chiến lược nền tảng số đầy đủ em gửi {af} trong 3 ngày tới "
         "qua Zalo nhé.\n\n"
         "Chúc cửa hàng mình ngày càng phát đạt!"
     ),
-    # Biến thể 3 (thân mật hơn — dealer trẻ / Khoe)
     (
-        "Em cảm ơn anh nhiều lắm 🌷. Cuộc trò chuyện này em học được nhiều "
+        "Em cảm ơn {af} nhiều lắm 🌷. Cuộc trò chuyện này em học được nhiều "
         "điều thật đó ạ.\n\n"
         "Bộ thương hiệu (logo + danh thiếp + video) của {dealer_name} em "
-        "gen ngay — em gửi anh qua ứng dụng nhỏ Zalo trong ít phút.\n\n"
-        "Kế hoạch chiến lược nền tảng số đầy đủ — em gửi anh trong 3 ngày.\n\n"
-        "Hẹn gặp lại anh nha!"
+        "gen ngay — em gửi {af} qua ứng dụng nhỏ Zalo trong ít phút.\n\n"
+        "Kế hoạch chiến lược nền tảng số đầy đủ — em gửi {af} trong 3 ngày.\n\n"
+        "Hẹn gặp lại {af} nha!"
     ),
 ]
 
@@ -64,12 +61,12 @@ _CLOSING_CONSENT_YES_VARIANTS: list[str] = [
 
 
 _CLOSING_CONSENT_NO_TEMPLATE = (
-    "Dạ em hiểu anh chưa cần bộ thương hiệu, em không ép đâu ạ.\n\n"
-    "Em vẫn ghi nhận thông tin của cửa hàng mình. Nếu sau này anh đổi ý "
-    "muốn nhận bộ thương hiệu, anh nhắn lại em nhé — bên em luôn sẵn sàng.\n\n"
+    "Dạ em hiểu {af} chưa cần bộ thương hiệu, em không ép đâu ạ.\n\n"
+    "Em vẫn ghi nhận thông tin của cửa hàng mình. Nếu sau này {af} đổi ý "
+    "muốn nhận bộ thương hiệu, {af} nhắn lại em nhé — bên em luôn sẵn sàng.\n\n"
     "Nhóm Cộng Đồng Thợ 4.0 phù hợp với khu vực + ngành mình em cũng sẽ "
     "giới thiệu qua Zalo trong 3 ngày tới ạ.\n\n"
-    "Em cảm ơn anh rất nhiều đã dành thời gian!"
+    "Em cảm ơn {af} rất nhiều đã dành thời gian!"
 )
 
 
@@ -79,9 +76,9 @@ _CLOSING_CONSENT_NO_TEMPLATE = (
 
 
 _CLOSING_SOFT_END_TEMPLATE = (
-    "Dạ vâng, em ngừng tại đây ạ. Em ghi nhận thông tin anh đã chia sẻ. "
-    "Team người thật bên em có thể sẽ liên hệ anh sau nếu cần hỗ trợ thêm. "
-    "Em cảm ơn anh nhiều ạ 🌷"
+    "Dạ vâng, em ngừng tại đây ạ. Em ghi nhận thông tin {af} đã chia sẻ. "
+    "Team người thật bên em có thể sẽ liên hệ {af} sau nếu cần hỗ trợ thêm. "
+    "Em cảm ơn {af} nhiều ạ 🌷"
 )
 
 
@@ -117,11 +114,13 @@ def render_closing(
     if consent == "no":
         base = _CLOSING_CONSENT_NO_TEMPLATE
     else:
-        # Phase 6 R4: 3 biến thể consent=yes — rotate theo hash session_id
         base = _pick_consent_yes_variant(session_id)
-        # Fill {dealer_name} placeholder
         name = dealer_name or "cửa hàng mình"
         base = base.replace("{dealer_name}", name)
+
+    # Fix Lỗi 14: replace {af} placeholder với address_form thực tế
+    af_value = address_form.value if hasattr(address_form, 'value') else str(address_form)
+    base = base.replace("{af}", af_value)
 
     # Phase 5 R2 Gap 10: gen local hook qua LLM_FAST (refer F2A.8 + local_hook)
     if client is not None and province:
@@ -156,9 +155,14 @@ def get_num_closing_variants() -> int:
     return len(_CLOSING_CONSENT_YES_VARIANTS)
 
 
-def render_soft_end_closing() -> str:
+def render_soft_end_closing(address_form=None) -> str:
     """Render closing rút gọn cho escalation L3 / timeout.
 
-    Refer 1C § 13 escalation script.
+    Refer 1C § 13 escalation script. Fix Lỗi 14: dynamic address_form.
     """
-    return _CLOSING_SOFT_END_TEMPLATE
+    template = _CLOSING_SOFT_END_TEMPLATE
+    if address_form:
+        af_value = address_form.value if hasattr(address_form, 'value') else str(address_form)
+    else:
+        af_value = "anh"
+    return template.replace("{af}", af_value)

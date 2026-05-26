@@ -257,11 +257,19 @@ def _check_partial_fill(
 
     # OPTIONAL multi-field (2.4/2.5/2.6/3.3): ép PARTIAL nếu dealer chỉ
     # fill 1 trong ≥ 2 field (engine hỏi tiếp 1 lần — 1A § 1.5 ví dụ slot 2.4).
+    #
+    # Fix Lỗi 6: slot 3.3 OPTIONAL — nếu đã có field chính (customer_pain),
+    # KHÔNG ép hỏi mining fields (motivation_signal, usp_signal) vì câu hỏi
+    # quá nhạy cảm cho cuộc phỏng vấn 4-5 phút.
+    _MINING_ONLY_FIELDS = {"motivation_signal", "usp_signal", "feng_shui_signal"}
     all_fields = SLOT_TO_ALL_FIELDS.get(current, [])
     if len(all_fields) < 2:
         return None
     filled = [f for f in all_fields if merged.get(f) is not None]
     missing = [f for f in all_fields if merged.get(f) is None]
+    # Nếu tất cả field missing đều là mining fields → KHÔNG trigger PARTIAL
+    if filled and missing and all(f in _MINING_ONLY_FIELDS for f in missing):
+        return None
     if filled and len(missing) >= 1 and len(filled) < len(all_fields):
         session.partial_retried_slots.append(current)
         return (current, Action.PARTIAL_RETRY)
