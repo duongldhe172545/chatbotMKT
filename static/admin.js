@@ -57,7 +57,8 @@ const tabContents = {
   queue: document.getElementById("tab-queue"),
 };
 
-// Dealer type display labels (refer 1B § 2)
+// Conversation tone display labels (refer 1B § 2).
+// This is NOT the business dealer type stored on profile.dealer_type.
 const DEALER_TYPE_LABELS = {
   lua_lo: "🔥 Lửa Lò",
   khoe: "🏆 Khoe",
@@ -250,8 +251,9 @@ function renderSessionModal(detail) {
       <div class="kv-key">Turn count</div><div class="kv-value">${detail.turn_count}</div>
       <div class="kv-key">Confirmation</div><div class="kv-value">${renderBadge(detail.confirmation_status, "status")}</div>
       <div class="kv-key">Review status</div><div class="kv-value">${escapeHtml(detail.review_status)}</div>
-      <div class="kv-key">Dealer type</div><div class="kv-value">${escapeHtml(detail.detected_dealer_type || "—")}</div>
-      <div class="kv-key">Address form</div><div class="kv-value">${escapeHtml(detail.address_form)}</div>
+      <div class="kv-key">Dealer type / Business type</div><div class="kv-value">${escapeHtml((detail.profile && detail.profile.dealer_type) || "—")}</div>
+      <div class="kv-key">Conversation tone</div><div class="kv-value">${escapeHtml(detail.detected_dealer_type || "—")}</div>
+      <div class="kv-key">Form of address</div><div class="kv-value">${escapeHtml(detail.address_form)}</div>
       <div class="kv-key">Flags</div><div class="kv-value">${renderFlags(detail.flags)}</div>
       <div class="kv-key">Skipped slots</div><div class="kv-value mono">${(detail.skipped_slots || []).join(", ") || "—"}</div>
       <div class="kv-key">Channel</div><div class="kv-value">${escapeHtml(detail.channel)}</div>

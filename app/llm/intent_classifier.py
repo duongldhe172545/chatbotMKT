@@ -220,6 +220,8 @@ def check_pii_leak(
             value = row.get(field)
             if not value or not isinstance(value, str) or len(value) < 4:
                 continue
+            if _is_low_entropy_pii_value(field, value):
+                continue
             # Skip nếu value cũng có trong dealer's own current data
             # (dealer vừa nói → bot ack lại, không phải leak từ session khác)
             value_lower = value.lower()
@@ -234,3 +236,25 @@ def check_pii_leak(
                     leaked_sessions.append(sid)
                 break  # 1 field/session đủ
     return leaked_sessions
+
+
+def _is_low_entropy_pii_value(field: str, value: str) -> bool:
+    """Avoid false positives from common short names/province-only addresses."""
+    cleaned = value.strip()
+    folded = cleaned.lower()
+    if field == "owner_name" and (len(cleaned) <= 6 or " " not in cleaned):
+        return True
+    if field == "dealer_name" and len(cleaned) <= 6:
+        return True
+    if field == "address" and folded in {
+        "lào cai",
+        "lao cai",
+        "hà nội",
+        "ha noi",
+        "hưng yên",
+        "hung yen",
+        "tp.hcm",
+        "hcm",
+    }:
+        return True
+    return False

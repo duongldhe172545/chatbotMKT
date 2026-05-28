@@ -106,11 +106,13 @@ _TECHNICAL_INQUIRY_COMPILED: list[re.Pattern] = [
 #   5. Y tế
 #   6. Tài chính cá nhân
 _WARRANTY_PATTERN_INDEX = 1
+_COOPERATION_PATTERN_INDEX = 3  # "hợp tác / phân phối" pattern
 
 # Map slot_id → set pattern indexes cần SKIP (vì dealer expected reply
 # về topic đó, KHÔNG phải technical inquiry).
 _SLOT_TECHNICAL_SKIP_MAP: dict[str, set[int]] = {
     "3.5": {_WARRANTY_PATTERN_INDEX},  # slot 3.5 hỏi warranty_responsibility
+    "2.2": {_COOPERATION_PATTERN_INDEX},  # FIX C2: slot 2.2 hỏi mô hình → "phân phối" là DATA
 }
 
 
@@ -133,6 +135,9 @@ def detect_technical_inquiry(
     Vd slot 3.5 hỏi "bảo hành ai chịu?" → dealer reply "anh chịu bảo hành"
     là valid DATA, KHÔNG phải technical inquiry → skip pattern #2.
 
+    FIX C2: short message guard — message ≤ 8 từ + đang trong slot = dealer
+    đang trả lời câu hỏi, KHÔNG phải hỏi kỹ thuật.
+
     Args:
         message: dealer text
         current_slot: slot đang hỏi. Nếu trong _SLOT_TECHNICAL_SKIP_MAP →
@@ -143,6 +148,11 @@ def detect_technical_inquiry(
     if not message or not message.strip():
         return False
     msg_lower = message.strip().lower()
+
+    # FIX C2: short message guard — dealer đang trả lời slot, không hỏi kỹ thuật
+    if current_slot and len(msg_lower.split()) <= 8:
+        return False
+
     skip_indexes = _SLOT_TECHNICAL_SKIP_MAP.get(current_slot or "", set())
     for idx, pattern in enumerate(_TECHNICAL_INQUIRY_COMPILED):
         if idx in skip_indexes:

@@ -34,6 +34,7 @@ from app.core.edge_cases import (
     is_voice_fail_message,
 )
 from app.core.garbage_detector import is_garbage, is_meaningful_short
+from app.core.reply_pipeline import compose_and_validate_reply
 from app.core.session import is_session_timeout, mark_session_closed, touch_session
 from app.guards import (
     auto_rewrite,
@@ -87,12 +88,20 @@ def handle_message(
     # Touch session timestamp + increment turn
     touch_session(session)
     session.turn_count += 1
+    stage_before_dispatch = session.stage
 
     # Voice channel preprocess (1C § 8 — Phase 4 R2)
     voice_reply = _check_voice_fail(session, message)
     if voice_reply is not None:
         now = datetime.now(timezone.utc)
         session.history.append(HistoryMessage(role="dealer", content=message, ts=now))
+        voice_reply = _compose_reply_safely(
+            voice_reply,
+            message=message,
+            session=session,
+            profile=profile,
+            stage_before_dispatch=stage_before_dispatch,
+        )
         session.history.append(HistoryMessage(role="bot", content=voice_reply, ts=now))
         return (voice_reply, session, profile)
     # Brand/STT correction also helps typed text in chat tests, e.g. dealer
@@ -144,10 +153,15 @@ def handle_message(
     # Nếu abuse handled, short-circuit return
     if abuse_reply is not None:
         abuse_reply = auto_rewrite(abuse_reply)
+        abuse_reply = _compose_reply_safely(
+            abuse_reply,
+            message=message,
+            session=session,
+            profile=profile,
+            stage_before_dispatch=stage_before_dispatch,
+        )
         session.history.append(HistoryMessage(role="bot", content=abuse_reply, ts=now))
         return (abuse_reply, session, profile)
-
-    stage_before_dispatch = session.stage
 
     # Stage-based dispatch
     if session.stage == Stage.GREETING:
@@ -157,7 +171,7 @@ def handle_message(
     elif session.stage == Stage.CONFIRMING:
         reply = handle_confirming(session, profile, message, client)
     else:  # Stage.DONE
-        reply = handle_done(session=session, message=message, client=client)
+        reply = handle_done(session=session, profile=profile, message=message, client=client)
 
     # G3: Drift guard — auto-rewrite vocab cấm trong bot reply
     if reply:
@@ -172,6 +186,14 @@ def handle_message(
 
         # Bug 11: fix LLM missing-space (e.g. "nàyđể" → "này để")
         reply = _fix_missing_spaces(reply)
+
+        reply = _compose_reply_safely(
+            reply,
+            message=message,
+            session=session,
+            profile=profile,
+            stage_before_dispatch=stage_before_dispatch,
+        )
 
         # GLOBAL address_form post-processing — CRITICAL FIX.
         # LLM thường bỏ qua system prompt instruction về address_form.
@@ -231,18 +253,38 @@ _STUCK_WORDS = (
     "để", "mà", "và", "thì", "là", "với", "cho", "từ", "của", "này",
     "đó", "ạ", "nhé", "nha", "rồi", "được", "không", "thêm", "qua",
     "trong", "ngoài", "trên", "dưới", "cùng", "theo", "về",
+    # NOTE: KHÔNG thêm "anh","chị" vào đây — chúng là substring của
+    # danh, nhanh, xanh, thanh, khanh, chỉnh, etc.
 )
 _STUCK_PATTERN = _re.compile(
     r"([a-zà-ỹ])(" + "|".join(_re.escape(w) for w in _STUCK_WORDS) + r")\b",
     _re.IGNORECASE,
 )
 
+# FIX H5 v2: chỉ tách "anh"/"chị" sau các filler word cụ thể (vâng, dạ, ừ, ok...)
+# để KHÔNG phá "danh", "nhanh", "xanh", "thanh" etc.
+_STUCK_ANH_CHI = _re.compile(
+    r'\b(vâng|dạ|ừ|ok|oke|ơi|vậy|rồi)(anh|chị)\b',
+    _re.IGNORECASE,
+)
+
 
 def _fix_missing_spaces(text: str) -> str:
-    """Fix LLM missing spaces: 'nàyđể' → 'này để'."""
+    """Fix LLM missing spaces: 'nàyđể' → 'này để'.
+
+    FIX H4: normalize 'D ạ' → 'Dạ' (LLM hay output space thừa giữa D và ạ).
+    FIX H5 v2: tách 'vânganh' → 'vâng anh' (chỉ sau filler, không phá 'danh').
+    """
     if not text:
         return text
-    return _STUCK_PATTERN.sub(r"\1 \2", text)
+    # Run stuck word separator
+    text = _STUCK_PATTERN.sub(r"\1 \2", text)
+    # FIX H5 v2: tách anh/chị chỉ sau filler word cụ thể
+    text = _STUCK_ANH_CHI.sub(r"\1 \2", text)
+    text = _re.sub(r'\b(anh|chị)(anh|chị)\b', r'\1, \2', text, flags=_re.IGNORECASE)
+    # FIX H4: normalize "D ạ" → "Dạ" AFTER stuck pattern
+    text = _re.sub(r'D\s+ạ', 'Dạ', text)
+    return text
 
 
 def _is_voice_channel(session: SessionState) -> bool:
@@ -267,39 +309,105 @@ def _check_voice_fail(
     return voice_reply
 
 
+def _compose_reply_safely(
+    reply: str,
+    *,
+    message: str,
+    session: SessionState,
+    profile: DealerProfileRaw,
+    stage_before_dispatch: Stage,
+) -> str:
+    """Run the central reply pipeline without breaking legacy handlers."""
+    try:
+        composed = compose_and_validate_reply(
+            raw_reply=reply,
+            message=message,
+            session=session,
+            profile=profile,
+            stage_before=stage_before_dispatch,
+        )
+    except Exception:
+        logger.exception("Reply pipeline failed; returning legacy reply")
+        return reply
+
+    if composed.repaired:
+        logger.info(
+            "Reply pipeline repaired output: session=%s signal=%s issues=%s",
+            session.session_id,
+            composed.analysis.signal.value,
+            [i.code for i in composed.issues],
+        )
+    elif composed.issues:
+        logger.warning(
+            "Reply pipeline validation issues: session=%s signal=%s issues=%s",
+            session.session_id,
+            composed.analysis.signal.value,
+            [i.code for i in composed.issues],
+        )
+    return composed.text
+
+
 def _soften_repeated_opening(reply: str, session: SessionState) -> str:
-    """Avoid every ASKING reply starting with "Dạ".
+    """Avoid every ASKING reply starting with "Dạ" or "Vâng" repeated.
 
     Fix Lỗi 13: đảm bảo có dấu cách sau khi strip prefix.
     Fix Lỗi 21: mở rộng prefix list cho 'chị'.
+    FIX H4: mở rộng check cả 'Vâng' lặp (không chỉ 'Dạ').
     """
     if not reply:
         return reply
     stripped = reply.lstrip()
-    if not stripped.startswith("Dạ"):
-        return reply
+
+    # Lấy previous bot reply
     previous_bot = next((h.content for h in reversed(session.history) if h.role == "bot"), "")
-    if not previous_bot.lstrip().startswith("Dạ"):
-        return reply
+    prev_stripped = previous_bot.lstrip()
 
     af = session.address_form.value if session else "anh"
-    prefixes = [
-        f"Dạ vâng {af}, ", "Dạ vâng, ",
-        f"Dạ {af}, ", f"Dạ {af} ",
-        "Dạ, ", "Dạ ",
-    ]
-    for prefix in prefixes:
-        if stripped.startswith(prefix):
-            softened = stripped[len(prefix):].lstrip()
-            break
-    else:
-        softened = stripped[2:].lstrip(" ,")
-    if not softened:
-        return reply
-    result = softened[:1].upper() + softened[1:]
-    # Fix Lỗi 13: đảm bảo có space sau từ đầu tiên nếu bị dính
-    import re as _re
-    stuck = _re.match(r'^(Vâng|Vângạ|\u1ede|\u1eea|Ok|Oke)(\S)', result)
-    if stuck:
-        result = stuck.group(1) + ' ' + stuck.group(2) + result[stuck.end():]
-    return result
+
+    # --- Check Dạ lặp ---
+    if stripped.startswith("Dạ") and prev_stripped.startswith("Dạ"):
+        prefixes = [
+            f"Dạ vâng {af}, ", "Dạ vâng, ",
+            f"Dạ {af}, ", f"Dạ {af} ",
+            "Dạ, ", "Dạ ",
+        ]
+        for prefix in prefixes:
+            if stripped.startswith(prefix):
+                softened = stripped[len(prefix):].lstrip()
+                break
+        else:
+            softened = stripped[2:].lstrip(" ,")
+        if not softened:
+            return reply
+        result = softened[:1].upper() + softened[1:]
+        # Fix Lỗi 13: đảm bảo có space sau từ đầu tiên nếu bị dính
+        import re as _re2
+        stuck = _re2.match(r'^(Vâng|Vângạ|\u1ede|\u1eea|Ok|Oke)(\S)', result)
+        if stuck:
+            result = stuck.group(1) + ' ' + stuck.group(2) + result[stuck.end():]
+        return result
+
+    # FIX H4: check Vâng lặp (turn trước "Vâng..." + turn này "Dạ...")
+    if stripped.startswith("Dạ") and prev_stripped.startswith("Vâng"):
+        prefixes = [
+            f"Dạ vâng {af}, ", "Dạ vâng, ",
+            f"Dạ {af}, ", f"Dạ {af} ",
+            "Dạ, ", "Dạ ",
+        ]
+        for prefix in prefixes:
+            if stripped.startswith(prefix):
+                softened = stripped[len(prefix):].lstrip()
+                break
+        else:
+            softened = stripped[2:].lstrip(" ,")
+        if not softened:
+            return reply
+        # Không bắt đầu bằng "Vâng" nữa — bỏ prefix đi thẳng vào nội dung
+        result = softened[:1].upper() + softened[1:]
+        if result.startswith("Vâng"):
+            result = result[4:].lstrip(" ,")
+            if result:
+                result = result[:1].upper() + result[1:]
+        return result or reply
+
+    return reply

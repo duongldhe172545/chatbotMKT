@@ -110,7 +110,7 @@ _SLOT_TEMPLATES: dict[str, SlotTemplate] = {
             "Anh em trong ngành mình thường làm nhiều mảng — cửa cuốn, "
             "nhôm hệ, vách kính, tủ bếp... bên anh đang chủ lực mảng "
             "gì, và cái nào anh tự tin mạnh nhất ạ?",
-            "Chị ơi, bên cửa hàng mình chuyên những mảng sản phẩm nào ạ, "
+            "Anh ơi, bên cửa hàng mình chuyên những mảng sản phẩm nào ạ, "
             "và mảng nào là mạnh nhất?",
             "Em hỏi tiếp ạ — danh mục sản phẩm chủ lực của cửa hàng "
             "mình là gì, và cái nào anh tự tin nhất?",
@@ -146,7 +146,7 @@ _SLOT_TEMPLATES: dict[str, SlotTemplate] = {
     "2.3": SlotTemplate(
         slot_id="2.3",
         questions=[
-            "Đội thợ là tài sản số 1 trong ngành mình — bên mình "
+            "Đội thợ rất quan trọng trong ngành mình — bên mình "
             "hiện có tổng bao nhiêu thợ, và mọi người gắn bó với anh "
             "lâu chưa ạ?",
             "Em hỏi thêm — bên anh có đội thợ riêng không, bao nhiêu "
@@ -291,9 +291,9 @@ _SLOT_TEMPLATES: dict[str, SlotTemplate] = {
             "em tặng để cảm ơn anh dành thời gian. Anh nhận không ạ?",
         ],
         retry_questions=[
-            "Dạ em hỏi lại — bộ thương hiệu này em tặng miễn phí, gồm "
-            "logo, danh thiếp, video giới thiệu, đều là quà anh giữ lại "
-            "dùng. Anh có muốn em làm cho không ạ?",
+            "Dạ em không ép đâu ạ. Em chỉ muốn hỗ trợ anh có thêm bộ logo, "
+            "danh thiếp và video nhìn chỉn chu hơn để khách dễ nhớ cửa hàng. "
+            "Em làm thử cho anh trước, anh xem hợp thì dùng nhé?",
             "Nếu anh ngại phiền em làm, em vẫn cứ làm rồi gửi link anh "
             "xem sau cũng OK ạ. Anh cứ nói có hay không thôi, em ghi nhận.",
         ],

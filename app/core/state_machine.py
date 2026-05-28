@@ -94,14 +94,30 @@ def decide_action(
         session.paused_for = None
 
     # Step 2.5: Branch slot 4.0 consent=no — refer D10 STRATEGY
+    # FIX C3: retry 1 lần thuyết phục trước khi accept NO
     if current == "4.0" and extracted:
         consent = extracted.get("brandkit_consent")
         if consent == "no":
-            for skip_slot in ("4.1", "4.2"):
-                if skip_slot not in session.skipped_slots:
-                    session.skipped_slots.append(skip_slot)
-            session.current_slot = None
-            return (None, Action.ADVANCE)
+            attempts = session.slot_attempts.get("4.0")
+            attempt_total = attempts.total if attempts else 0
+            if attempt_total >= 1:
+                # Dealer đã từ chối 2+ lần → accept NO, skip 4.1/4.2
+                for skip_slot in ("4.1", "4.2"):
+                    if skip_slot not in session.skipped_slots:
+                        session.skipped_slots.append(skip_slot)
+                session.current_slot = None
+                return (None, Action.ADVANCE)
+            # Lần đầu từ chối → RETRY (thuyết phục nhẹ, dùng retry_questions)
+            if not attempts:
+                session.slot_attempts["4.0"] = SlotAttempts(total=1, consecutive=1)
+            else:
+                attempts.total += 1
+                attempts.consecutive += 1
+            # Xóa consent=no tạm để state machine RETRY (chưa ghi nhận)
+            extracted.pop("brandkit_consent", None)
+            if profile is not None and getattr(profile, "brandkit_consent", None) == "no":
+                profile.brandkit_consent = None
+            return (current, Action.RETRY)
 
     # Step 1.x: REFUSAL handling (rõ ràng từ chối, không phải test/nghịch)
     if intent == Intent.REFUSAL:

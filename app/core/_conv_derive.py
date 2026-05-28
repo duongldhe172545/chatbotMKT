@@ -9,6 +9,7 @@ Refer:
 from __future__ import annotations
 
 import logging
+import unicodedata
 from typing import Optional
 
 from app.core.address_parser import parse_address
@@ -23,6 +24,52 @@ from app.llm.client import LLMClient
 from app.models.schema import DealerProfileRaw
 
 logger = logging.getLogger(__name__)
+
+
+def _fold_vn(text: str) -> str:
+    normalized = unicodedata.normalize("NFD", text or "")
+    no_marks = "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn")
+    return no_marks.replace("đ", "d").replace("Đ", "D").casefold()
+
+
+def derive_business_dealer_type(signal: Optional[str]) -> Optional[str]:
+    """Derive business type from slot 2.2 raw answer.
+
+    This is different from SessionState.detected_dealer_type, which is the
+    conversation tone/persona detector.
+    """
+    folded = _fold_vn(signal or "")
+    if not folded:
+        return None
+
+    if any(p in folded for p in ("xuong", "san xuat", "gia cong", "tu dong goi", "tu san xuat")):
+        return "chu_xuong"
+
+    has_install = any(p in folded for p in ("thi cong", "lap dat", "doi tho", "tho rieng", "tu lam"))
+    has_sell = any(
+        p in folded
+        for p in (
+            "dai ly",
+            "phan phoi",
+            "ban le",
+            "ban hang",
+            "ban thoi",
+            "chi ban",
+            "ban lai",
+            "ban la chinh",
+        )
+    ) or folded.strip(" .,!?:;") == "ban"
+    if "thau" in folded:
+        return "nha_thau_nho"
+    if has_install and has_sell:
+        return "nha_thau_nho"
+    if has_install:
+        return "tho_doi"
+    if has_sell:
+        return "dai_ly"
+    if any(p in folded for p in ("dich vu", "bao tri", "sua chua")):
+        return "s_dich_vu"
+    return None
 
 
 def merge_extracted(
@@ -48,6 +95,17 @@ def merge_extracted(
             continue
         setattr(profile, field, value)
 
+    # business_model_signal -> dealer_type (business type), not conversation tone.
+    if "business_model_signal" in extracted and extracted.get("business_model_signal"):
+        derived_dealer_type = derive_business_dealer_type(profile.business_model_signal)
+        if derived_dealer_type:
+            profile.dealer_type = derived_dealer_type
+            logger.info(
+                "Auto-derive business dealer_type: %r -> %s",
+                profile.business_model_signal,
+                derived_dealer_type,
+            )
+
     # Province + district sau khi address fill
     if "address" in extracted and extracted.get("address") and not profile.province:
         province, district = parse_address(profile.address, client=client)
@@ -55,6 +113,13 @@ def merge_extracted(
             profile.province = province
         if district:
             profile.district = district
+
+    if "address" in extracted and extracted.get("address"):
+        local_province, local_district = derive_known_local_address(profile.address)
+        if local_province:
+            profile.province = local_province
+        if local_district:
+            profile.district = local_district
 
     # main_category sau khi main_product fill
     if (
@@ -134,3 +199,12 @@ def merge_extracted(
                 "Auto-derive slogans: dealer=%r → %d options",
                 profile.dealer_name, len(slogans),
             )
+
+
+def derive_known_local_address(address: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+    folded = _fold_vn(address or "")
+    if "ocean park" in folded:
+        return "Hà Nội", "Gia Lâm"
+    if "ecopark" in folded:
+        return "Hưng Yên", "Văn Giang"
+    return None, None

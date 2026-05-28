@@ -81,7 +81,10 @@ def _render_section_1_danh_thiep(profile: DealerProfileRaw) -> str:
     lines.append(f"   • Chủ: {_fmt(profile.owner_name, required=True)}")
     lines.append(f"   • Tên cửa hàng: {_fmt(profile.dealer_name, required=True)}")
     lines.append(f"   • Địa chỉ: {_fmt(profile.address, required=True)}")
-    lines.append(f"   • SĐT / Zalo: {_fmt(profile.phone_or_zalo, required=True)}")
+    lines.append(f"   • SĐT (Zalo): {_fmt(profile.phone_or_zalo, required=True)}")  # FIX M3
+    # FIX M2: hiển thị SĐT phụ nếu dealer cho 2 số
+    if profile.phone_secondary:
+        lines.append(f"   • SĐT phụ: {profile.phone_secondary}")
     if profile.facebook:
         lines.append(f"   • Facebook: {profile.facebook}")
     return "\n".join(lines)

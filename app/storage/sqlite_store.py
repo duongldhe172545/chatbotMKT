@@ -94,13 +94,24 @@ class SQLiteStore:
 
     def _ensure_runtime_columns(self, conn: sqlite3.Connection) -> None:
         """Add columns introduced after initial SQLite DB creation."""
-        existing = {
+        # --- sessions table ---
+        existing_sessions = {
             row["name"]
             for row in conn.execute("PRAGMA table_info(sessions)").fetchall()
         }
         for column in ("pending_address_text", "pending_address_canonical", "acked_direct_keys"):
-            if column not in existing:
+            if column not in existing_sessions:
                 conn.execute(f"ALTER TABLE sessions ADD COLUMN {column} TEXT")
+
+        # --- dealer_profile_raw table (FIX M2) ---
+        existing_profile = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(dealer_profile_raw)").fetchall()
+        }
+        for column in ("phone_secondary",):
+            if column not in existing_profile:
+                conn.execute(f"ALTER TABLE dealer_profile_raw ADD COLUMN {column} TEXT")
+                logger.info("Added column %s to dealer_profile_raw", column)
 
     @contextmanager
     def _connect(self):

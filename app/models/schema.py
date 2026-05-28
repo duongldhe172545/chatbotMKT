@@ -94,6 +94,7 @@ class DealerProfileRaw(BaseModel):
     owner_name: Optional[str] = None               # slot 1.1
     address: Optional[str] = None                  # slot 1.2
     phone_or_zalo: Optional[str] = None            # slot 1.3 (digits-only, len 9-11)
+    phone_secondary: Optional[str] = None           # FIX M2: slot 1.3 — SĐT phụ khi dealer cho 2 số
     main_product: Optional[str] = None             # slot 2.1
     brandkit_consent: Optional[str] = None         # slot 4.0 — "yes" / "no"
 

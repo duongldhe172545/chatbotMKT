@@ -155,9 +155,13 @@ def auto_rewrite(text: str) -> str:
     result = trim_emojis(result, max_count=1)
 
     # 4. Collapse multi-space + strip stray punctuation
-    result = re.sub(r"\s+", " ", result).strip()
+    # FIX H3: dùng [^\S\n]+ thay \s+ để GIỮ newline (card rendering)
+    result = re.sub(r"[^\S\n]+", " ", result)
+    # Collapse 3+ newlines → max 2 (giữ paragraph spacing cho card)
+    result = re.sub(r"\n{3,}", "\n\n", result)
+    result = result.strip()
     # Bỏ space trước dấu câu
-    result = re.sub(r"\s+([,.!?;:])", r"\1", result)
+    result = re.sub(r"[^\S\n]*([,.!?;:])", r"\1", result)
     return result
 
 
@@ -202,9 +206,11 @@ def trim_emojis(text: str, max_count: int = 1) -> str:
         else:
             result_chars.append(char)
     result = "".join(result_chars)
-    # Cleanup: collapse multi-space + strip space trước dấu câu
-    result = re.sub(r"\s+", " ", result).strip()
-    result = re.sub(r"\s+([,.!?;:])", r"\1", result)
+    # Cleanup: collapse multi-space (giữ newline) + strip space trước dấu câu
+    result = re.sub(r"[^\S\n]+", " ", result)
+    result = re.sub(r"\n{3,}", "\n\n", result)
+    result = result.strip()
+    result = re.sub(r"[^\S\n]*([,.!?;:])", r"\1", result)
     logger.info(
         "Drift trim emoji: %d → %d (text head=%r)",
         count_emojis(text), kept, text[:60],

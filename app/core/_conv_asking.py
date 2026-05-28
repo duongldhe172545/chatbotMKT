@@ -176,11 +176,42 @@ def handle_asking(
         ack = "Dạ em hỏi lại — ý em là chia sẻ thêm chút thông tin để em hoàn thiện hồ sơ ạ."
         return f"{ack}\n\n{question}" if question else ack
 
+    # ---------------------------------------------------------------
+    # Mid-flow CORRECTION detect: dealer sửa thông tin đã fill trước đó
+    # Vd: "ecopark chứ phố nối cái gì", "không phải 0912 mà 0987"
+    # ---------------------------------------------------------------
+    correction_reply = _handle_mid_correction(
+        session, profile, message, client, current_slot
+    )
+    if correction_reply:
+        return correction_reply
+
+    suggestion_reply = _handle_slot_suggestion(
+        session=session,
+        profile=profile,
+        message=message,
+        current_slot=current_slot,
+    )
+    if suggestion_reply:
+        return suggestion_reply
+
     # Extract field (Phase 2: 16 slot có extractor)
     extracted = _extract_and_merge(session, profile, message, client, current_slot)
     clarify_reply = _get_internal_reply(extracted)
     if clarify_reply:
         return clarify_reply
+
+    if intent == Intent.TAM_SU and _has_slot_relevant_extracted_value(
+        current_slot, extracted
+    ):
+        logger.info(
+            "TAM_SU intent suppressed because current slot data was extracted: "
+            "session=%s slot=%s extracted=%s",
+            session.session_id,
+            current_slot,
+            extracted,
+        )
+        intent = Intent.NORMAL
 
     # State machine quyết action (Phase 5 R6: profile-aware)
     next_slot, action = decide_action(session, intent, extracted, profile=profile)
@@ -282,6 +313,517 @@ def handle_asking(
     return safe_ack()
 
 
+# ============================================================
+# Mid-flow correction handler
+# ============================================================
+
+import re as _re_corr
+
+# Patterns that indicate dealer is correcting previously-filled data
+_CORRECTION_PATTERNS = [
+    # "ecopark chứ phố nối cái gì" / "X chứ Y gì"
+    _re_corr.compile(r'(.+?)\s+chứ\s+(.+?)\s+(cái\s+)?gì', _re_corr.IGNORECASE),
+    # "không phải X mà Y" / "không phải X, Y mới đúng"
+    _re_corr.compile(r'không\s+phải\s+(.+?)\s*[,]\s*(.+?)(?:\s+mới\s+đúng)?$', _re_corr.IGNORECASE),
+    # "X chứ không phải Y"
+    _re_corr.compile(r'(.+?)\s+chứ\s+không\s+phải\s+(.+)', _re_corr.IGNORECASE),
+    # "em ghi sai rồi, X chứ" / "sai rồi, X mới đúng"
+    _re_corr.compile(r'(?:sai\s+rồi|ghi\s+sai)[,.]?\s*(.+?)(?:\s+mới\s+đúng|\s+chứ)', _re_corr.IGNORECASE),
+]
+
+_CORRECTION_MARKER_RE = _re_corr.compile(
+    r"\b(nhầm|nham|sai\s+rồi|sai\s+roi|ghi\s+sai|không\s+phải|khong\s+phai|"
+    r"chỉnh\s+lại|chinh\s+lai|sửa\s+lại|sua\s+lai|đổi\s+lại|doi\s+lai)\b",
+    _re_corr.IGNORECASE,
+)
+
+_TRAILING_CORRECTION_WORDS_RE = _re_corr.compile(
+    r"\s+(chứ|chu|mới\s+đúng|moi\s+dung|nhé|nhe|nha|ạ|a)\s*$",
+    _re_corr.IGNORECASE,
+)
+
+_ADDRESS_CORRECTION_PATTERNS = [
+    _re_corr.compile(
+        r"(?:nhầm|nham|sai\s+rồi|sai\s+roi|ghi\s+sai)[,.\s]*(?:ở|o|địa\s+chỉ(?:\s+là)?|dia\s+chi(?:\s+la)?)\s+(.+)$",
+        _re_corr.IGNORECASE,
+    ),
+    _re_corr.compile(
+        r"(?:địa\s+chỉ|dia\s+chi)\s*(?:là|la|thành|thanh|sang)?\s+(.+)$",
+        _re_corr.IGNORECASE,
+    ),
+    _re_corr.compile(
+        r"(?:^|[,.\s])(?:ở|o)\s+(.+)$",
+        _re_corr.IGNORECASE,
+    ),
+]
+
+# Map profile field names → display labels for acknowledgment
+_FIELD_DISPLAY = {
+    "owner_name": "tên",
+    "dealer_name": "tên cửa hàng",
+    "address": "địa chỉ",
+    "phone_or_zalo": "số điện thoại",
+    "main_product": "sản phẩm chính",
+    "supplier_brands": "hãng nhập",
+    "brandkit_consent": "đồng ý nhận bộ thương hiệu",
+}
+
+
+def _handle_mid_correction(
+    session: SessionState,
+    profile: DealerProfileRaw,
+    message: str,
+    client: LLMClient,
+    current_slot: Optional[str],
+) -> Optional[str]:
+    """Detect and handle mid-flow corrections of previously filled data.
+
+    When dealer says "ecopark chứ phố nối cái gì", we:
+    1. Detect correction intent via regex
+    2. Extract the correct value from the message
+    3. Find which profile field the dealer is correcting
+    4. Update profile
+    5. Acknowledge + re-ask current slot
+    """
+    msg = (message or "").strip()
+    if not msg or len(msg) < 5:
+        return None
+
+    direct = _parse_anytime_correction(msg, profile)
+    if direct:
+        target_field, correct_value = direct
+        return _apply_mid_correction(
+            session=session,
+            profile=profile,
+            client=client,
+            current_slot=current_slot,
+            target_field=target_field,
+            correct_value=correct_value,
+        )
+
+    correct_value: Optional[str] = None
+    wrong_value: Optional[str] = None
+
+    for pattern in _CORRECTION_PATTERNS:
+        m = pattern.search(msg)
+        if m:
+            groups = m.groups()
+            if len(groups) >= 2:
+                # First group = correct value, second = wrong value (for "X chứ Y gì")
+                # OR first group = wrong value, second = correct value (for "không phải X mà Y")
+                g1, g2 = groups[0].strip(), groups[1].strip()
+                # Heuristic: check which group matches existing profile data
+                match_field, matched_val = _find_matching_profile_field(profile, g1, g2)
+                if match_field:
+                    if matched_val == g1:
+                        wrong_value = g1
+                        correct_value = g2
+                    else:
+                        wrong_value = g2
+                        correct_value = g1
+                    break
+                # If pattern is "X chứ Y gì" → X is correct, Y is wrong
+                if "chứ" in msg and "không phải" not in msg.lower():
+                    correct_value = g1
+                    wrong_value = g2
+                    match_field, _ = _find_matching_profile_field(profile, g2)
+                    break
+
+    if not correct_value:
+        return None
+
+    # Find which field to update
+    target_field = None
+    if wrong_value:
+        target_field, _ = _find_matching_profile_field(profile, wrong_value)
+    if not target_field and wrong_value:
+        # Try harder: fuzzy match against profile values
+        target_field = _fuzzy_find_field(profile, wrong_value)
+
+    if not target_field:
+        return None  # Can't determine which field → let normal flow handle
+
+    return _apply_mid_correction(
+        session=session,
+        profile=profile,
+        client=client,
+        current_slot=current_slot,
+        target_field=target_field,
+        correct_value=correct_value,
+    )
+
+
+def _parse_anytime_correction(
+    message: str,
+    profile: DealerProfileRaw,
+) -> Optional[tuple[str, object]]:
+    """Parse corrections that can arrive while another slot is active."""
+    msg = (message or "").strip()
+    if not msg:
+        return None
+
+    supplier_update = _parse_supplier_brand_correction(msg, profile)
+    if supplier_update:
+        return "supplier_brands", supplier_update
+
+    if not _CORRECTION_MARKER_RE.search(msg):
+        return None
+
+    try:
+        from app.core.edit_parser import parse_edit_command
+
+        parsed = parse_edit_command(msg)
+    except Exception:
+        parsed = None
+    if parsed:
+        field, value = parsed
+        if _profile_has_value(profile, field):
+            return field, value
+
+    msg_fold = _fold_vn(msg)
+    if _profile_has_value(profile, "address") and (
+        " o " in f" {msg_fold} "
+        or " dia chi" in msg_fold
+        or " khu vuc" in msg_fold
+    ):
+        value = _extract_address_correction_value(msg)
+        if value:
+            return "address", value
+
+    if _profile_has_value(profile, "phone_or_zalo"):
+        digits = _re_corr.sub(r"\D", "", msg)
+        if 9 <= len(digits) <= 11:
+            return "phone_or_zalo", digits
+
+    if _profile_has_value(profile, "dealer_name") and "cua hang" in msg_fold:
+        value = _extract_after_field_hint(msg, ("cửa hàng", "cua hang", "tên cửa hàng", "ten cua hang"))
+        if value:
+            return "dealer_name", value
+
+    if _profile_has_value(profile, "owner_name") and "ten" in msg_fold:
+        value = _extract_after_field_hint(msg, ("tên anh", "ten anh", "tên tôi", "ten toi", "tên chị", "ten chi"))
+        if value:
+            return "owner_name", value
+
+    return None
+
+
+def _apply_mid_correction(
+    *,
+    session: SessionState,
+    profile: DealerProfileRaw,
+    client: LLMClient,
+    current_slot: Optional[str],
+    target_field: str,
+    correct_value: object,
+) -> str:
+    """Apply correction, refresh derived fields, then continue current slot."""
+    old_value = getattr(profile, target_field, None)
+    if target_field == "address":
+        profile.province = None
+        profile.district = None
+        session.pending_address_text = None
+        session.pending_address_canonical = None
+        if isinstance(correct_value, str) and _needs_address_province_confirmation(correct_value):
+            correct_value = _canonical_address_guess(correct_value)
+    extracted = {target_field: correct_value}
+    merge_extracted(profile, extracted, client=client)
+    display = _FIELD_DISPLAY.get(target_field, target_field)
+    af = session.address_form.value
+
+    logger.info(
+        "Mid-flow correction: session=%s field=%s old=%r new=%r",
+        session.session_id, target_field, old_value, correct_value,
+    )
+
+    # Acknowledge correction + re-ask current slot
+    if isinstance(correct_value, list):
+        value_text = ", ".join(str(v).strip() for v in correct_value if str(v).strip())
+    else:
+        value_text = str(correct_value)
+    ack = f"Dạ em sửa lại {display} thành {value_text} rồi ạ."
+    if target_field == "address":
+        local_note = _local_address_note(value_text)
+        if local_note:
+            ack = f"{ack} {local_note}"
+    if (
+        target_field == "supplier_brands"
+        and current_slot == "2.4"
+        and not profile.customer_segment_signal
+    ):
+        question = gen_partial_question(current_slot, profile)
+    else:
+        question = get_slot_question_for_attempt(current_slot, session)
+    if question:
+        return f"{ack}\n\n{question}"
+    return ack
+
+
+def _profile_has_value(profile: DealerProfileRaw, field: str) -> bool:
+    value = getattr(profile, field, None)
+    return value is not None and value != "" and value != []
+
+
+def _extract_address_correction_value(message: str) -> Optional[str]:
+    for pattern in _ADDRESS_CORRECTION_PATTERNS:
+        match = pattern.search(message)
+        if not match:
+            continue
+        value = _clean_correction_value(match.group(1))
+        if value:
+            return value
+    return None
+
+
+def _extract_after_field_hint(message: str, hints: tuple[str, ...]) -> Optional[str]:
+    msg = message.strip()
+    folded = _fold_vn(msg)
+    for hint in hints:
+        idx = folded.find(_fold_vn(hint))
+        if idx < 0:
+            continue
+        value = msg[idx + len(hint):]
+        value = _re_corr.sub(r"^\s*(là|la|thành|thanh|sang|:|-)\s*", "", value, flags=_re_corr.IGNORECASE)
+        value = _clean_correction_value(value)
+        if value:
+            return value
+    return None
+
+
+def _parse_supplier_brand_correction(
+    message: str,
+    profile: DealerProfileRaw,
+) -> Optional[list[str]]:
+    existing = list(profile.supplier_brands or [])
+    if not existing:
+        return None
+
+    msg = (message or "").strip()
+    if not msg:
+        return None
+
+    patterns = (
+        ("new_old", _re_corr.compile(r"(?:^|ý\s+là\s+|y\s+la\s+)(.+?)\s+chứ\s+không\s+phải\s+(.+)$", _re_corr.IGNORECASE)),
+        ("old_new", _re_corr.compile(r"không\s+phải\s+(.+?)\s+(?:mà|,)\s*(.+)$", _re_corr.IGNORECASE)),
+        ("new_old_ascii", _re_corr.compile(r"(?:^|y\s+la\s+)(.+?)\s+chu\s+khong\s+phai\s+(.+)$", _re_corr.IGNORECASE)),
+        ("old_new_ascii", _re_corr.compile(r"khong\s+phai\s+(.+?)\s+(?:ma|,)\s*(.+)$", _re_corr.IGNORECASE)),
+    )
+    for direction, pattern in patterns:
+        match = pattern.search(msg)
+        if not match:
+            continue
+        first = _clean_brand_correction_value(match.group(1))
+        second = _clean_brand_correction_value(match.group(2))
+        if not first or not second:
+            continue
+        if direction.startswith("new_old"):
+            updated = _replace_supplier_brand(existing, new_raw=first, old_raw=second)
+        else:
+            updated = _replace_supplier_brand(existing, new_raw=second, old_raw=first)
+        if updated:
+            return updated
+
+    mentioned_brands = _extract_known_supplier_brands(msg)
+    if mentioned_brands:
+        return _merge_supplier_brand_updates(existing, mentioned_brands)
+
+    # Bare follow-up after fuzzy extraction, e.g. "alumax em ơi" right after
+    # the bot already stored "Alumac".
+    candidate = _clean_brand_correction_value(msg)
+    if candidate and len(candidate.split()) <= 3:
+        return _replace_supplier_brand(existing, new_raw=candidate, old_raw=None)
+    return None
+
+
+def _clean_brand_correction_value(value: str) -> Optional[str]:
+    cleaned = _clean_correction_value(value)
+    if not cleaned:
+        return None
+    cleaned = _re_corr.sub(
+        r"^(ý\s+là|y\s+la|là|la)\s+",
+        "",
+        cleaned.strip(),
+        flags=_re_corr.IGNORECASE,
+    )
+    cleaned = _re_corr.sub(
+        r"\s+(em\s+ơi|em\s+oi|em|anh\s+ơi|anh\s+oi|anh|chị\s+ơi|chi\s+oi|chị|chi|nhé|nhe|nha|ạ|a)$",
+        "",
+        cleaned.strip(),
+        flags=_re_corr.IGNORECASE,
+    )
+    return cleaned.strip(" .,!?:;\"'") or None
+
+
+def _canonical_brand_name(value: str) -> str:
+    fixed = correct_brand(value).strip()
+    known = {
+        "alumax": "Alumax",
+        "alumac": "Alumac",
+        "koffman": "Koffman",
+        "austdoor": "Austdoor",
+        "titadoor": "Titadoor",
+        "titado": "Titadoor",
+        "tita do": "Titadoor",
+        "mitadoor": "Mitadoor",
+        "mitado": "Mitadoor",
+        "mita do": "Mitadoor",
+        "xingfa": "Xingfa",
+    }
+    key = _fold_vn(fixed)
+    return known.get(key, fixed[:1].upper() + fixed[1:] if fixed.islower() else fixed)
+
+
+def _extract_known_supplier_brands(message: str) -> list[str]:
+    msg = _fold_vn(message or "")
+    known_patterns = (
+        ("Austdoor", ("austdoor", "aust door", "ot do", "ot door")),
+        ("Titadoor", ("titadoor", "tita door", "tita do", "ti ta do", "titado")),
+        ("Mitadoor", ("mitadoor", "mita door", "mita do", "mi ta do", "mitado")),
+        ("Koffman", ("koffman", "cop man", "cop men", "kop men")),
+        ("Alumax", ("alumax",)),
+        ("Alumac", ("alumac",)),
+    )
+    result: list[str] = []
+    seen: set[str] = set()
+    for canonical, patterns in known_patterns:
+        if any(p in msg for p in patterns):
+            key = canonical.casefold()
+            if key not in seen:
+                seen.add(key)
+                result.append(canonical)
+    return result
+
+
+def _merge_supplier_brand_updates(existing: list[str], updates: list[str]) -> list[str]:
+    merged = [_canonical_brand_name(str(b)) for b in existing if str(b).strip()]
+    for brand in updates:
+        updated = _replace_supplier_brand(merged, new_raw=brand, old_raw=None)
+        if updated:
+            merged = updated
+            continue
+        canonical = _canonical_brand_name(brand)
+        if _brand_compare_key(canonical) not in {_brand_compare_key(b) for b in merged}:
+            merged.append(canonical)
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for brand in merged:
+        key = _brand_compare_key(brand)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        deduped.append(brand)
+    return deduped
+
+
+def _replace_supplier_brand(
+    existing: list[str],
+    *,
+    new_raw: str,
+    old_raw: Optional[str],
+) -> Optional[list[str]]:
+    import difflib
+
+    new_brand = _canonical_brand_name(new_raw)
+    if not new_brand:
+        return None
+    existing_clean = [_canonical_brand_name(str(b)) for b in existing if str(b).strip()]
+    if not existing_clean:
+        return None
+
+    new_key = _brand_compare_key(new_brand)
+    old_key = _brand_compare_key(old_raw) if old_raw else ""
+    best_idx: Optional[int] = None
+    best_score = 0.0
+    for idx, brand in enumerate(existing_clean):
+        brand_key = _brand_compare_key(brand)
+        if old_key and (old_key == brand_key or old_key in brand_key or brand_key in old_key):
+            best_idx = idx
+            best_score = 1.0
+            break
+        score = difflib.SequenceMatcher(None, new_key, brand_key).ratio()
+        if score > best_score:
+            best_score = score
+            best_idx = idx
+
+    if best_idx is None:
+        return None
+    if not old_key and best_score < 0.72:
+        return None
+
+    existing_clean[best_idx] = new_brand
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for brand in existing_clean:
+        key = _brand_compare_key(brand)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        deduped.append(brand)
+    return deduped
+
+
+def _brand_compare_key(value: Optional[str]) -> str:
+    return _re_corr.sub(r"[^a-z0-9]+", "", _fold_vn(value or ""))
+
+
+def _clean_correction_value(value: str) -> Optional[str]:
+    cleaned = (value or "").strip(" .,!?:;\"'")
+    cleaned = _TRAILING_CORRECTION_WORDS_RE.sub("", cleaned).strip(" .,!?:;\"'")
+    cleaned = _re_corr.sub(
+        r"^(à|a|ờ|ơ|ừ|uh|ừm|um|nhầm|nham|sai\s+rồi|sai\s+roi|ghi\s+sai)[,.\s]+",
+        "",
+        cleaned,
+        flags=_re_corr.IGNORECASE,
+    ).strip(" .,!?:;\"'")
+    if len(cleaned) < 2 or len(cleaned) > 200:
+        return None
+    return cleaned
+
+
+def _find_matching_profile_field(
+    profile: DealerProfileRaw,
+    *candidates: str,
+) -> tuple[Optional[str], Optional[str]]:
+    """Find which profile field matches any of the candidate values.
+
+    Returns (field_name, matched_candidate) or (None, None).
+    """
+    check_fields = ["address", "owner_name", "dealer_name", "phone_or_zalo", "main_product"]
+    for field in check_fields:
+        val = getattr(profile, field, None)
+        if not val:
+            continue
+        val_lower = str(val).lower().strip()
+        for c in candidates:
+            c_lower = c.lower().strip()
+            # Substring match (either direction)
+            if c_lower in val_lower or val_lower in c_lower:
+                return (field, c)
+    return (None, None)
+
+
+def _fuzzy_find_field(profile: DealerProfileRaw, wrong_text: str) -> Optional[str]:
+    """Fuzzy-match wrong_text against profile values using partial overlap."""
+    if not wrong_text:
+        return None
+    wrong_words = set(wrong_text.lower().split())
+    if not wrong_words:
+        return None
+    check_fields = ["address", "owner_name", "dealer_name", "phone_or_zalo", "main_product"]
+    best_field = None
+    best_overlap = 0
+    for field in check_fields:
+        val = getattr(profile, field, None)
+        if not val:
+            continue
+        val_words = set(str(val).lower().split())
+        overlap = len(wrong_words & val_words)
+        if overlap > best_overlap:
+            best_overlap = overlap
+            best_field = field
+    return best_field if best_overlap > 0 else None
+
+
 def _get_internal_reply(extracted: Optional[dict]) -> Optional[str]:
     """Return internal control reply from extractor helpers, if any."""
     if not extracted:
@@ -294,6 +836,23 @@ def _has_extracted_value(extracted: Optional[dict]) -> bool:
     if not extracted:
         return False
     return any(v is not None and v != "" and v != [] for v in extracted.values())
+
+
+def _has_slot_relevant_extracted_value(
+    slot_id: Optional[str],
+    extracted: Optional[dict],
+) -> bool:
+    if not slot_id or not extracted:
+        return False
+    from app.slots.definitions import SLOT_TO_ALL_FIELDS, SLOT_TO_REQUIRED_FIELDS
+
+    fields = set(SLOT_TO_ALL_FIELDS.get(slot_id, []))
+    fields.update(SLOT_TO_REQUIRED_FIELDS.get(slot_id, []))
+    for field in fields:
+        value = extracted.get(field)
+        if value is not None and value != "" and value != []:
+            return True
+    return False
 
 
 def _extract_and_merge(
@@ -639,8 +1198,53 @@ def _apply_deterministic_slot_fixes(
     msg = (message or "").strip()
     msg_fold = _fold_vn(msg)
 
+    # FIX M2: deterministic extract 2 SĐT cho slot 1.3
+    if slot_id == "1.3":
+        import re as _re_phone
+        phone_matches = _re_phone.findall(r'0\d{8,10}', msg)
+        if len(phone_matches) >= 2 and not extracted.get("phone_secondary"):
+            if not extracted.get("phone_or_zalo"):
+                extracted["phone_or_zalo"] = phone_matches[0]
+                deterministic_fields.add("phone_or_zalo")
+            extracted["phone_secondary"] = phone_matches[1]
+            deterministic_fields.add("phone_secondary")
+
+    if slot_id == "4.0":
+        if _is_brandkit_affirmative_after_soft_no(msg_fold):
+            extracted["brandkit_consent"] = "yes"
+            deterministic_fields.add("brandkit_consent")
+
+    # FIX C1: deterministic fix cho slot 2.2 — business_model_signal
+    # LLM extractor hay miss câu trả lời ngắn "phân phối thuần", "làm hết"...
+    if slot_id == "2.2":
+        current_biz_raw = _fold_vn(str(extracted.get("business_model_signal") or "")).strip(" .,!?:;")
+        if not extracted.get("business_model_signal") or current_biz_raw in {"ban", "ban thoi", "chi ban"}:
+            _biz_keywords = {
+                "phan phoi": "phân phối thuần",
+                "dai ly": "đại lý phân phối",
+                "ban le": "bán lẻ",
+                "ban hang": "bán hàng",
+                "ban thoi": "bán thôi",
+                "chi ban": "bán thôi",
+                "thi cong": "thi công + lắp đặt",
+                "lam het": "trọn gói (thi công + phân phối)",
+                "xuong": "có xưởng sản xuất",
+                "lap dat": "thi công lắp đặt",
+                "lam tron": "trọn gói",
+                "tron goi": "trọn gói",
+            }
+            for kw, val in _biz_keywords.items():
+                if kw in msg_fold:
+                    extracted["business_model_signal"] = val
+                    deterministic_fields.add("business_model_signal")
+                    break
+
     if slot_id == "2.4":
-        if _normalize_supplier_brands(msg, extracted):
+        supplier_update = _parse_supplier_brand_correction(msg, profile)
+        if supplier_update:
+            extracted["supplier_brands"] = supplier_update
+            deterministic_fields.add("supplier_brands")
+        elif _normalize_supplier_brands(msg, extracted):
             deterministic_fields.add("supplier_brands")
         if not extracted.get("customer_segment_signal"):
             if "nha dan" in msg_fold:
@@ -660,6 +1264,9 @@ def _apply_deterministic_slot_fixes(
             deterministic_fields.add("zalo")
         if not extracted.get("primary_contact_channel"):
             if _mentions_referral_source(msg_fold):
+                extracted["primary_contact_channel"] = msg
+                deterministic_fields.add("primary_contact_channel")
+            elif _mentions_customer_self_source(msg_fold):
                 extracted["primary_contact_channel"] = msg
                 deterministic_fields.add("primary_contact_channel")
         if _says_no_online_channel(msg_fold):
@@ -704,6 +1311,24 @@ def _apply_deterministic_slot_fixes(
             if not extracted.get("customer_old_percentage"):
                 extracted["customer_old_percentage"] = msg
             deterministic_fields.add("customer_old_percentage")
+
+    if slot_id == "3.2":
+        if _says_no_customer_storage(msg_fold):
+            extracted["customer_storage_method"] = "không lưu"
+            deterministic_fields.add("customer_storage_method")
+
+    if slot_id == "3.3":
+        if _says_no_customer_pain(msg_fold):
+            extracted["customer_pain"] = "không có vướng mắc lớn"
+            deterministic_fields.add("customer_pain")
+
+    if slot_id == "3.5":
+        if any(p in msg_fold for p in ("bao cho hang", "bao hang", "day ve hang", "nha cung cap", "hang xu ly")):
+            extracted["warranty_responsibility_signal"] = msg
+            deterministic_fields.add("warranty_responsibility_signal")
+        elif any(p in msg_fold for p in ("tu lo", "tu xu ly", "anh xu ly", "ben anh xu ly", "cua hang xu ly", "lo het")):
+            extracted["warranty_responsibility_signal"] = msg
+            deterministic_fields.add("warranty_responsibility_signal")
 
     return deterministic_fields
 
@@ -772,6 +1397,18 @@ def _mentions_referral_source(msg_fold: str) -> bool:
     return any(p in msg_fold for p in patterns)
 
 
+def _mentions_customer_self_source(msg_fold: str) -> bool:
+    patterns = (
+        "khach tu tim",
+        "tu tim den",
+        "khach tu den",
+        "noi tieng",
+        "uy tin nen khach",
+        "khach tim den",
+    )
+    return any(p in msg_fold for p in patterns)
+
+
 def _says_no_online_channel(msg_fold: str) -> bool:
     patterns = (
         "chua co kenh nao",
@@ -826,6 +1463,57 @@ def _says_light_network(msg_fold: str) -> bool:
     return any(p in msg_fold for p in patterns)
 
 
+def _says_no_customer_storage(msg_fold: str) -> bool:
+    patterns = (
+        "khong luu",
+        "chua luu",
+        "khong luu luon",
+        "khong co luu",
+        "khong co danh sach",
+        "chua co danh sach",
+        "khong ghi lai",
+        "khong quan ly",
+    )
+    return any(p in msg_fold for p in patterns)
+
+
+def _says_no_customer_pain(msg_fold: str) -> bool:
+    patterns = (
+        "khong kho",
+        "khong vuong",
+        "khong van de",
+        "khong gap kho",
+        "khong co gi kho",
+        "khong kho ti nao",
+        "khong kho ty nao",
+        "on het",
+    )
+    return any(p in msg_fold for p in patterns)
+
+
+def _is_brandkit_affirmative_after_soft_no(msg_fold: str) -> bool:
+    msg = msg_fold.strip(" .,!?:;")
+    yes_patterns = (
+        "u roi",
+        "uh roi",
+        "um roi",
+        "ok roi",
+        "oke roi",
+        "duoc roi",
+        "the cung duoc",
+        "lam di",
+        "lam thu",
+        "cu lam",
+        "co",
+        "dong y",
+        "nhan",
+    )
+    no_patterns = ("khong", "thoi", "khong can", "khong them", "mien")
+    if any(p in msg for p in no_patterns):
+        return False
+    return msg in yes_patterns or any(p in msg for p in yes_patterns)
+
+
 def _is_ack_only(message: str) -> bool:
     msg = _fold_vn(message).strip(" .,!?:;")
     return msg in {"u", "uh", "ua", "uk", "o", "ok", "oke", "vang", "da", "duoc", "roi"}
@@ -865,6 +1553,52 @@ def _handle_boundary_flirt(
     question = get_slot_question_for_attempt(current_slot, session)
     bridge = "Em chỉ trao đổi công việc ở đây thôi ạ. Mình quay lại thông tin cửa hàng nhé."
     return f"{bridge}\n\n{question}" if question else bridge
+
+
+def _handle_slot_suggestion(
+    *,
+    session: SessionState,
+    profile: DealerProfileRaw,
+    message: str,
+    current_slot: Optional[str],
+) -> Optional[str]:
+    if current_slot != "4.2":
+        return None
+    msg = _fold_vn(message)
+    suggestion_markers = (
+        "em goi y",
+        "em chon",
+        "tuy em",
+        "em thich mau",
+        "mau gi anh thich mau day",
+        "mau gi cung duoc",
+        "em thay mau nao",
+    )
+    if not any(p in msg for p in suggestion_markers):
+        return None
+
+    color = _suggest_brand_color(profile)
+    profile.color_accent = color
+    if not profile.feng_shui_signal:
+        profile.feng_shui_signal = "để bot gợi ý theo ngành"
+
+    product = (profile.main_product or "ngành mình").strip()
+    return (
+        f"Dạ, nếu để em gợi ý thì với mảng {product}, em chọn {color}; "
+        "hướng này nhìn chắc thương hiệu mà vẫn dễ dùng trên logo, danh thiếp.\n\n"
+        "Anh chốt hướng màu đó nhé?"
+    )
+
+
+def _suggest_brand_color(profile: DealerProfileRaw) -> str:
+    folded = _fold_vn(" ".join([profile.main_category or "", profile.main_product or ""]))
+    if "cua_thep" in folded or "cua thep" in folded or "thep" in folded:
+        return "xanh đen phối ghi bạc"
+    if "tu_bep" in folded or "tu bep" in folded or "bep" in folded:
+        return "xanh rêu phối kem"
+    if "nhom" in folded or "kinh" in folded or "cua cuon" in folded:
+        return "xanh dương phối ghi bạc"
+    return "xanh dương phối ghi bạc"
 
 
 def _slot_has_any_profile_value(slot_id: str, profile: DealerProfileRaw) -> bool:
@@ -914,6 +1648,15 @@ def _canonical_address_guess(address: str) -> str:
     if folded in _DISTRICT_PROVINCE_GUESSES:
         return _DISTRICT_PROVINCE_GUESSES[folded]
     return address.strip()
+
+
+def _local_address_note(address: str) -> Optional[str]:
+    folded = _fold_vn(address)
+    if "ecopark" in folded:
+        return "Khu Ecopark nhiều nhà ở hoàn thiện chỉn chu, hợp để mình làm thương hiệu nhìn gọn và tin cậy hơn."
+    if "ocean park" in folded:
+        return "Khu Ocean Park nhiều căn hộ và nhà phố mới, nhu cầu hoàn thiện cửa/nội thất thường khá rõ."
+    return None
 
 
 # Province keywords that indicate address already has province info
@@ -978,6 +1721,8 @@ def _is_short_address_without_province(address: Optional[str]) -> bool:
 
 _DISTRICT_PROVINCE_GUESSES: dict[str, str] = {
     # Hà Nội
+    "ecopark": "Ecopark, Văn Giang, Hưng Yên",
+    "ocean park": "Ocean Park, Gia Lâm, Hà Nội",
     "ha dong": "Hà Đông, Hà Nội",
     "quan ha dong": "Hà Đông, Hà Nội",
     "q ha dong": "Hà Đông, Hà Nội",

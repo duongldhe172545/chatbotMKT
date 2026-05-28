@@ -53,9 +53,9 @@
         </div>
 
         <div class="stats-block">
-          <h3>Phân bố theo Dealer type</h3>
+          <h3>Phân bố theo Conversation tone</h3>
           <table class="stats-table">
-            <thead><tr><th>Type</th><th>Số session</th></tr></thead>
+            <thead><tr><th>Tone</th><th>Số session</th></tr></thead>
             <tbody id="stats-by-dealer-type"></tbody>
           </table>
         </div>
@@ -91,7 +91,7 @@
             <option value="EDITED">EDITED</option>
           </select>
         </label>
-        <label title="Tone dealer detect được (refer File 1B § 2)">Dealer type:
+        <label title="Tone hội thoại detect được (lua_lo/khoe/lo/ban), không phải loại hình đại lý">Conversation tone:
           <select id="filter-dealer-type">
             <option value="">— Tất cả —</option>
             <option value="lua_lo">🔥 Lửa Lò (cộc, nóng tính)</option>
@@ -116,7 +116,7 @@
             <th>Slot</th>
             <th>Turns</th>
             <th>Confirm</th>
-            <th>Type</th>
+            <th>Tone</th>
             <th>Flags</th>
             <th>Updated</th>
             <th>Action</th>

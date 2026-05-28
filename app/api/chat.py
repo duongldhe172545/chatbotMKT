@@ -14,6 +14,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.core.conversation import handle_message, start_session
+from app.core.reply_pipeline import compose_and_validate_reply
 from app.core.session import create_session
 from app.llm.client import LLMClient, get_default_client
 from app.models.schema import DealerProfileRaw
@@ -60,6 +61,38 @@ def _get_store():
         settings = get_settings()
         _get_store._instance = SQLiteStore(settings.SQLITE_PATH)
     return _get_store._instance
+
+
+def _compose_api_reply_safely(
+    reply: str,
+    *,
+    message: str,
+    session,
+    profile: DealerProfileRaw,
+    stage_before,
+    is_security_override: bool = False,
+) -> str:
+    """Final API-level safety pass for replies changed after handle_message."""
+    try:
+        composed = compose_and_validate_reply(
+            raw_reply=reply,
+            message=message,
+            session=session,
+            profile=profile,
+            stage_before=stage_before,
+            is_security_override=is_security_override,
+        )
+    except Exception:
+        logger.exception("API reply pipeline failed; returning current reply")
+        return reply
+    if composed.repaired:
+        logger.info(
+            "API reply pipeline repaired output: session=%s signal=%s issues=%s",
+            session.session_id,
+            composed.analysis.signal.value,
+            [i.code for i in composed.issues],
+        )
+    return composed.text
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -142,6 +175,7 @@ def post_chat(req: ChatRequest) -> ChatResponse:
     phone_before = profile.phone_or_zalo
 
     # ----- Process message -----
+    stage_before_process = session.stage
     reply, session, profile = handle_message(
         session=session,
         profile=profile,
@@ -184,14 +218,15 @@ def post_chat(req: ChatRequest) -> ChatResponse:
     from app.admin.queue import increment_flag_count
     from app.models.enums import Flag
 
-    # Pass dealer's own current data → exclude from leak detection
-    own_values = [
-        req.message or "",
-        profile.owner_name or "",
-        profile.dealer_name or "",
-        profile.address or "",
-        profile.phone_or_zalo or "",
-    ]
+    # Pass all current profile values → exclude data that belongs to this
+    # session's card. Otherwise generic names/brand/address fields from other
+    # sessions can falsely override a valid card edit with "trục trặc".
+    own_values = [req.message or ""]
+    for value in profile.model_dump().values():
+        if isinstance(value, str):
+            own_values.append(value)
+        elif isinstance(value, list):
+            own_values.extend(str(item) for item in value if item)
     leaked = check_pii_leak(
         reply, session.session_id, store, current_session_values=own_values,
     )
@@ -205,6 +240,17 @@ def post_chat(req: ChatRequest) -> ChatResponse:
         # Update last bot message in history (đã append trong handle_message)
         if session.history and session.history[-1].role == "bot":
             session.history[-1].content = reply
+
+    reply = _compose_api_reply_safely(
+        reply,
+        message=req.message,
+        session=session,
+        profile=profile,
+        stage_before=stage_before_process,
+        is_security_override=bool(leaked),
+    )
+    if session.history and session.history[-1].role == "bot":
+        session.history[-1].content = reply
 
     # ----- Save -----
     store.save_session(session)

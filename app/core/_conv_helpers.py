@@ -150,14 +150,28 @@ def _gen_direct_ack(slot_id: str, extracted_data: dict, address_form: str = "anh
             return f"Dạ vâng {af} {owner} 🌷! Em đổi xưng hô cho đúng nhé."
         if dealer:
             return f"Tên cửa hàng mình là {dealer} ạ."
+    if slot_id == "1.2" and extracted_data.get("address"):
+        address = str(extracted_data.get("address") or "").strip()
+        if address:
+            return f"Em ghi nhận cửa hàng mình ở {address} rồi ạ."
     if slot_id == "1.3" and extracted_data.get("phone_or_zalo"):
         return f"Số này dùng liên hệ là tiện rồi {af}."
     if slot_id == "2.1" and extracted_data.get("main_product"):
         product = str(extracted_data.get("main_product") or "").strip()
+        product_fold = _fold_vn(product)
         if "tủ bếp" in product.lower():
             return "Tủ bếp là mảng khách rất kỹ tính — làm tốt dễ có khách giới thiệu."
+        if "cua cuon" in product_fold:
+            return "Cửa cuốn là mảng cần độ chính xác và an toàn khi lắp đặt; em ghi nhận đây là sản phẩm mạnh của bên mình."
     if slot_id == "2.2" and extracted_data.get("business_model_signal"):
-        return f"Làm trọn từ tư vấn tới thi công thì {af} kiểm soát chất lượng tốt hơn nhiều."
+        # FIX M4: ack dynamic theo value thực tế thay vì always assume trọn gói
+        bms = str(extracted_data["business_model_signal"]).lower()
+        bms_fold = _fold_vn(bms)
+        if any(k in bms_fold for k in ("thi cong", "tron goi", "lam het", "lap dat", "xuong")):
+            return f"Làm trọn từ tư vấn tới thi công thì {af} kiểm soát chất lượng tốt hơn nhiều."
+        elif any(k in bms_fold for k in ("phan phoi", "dai ly", "ban le", "ban hang", "ban thoi", "chi ban")) or bms_fold.strip(" .,!?:;") == "ban":
+            return f"Phân phối thuần thì {af} tập trung nguồn hàng tốt là có lợi thế lớn."
+        return None  # fallback LLM ack
     if slot_id == "2.3" and extracted_data.get("est_team_size"):
         return "Lực lượng ổn định để xoay nhiều đơn cùng lúc."
     if slot_id == "2.4" and extracted_data.get("supplier_brands"):
@@ -173,13 +187,38 @@ def _gen_direct_ack(slot_id: str, extracted_data: dict, address_form: str = "anh
             # Track ack
             if session:
                 session.acked_direct_keys.append(ack_key)
-            return f"{brand_text}, em hiểu đúng tên hãng rồi."
+            return f"Em ghi lại hãng nhập là {brand_text} ạ."
+    if slot_id == "3.2" and extracted_data.get("customer_storage_method"):
+        method = str(extracted_data.get("customer_storage_method") or "").lower()
+        if "không" in method or "chưa" in method:
+            return "Vậy hiện tại khách cũ chưa được lưu thành danh sách riêng; điểm này sau này chăm lại sẽ hơi khó."
+    if slot_id == "3.5" and extracted_data.get("warranty_responsibility_signal"):
+        warranty = _fold_vn(str(extracted_data.get("warranty_responsibility_signal") or ""))
+        if "hang" in warranty or "nha cung cap" in warranty:
+            return "Em ghi nhận phần bảo hành bên mình báo hãng xử lý là chính."
+        if any(p in warranty for p in ("tu lo", "tu xu ly", "anh xu ly", "ben anh xu ly", "lo het")):
+            return "Em ghi nhận phần bảo hành bên mình tự đứng ra xử lý cho khách."
     if slot_id == "2.5" and extracted_data.get("primary_contact_channel"):
-        channel = str(extracted_data.get("primary_contact_channel") or "").lower()
-        if "giới thiệu" in channel or "khách quen" in channel or "người quen" in channel:
+        channel = _fold_vn(str(extracted_data.get("primary_contact_channel") or ""))
+        if any(p in channel for p in ("noi tieng", "tu tim", "khach tu den", "khach tim den")):
+            return "Uy tín sẵn có giúp khách tự tìm đến là lợi thế rất đáng quý của cửa hàng."
+        if "gioi thieu" in channel or "khach quen" in channel or "nguoi quen" in channel:
             return "Khách quen giới thiệu là nguồn rất đáng giá, vì nó đi kèm niềm tin sẵn."
     if slot_id == "2.6" and extracted_data.get("community_network_signal"):
+        signal_fold = _fold_vn(str(extracted_data.get("community_network_signal") or ""))
+        if any(p in signal_fold for p in ("noi tieng", "tu tim", "khach tu den", "khach tu tim")):
+            return "Uy tín sẵn có giúp khách tự tìm đến là lợi thế rất đáng quý của cửa hàng."
         return "Mạng lưới thợ giới thiệu qua lại như vậy là tài sản thật của cửa hàng."
+    if slot_id == "3.1" and extracted_data.get("customer_old_percentage"):
+        return "Tỉ lệ khách cũ giới thiệu như vậy cho thấy cửa hàng đã có nền uy tín nhất định."
+    if slot_id == "3.3" and extracted_data.get("customer_pain"):
+        pain_fold = _fold_vn(str(extracted_data.get("customer_pain") or ""))
+        if any(p in pain_fold for p in ("khong kho", "khong co vuong", "khong vuong", "khong co van de")):
+            return "Vậy phần khách cũ hiện tại của mình đang khá ổn, em ghi nhận điểm này."
+    if slot_id == "3.4" and extracted_data.get("payment_terms_signal"):
+        payment_fold = _fold_vn(str(extracted_data.get("payment_terms_signal") or ""))
+        if any(p in payment_fold for p in ("khong no", "khong bi no", "khong no dong")):
+            return "Không bị nợ đọng là điểm rất tốt cho dòng tiền của cửa hàng."
     return None
 
 
@@ -191,20 +230,39 @@ def _strip_trailing_question(text: str) -> str:
     Giữ nếu ack chỉ có 1 câu duy nhất (đó là statement chính).
 
     Fix Lỗi 1: xử lý emoji sau dấu '?' (vd '...ạ? 🌷')
+    FIX H2: strip câu cuối nếu chứa CTA pattern (hỏi thông tin) dù kết bằng '.'
     """
-    if not text or "?" not in text:
+    if not text:
         return text
     import re as _re
-    sentences = _re.split(r"(?<=[.!?…])\s+", text.strip())
+    sentences = _re.split(r'(?<=[.!?\u2026])\s+', text.strip())
     sentences = [s for s in sentences if s.strip()]
     if len(sentences) <= 1:
         return text
-    # Fix Lỗi 1: strip emoji/whitespace sau ? trước khi check endswith
-    while sentences and _re.search(r'\?\s*[\U0001F300-\U0001FAF8\u2600-\u27BF\s]*$', sentences[-1]):
+    # Fix Lỗi 1: strip trailing question (kết bằng ? + optional emoji)
+    while len(sentences) > 1 and _re.search(r'\?\s*[\U0001F300-\U0001FAF8\u2600-\u27BF\s]*$', sentences[-1]):
+        sentences.pop()
+    # FIX H2: strip câu cuối nếu chứa CTA pattern (mời dealer cho thông tin)
+    _CTA_PATTERNS = [
+        r'cho em xin', r'anh cho em', r'chị cho em',
+        r'em xin', r'em cần',
+    ]
+    if len(sentences) > 1 and any(
+        _re.search(p, sentences[-1], _re.IGNORECASE)
+        for p in _CTA_PATTERNS
+    ):
         sentences.pop()
     if not sentences:
         return text
     return " ".join(sentences)
+
+
+def _fold_vn(text: str) -> str:
+    import unicodedata
+
+    normalized = unicodedata.normalize("NFD", text or "")
+    no_marks = "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn")
+    return no_marks.replace("đ", "d").replace("Đ", "D").casefold()
 
 
 def _strip_storage_cliche(text: str) -> str:
@@ -281,17 +339,35 @@ def gen_partial_question(
 
 
 def _adapt_address_form(text: Optional[str], session: SessionState) -> Optional[str]:
-    """Replace xưng hô 'anh' → session.address_form trong MỌI output.
+    """Replace xưng hô 'anh' ↔ session.address_form trong MỌI output.
 
     Dùng \\banh\\b (word boundary) + negative lookahead để:
     - BẮT: 'anh Giang', 'gửi anh', 'đủ anh.', 'Anh có thể'
     - SKIP: 'anh chị' (compound), 'anh em' (compound), 'danh', 'nhanh'
+
+    FIX H1: thêm guard ngược — khi address_form == ANH, replace 'chị' → 'anh'.
     """
-    if not text or session.address_form.value == "anh":
+    if not text:
         return text
     import re as _re
-    af = session.address_form.value  # "chị"
+    af = session.address_form.value
 
+    if af == "anh":
+        # FIX H1: guard ngược — replace "chị" → "anh" khi template hard-code "chị"
+        def _replace_chi(m):
+            matched = m.group(0)
+            if matched[0].isupper():
+                return "Anh"
+            return "anh"
+        result = _re.sub(
+            r'\bchị\b(?!\s+(?:anh|em\b))',
+            _replace_chi,
+            text,
+            flags=_re.IGNORECASE,
+        )
+        return result
+
+    # af == "chị" → replace "anh" → "chị"
     def _replace_anh(m):
         """Preserve capitalization: Anh → Chị, anh → chị."""
         matched = m.group(0)

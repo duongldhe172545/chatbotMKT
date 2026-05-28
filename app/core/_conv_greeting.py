@@ -119,16 +119,24 @@ def handle_greeting(
             or word_count <= 1
         )
         if not is_pure_ack:
-            # Phase 6 R+ Fix G4: dealer gõ DATA lẫn (vd "ok anh Tùng Hà Nội")
-            # → FORWARD sang asking handler để EXTRACT data, KHÔNG bắt gõ lại.
-            if profile is not None:
+            # Check: message có vẻ chứa DATA (tên, địa chỉ) hay chỉ casual?
+            # Data signal: ≥ 1 từ viết hoa ở giữa câu, hoặc >= 5 từ có từ khóa
+            _data_signals = any(
+                t[0].isupper() and i > 0
+                for i, t in enumerate(tokens) if t and t[0].isalpha()
+            )
+            if _data_signals and profile is not None:
+                # Phase 6 R+ Fix G4: dealer gõ DATA lẫn (vd "ok anh Tùng Hà Nội")
+                # → FORWARD sang asking handler để EXTRACT data, KHÔNG bắt gõ lại.
                 from app.core._conv_asking import handle_asking
                 return handle_asking(session, profile, message, client)
-            # Fallback nếu profile None (test/edge)
-            return (
-                "Dạ em ghi nhận ạ. Để chính xác từ đầu — cho em xin "
-                "lại tên và tên cửa hàng mình nhé?"
+            # Casual message ("a lô a lô", "thế à", "hmm"...) — ack rồi hỏi slot
+            ack = "Dạ em nghe đây ạ!"
+            question = (
+                get_question("1.1", session_id=session.session_id)
+                or "Anh cho em xin tên và tên cửa hàng nhé."
             )
+            return f"{ack}\n\n{question}"
         return (
             get_question("1.1", session_id=session.session_id)
             or "Anh cho em xin tên và tên cửa hàng nhé."

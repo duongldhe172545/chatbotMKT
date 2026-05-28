@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
+from app.core._conv_derive import merge_extracted
 from app.core.brandkit_exporter import export_brandkit_pack_json
 from app.core.card_renderer import render_card
 from app.core.closing import render_closing, render_soft_end_closing
@@ -41,6 +42,15 @@ def handle_confirming(
     client: LLMClient,
 ) -> str:
     """Stage CONFIRMING: dealer xác nhận card."""
+    consent_correction = _detect_brandkit_consent_correction(message, profile)
+    if consent_correction:
+        return _apply_brandkit_consent_correction(
+            session=session,
+            profile=profile,
+            consent=consent_correction,
+            client=client,
+        )
+
     intent = detect_intent(message)
     af = _af(session)
 
@@ -145,6 +155,7 @@ def handle_confirming(
 
 def handle_done(
     session: Optional[SessionState] = None,
+    profile: Optional[DealerProfileRaw] = None,
     message: Optional[str] = None,
     client: Optional[LLMClient] = None,
 ) -> str:
@@ -160,6 +171,19 @@ def handle_done(
             f"Em đã chốt thông tin rồi ạ. Em hẹn {af} trên Zalo nhé — "
             f"bộ thương hiệu + kế hoạch nền tảng số em gửi trong ít giờ tới."
         )
+
+    if session is not None and profile is not None:
+        consent_correction = _detect_brandkit_consent_correction(message, profile)
+        if consent_correction:
+            session.stage = Stage.CONFIRMING
+            session.closed_at = None
+            session.confirmation_status = ConfirmationStatus.EDITED
+            return _apply_brandkit_consent_correction(
+                session=session,
+                profile=profile,
+                consent=consent_correction,
+                client=client,
+            )
 
     # Dealer nói thêm sau DONE — phân loại ý
     msg_lower = message.strip().lower()
@@ -205,6 +229,81 @@ def handle_done(
         f"Dạ em đã chốt thông tin rồi ạ. Nếu {af} cần gì thêm, "
         f"{af} nhắn em trên Zalo nhé!"
     )
+
+
+def _detect_brandkit_consent_correction(
+    message: str,
+    profile: Optional[DealerProfileRaw],
+) -> Optional[str]:
+    if not profile:
+        return None
+    folded = _fold_vn(message or "")
+    if not folded:
+        return None
+    brandkit_terms = (
+        "bo thuong hieu",
+        "logo",
+        "danh thiep",
+        "video gioi thieu",
+        "nhan qua",
+    )
+    if not any(term in folded for term in brandkit_terms):
+        return None
+    negative = (
+        "khong nhan",
+        "khong dong y",
+        "khong can",
+        "thoi khong",
+        "khong lam",
+    )
+    if any(term in folded for term in negative):
+        return "no"
+    positive = (
+        "co dong y",
+        "dong y",
+        "co nhan",
+        "nhan ma",
+        "nhan chu",
+        "co ma",
+        "co chu",
+        "lam cho anh",
+        "anh co dong y",
+    )
+    if any(term in folded for term in positive):
+        return "yes"
+    return None
+
+
+def _apply_brandkit_consent_correction(
+    *,
+    session: SessionState,
+    profile: DealerProfileRaw,
+    consent: str,
+    client: Optional[LLMClient],
+) -> str:
+    merge_extracted(profile, {"brandkit_consent": consent}, client=client)
+    if consent == "yes":
+        if Flag.DEALER_DECLINED in session.flags:
+            session.flags = [f for f in session.flags if f != Flag.DEALER_DECLINED]
+        for slot_id in ("4.1", "4.2"):
+            if slot_id in session.skipped_slots:
+                session.skipped_slots.remove(slot_id)
+    session.confirmation_status = ConfirmationStatus.EDITED
+    af = _af(session)
+    value_text = "Có" if consent == "yes" else "Không"
+    return (
+        f"Dạ em sửa lại phần nhận bộ thương hiệu thành {value_text} rồi ạ. "
+        "Em hiển thị lại card mình cùng check nhé:\n\n"
+        + render_card(profile, address_form=af)
+    )
+
+
+def _fold_vn(text: str) -> str:
+    import unicodedata
+
+    normalized = unicodedata.normalize("NFD", text or "")
+    no_marks = "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn")
+    return no_marks.replace("đ", "d").replace("Đ", "D").casefold()
 
 
 def _detect_confirming_intent_llm(message: str, client: LLMClient) -> str:
@@ -271,7 +370,7 @@ def _handle_edit(
     af = _af(session)
 
     # Layer 1: regex (instant, miễn phí)
-    parsed = parse_edit_command(message)
+    parsed = _parse_supplier_append_edit(message, profile) or parse_edit_command(message)
 
     # Layer 2: LLM nếu L1 fail — Fix Lỗi 8: bot PHẢI tự hiểu ý dealer
     if parsed is None and client is not None:
@@ -280,7 +379,11 @@ def _handle_edit(
     if parsed:
         field, new_value = parsed
         if hasattr(profile, field):
-            setattr(profile, field, new_value)
+            new_value = _normalize_edit_value(field, new_value)
+            if field == "address":
+                profile.province = None
+                profile.district = None
+            merge_extracted(profile, {field: new_value}, client=client)
             logger.info(
                 "Edit applied: session=%s field=%s value=%r",
                 session.session_id, field, new_value,
@@ -302,6 +405,62 @@ def _handle_edit(
         f"(Vd: 'sửa SĐT thành 0901234567', 'tên là Vinh', "
         f"'đổi địa chỉ thành Quận 5')"
     )
+
+
+def _normalize_edit_value(field: str, value: object) -> object:
+    if field == "brandkit_consent":
+        folded = _fold_vn(str(value))
+        if any(p in folded for p in ("yes", "co", "dong y", "nhan")):
+            return "yes"
+        if any(p in folded for p in ("no", "khong", "tu choi")):
+            return "no"
+    if field == "supplier_brands" and isinstance(value, str):
+        parts = [p.strip() for p in value.replace(" và ", ",").split(",")]
+        return [p for p in parts if p]
+    return value
+
+
+def _parse_supplier_append_edit(
+    message: str,
+    profile: DealerProfileRaw,
+) -> Optional[tuple[str, object]]:
+    folded = _fold_vn(message or "")
+    if not profile.supplier_brands:
+        return None
+    if not any(p in folded for p in ("hang", "nhap", "austdoor", "titadoor", "mitadoor", "tita", "mita")):
+        return None
+    updates = _extract_known_supplier_brands_for_confirming(folded)
+    if not updates:
+        return None
+    merged = list(profile.supplier_brands or [])
+    seen = {_brand_key(b) for b in merged}
+    for brand in updates:
+        key = _brand_key(brand)
+        if key not in seen:
+            merged.append(brand)
+            seen.add(key)
+    return "supplier_brands", merged
+
+
+def _extract_known_supplier_brands_for_confirming(folded_message: str) -> list[str]:
+    known = (
+        ("Austdoor", ("austdoor", "aust door", "ot do", "ot door")),
+        ("Titadoor", ("titadoor", "tita door", "tita do", "ti ta do", "titado")),
+        ("Mitadoor", ("mitadoor", "mita door", "mita do", "mi ta do", "mitado")),
+        ("Koffman", ("koffman", "cop man", "cop men")),
+        ("Alumax", ("alumax",)),
+    )
+    result: list[str] = []
+    for canonical, patterns in known:
+        if any(p in folded_message for p in patterns):
+            result.append(canonical)
+    return result
+
+
+def _brand_key(value: object) -> str:
+    import re as _re
+
+    return _re.sub(r"[^a-z0-9]+", "", _fold_vn(str(value or "")))
 
 
 # ============================================================
@@ -358,7 +517,8 @@ def _parse_edit_llm(
         f"Dealer có đang muốn SỬA/ĐỔI thông tin nào không?\n"
         f"- Nếu CÓ: trả JSON duy nhất {{\"field\": \"<tên field>\", \"value\": \"<giá trị mới>\"}}\n"
         f"  Field phải là 1 trong: owner_name, dealer_name, address, phone_or_zalo, "
-        f"main_product, est_team_size, color_accent, facebook\n"
+        f"main_product, est_team_size, color_accent, facebook, business_model_signal, "
+        f"brandkit_consent, supplier_brands\n"
         f"- Nếu KHÔNG phải sửa: trả {{\"field\": null}}\n\n"
         f"CHỈ trả JSON, KHÔNG giải thích."
     )

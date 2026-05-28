@@ -203,7 +203,7 @@ def render_profile_md(
     if session.ip_address:
         lines.append(f"- **IP:** `{session.ip_address}`")
     if session.detected_dealer_type:
-        lines.append(f"- **Dealer type:** `{session.detected_dealer_type.value}`")
+        lines.append(f"- **Conversation tone:** `{session.detected_dealer_type.value}`")
     lines.append(f"- **Tạo:** {_fmt_dt(session.created_at)}")
     lines.append(f"- **Cập nhật cuối:** {_fmt_dt(session.updated_at)}")
     if session.closed_at:
