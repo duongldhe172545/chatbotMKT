@@ -44,6 +44,21 @@ _SESSION_JSON_COLUMNS = {
     "acked_direct_keys",
 }
 
+_SESSION_JSON_DEFAULTS = {
+    "slot_attempts": "{}",
+    "deferred_slots": "{}",
+    "skipped_slots": "[]",
+    "flags": "[]",
+    "flag_counts": "{}",
+    "queue_triggers_fired": "[]",
+    "dealer_type_history": "[]",
+    "history": "[]",
+    "recent_bridges": "[]",
+    "partial_retried_slots": "[]",
+    "last_ref_filled_fields": "[]",
+    "acked_direct_keys": "[]",
+}
+
 # JSON-serialized columns trong dealer_profile_raw table
 _PROFILE_JSON_COLUMNS = {"category_stack", "supplier_brands", "slogan_options"}
 
@@ -99,9 +114,15 @@ class SQLiteStore:
             row["name"]
             for row in conn.execute("PRAGMA table_info(sessions)").fetchall()
         }
-        for column in ("pending_address_text", "pending_address_canonical", "acked_direct_keys"):
+        for column in ("pending_address_text", "pending_address_canonical"):
             if column not in existing_sessions:
                 conn.execute(f"ALTER TABLE sessions ADD COLUMN {column} TEXT")
+        if "acked_direct_keys" not in existing_sessions:
+            conn.execute(
+                "ALTER TABLE sessions ADD COLUMN "
+                "acked_direct_keys TEXT NOT NULL DEFAULT '[]'"
+            )
+        self._backfill_json_defaults(conn, table="sessions", defaults=_SESSION_JSON_DEFAULTS)
 
         # --- dealer_profile_raw table (FIX M2) ---
         existing_profile = {
@@ -112,6 +133,27 @@ class SQLiteStore:
             if column not in existing_profile:
                 conn.execute(f"ALTER TABLE dealer_profile_raw ADD COLUMN {column} TEXT")
                 logger.info("Added column %s to dealer_profile_raw", column)
+
+    @staticmethod
+    def _backfill_json_defaults(
+        conn: sqlite3.Connection,
+        *,
+        table: str,
+        defaults: dict[str, str],
+    ) -> None:
+        """Backfill JSON columns introduced after a DB already existed.
+
+        SQLite ALTER TABLE without a default leaves old rows as NULL. Pydantic
+        list/dict fields do not accept NULL, so old production sessions would
+        fail to load and make /api/chat return 500.
+        """
+        existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+        for column, default_json in defaults.items():
+            if column in existing:
+                conn.execute(
+                    f"UPDATE {table} SET {column} = ? WHERE {column} IS NULL",
+                    (default_json,),
+                )
 
     @contextmanager
     def _connect(self):
@@ -317,8 +359,10 @@ class SQLiteStore:
         d = dict(row)
         # Deserialize JSON columns
         for col in _SESSION_JSON_COLUMNS:
-            if col in d and d[col] is not None:
-                d[col] = json.loads(d[col])
+            if col in d:
+                raw = d[col] if d[col] is not None else _SESSION_JSON_DEFAULTS.get(col)
+                if raw is not None:
+                    d[col] = json.loads(raw)
         # Pydantic v2: parse_obj-like via model_validate
         return SessionState.model_validate(d)
 
