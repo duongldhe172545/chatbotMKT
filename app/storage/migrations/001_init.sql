@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     partial_retried_slots   TEXT NOT NULL DEFAULT '[]',                 -- Phase 5 R3 Gap 11: 1A § 1.5 — slot đã PARTIAL_RETRY 1 lần
     last_acked_name         TEXT,                                       -- Phase 6 R+ Fix B: tên dealer vừa ack turn trước (tránh lặp)
     last_ref_filled_fields  TEXT NOT NULL DEFAULT '[]',                 -- Phase 6 R+ Fix C: field fill từ reference (ack explicit "cũng là X")
+    acked_direct_keys       TEXT NOT NULL DEFAULT '[]',                 -- Track deterministic ack keys, avoid repeated direct ack
     pending_address_text    TEXT,                                       -- Address cần xác nhận tỉnh/thành trước khi lưu
     pending_address_canonical TEXT,                                     -- Address canonical đang chờ dealer xác nhận
     address_form            TEXT NOT NULL DEFAULT 'anh',                -- anh / chị
@@ -67,6 +68,7 @@ CREATE TABLE IF NOT EXISTS dealer_profile_raw (
     owner_name              TEXT,
     address                 TEXT,
     phone_or_zalo           TEXT,
+    phone_secondary         TEXT,
     main_product            TEXT,
     brandkit_consent        TEXT,                                       -- "yes" / "no"
 

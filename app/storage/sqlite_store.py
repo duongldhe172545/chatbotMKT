@@ -62,6 +62,104 @@ _SESSION_JSON_DEFAULTS = {
 # JSON-serialized columns trong dealer_profile_raw table
 _PROFILE_JSON_COLUMNS = {"category_stack", "supplier_brands", "slogan_options"}
 
+_PROFILE_JSON_DEFAULTS = {
+    "category_stack": "[]",
+    "supplier_brands": "[]",
+    "slogan_options": "[]",
+}
+
+_SESSION_COLUMN_SPECS = {
+    "stage": "TEXT NOT NULL DEFAULT 'GREETING'",
+    "current_slot": "TEXT",
+    "slot_attempts": "TEXT NOT NULL DEFAULT '{}'",
+    "deferred_slots": "TEXT NOT NULL DEFAULT '{}'",
+    "skipped_slots": "TEXT NOT NULL DEFAULT '[]'",
+    "flags": "TEXT NOT NULL DEFAULT '[]'",
+    "flag_counts": "TEXT NOT NULL DEFAULT '{}'",
+    "queue_triggers_fired": "TEXT NOT NULL DEFAULT '[]'",
+    "detected_dealer_type": "TEXT",
+    "dealer_type_history": "TEXT NOT NULL DEFAULT '[]'",
+    "confirmation_status": "TEXT NOT NULL DEFAULT 'PENDING'",
+    "review_status": "TEXT NOT NULL DEFAULT 'RAW'",
+    "history": "TEXT NOT NULL DEFAULT '[]'",
+    "turn_count": "INTEGER NOT NULL DEFAULT 0",
+    "paused_for": "TEXT",
+    "consecutive_optional_refusal": "INTEGER NOT NULL DEFAULT 0",
+    "rush_mode": "INTEGER NOT NULL DEFAULT 0",
+    "consecutive_tam_su": "INTEGER NOT NULL DEFAULT 0",
+    "recent_bridges": "TEXT NOT NULL DEFAULT '[]'",
+    "partial_retried_slots": "TEXT NOT NULL DEFAULT '[]'",
+    "last_acked_name": "TEXT",
+    "last_ref_filled_fields": "TEXT NOT NULL DEFAULT '[]'",
+    "pending_address_text": "TEXT",
+    "pending_address_canonical": "TEXT",
+    "acked_direct_keys": "TEXT NOT NULL DEFAULT '[]'",
+    "address_form": "TEXT NOT NULL DEFAULT 'anh'",
+    "created_at": "TEXT",
+    "updated_at": "TEXT",
+    "closed_at": "TEXT",
+    "channel": "TEXT NOT NULL DEFAULT 'web'",
+    "ip_address": "TEXT",
+    "user_agent": "TEXT",
+}
+
+_PROFILE_COLUMN_SPECS = {
+    "dealer_name": "TEXT",
+    "owner_name": "TEXT",
+    "address": "TEXT",
+    "phone_or_zalo": "TEXT",
+    "phone_secondary": "TEXT",
+    "main_product": "TEXT",
+    "brandkit_consent": "TEXT",
+    "category_stack": "TEXT NOT NULL DEFAULT '[]'",
+    "business_model_signal": "TEXT",
+    "est_team_size": "INTEGER",
+    "team_stability_signal": "TEXT",
+    "supplier_brands": "TEXT NOT NULL DEFAULT '[]'",
+    "customer_segment_signal": "TEXT",
+    "zalo": "TEXT",
+    "facebook": "TEXT",
+    "primary_contact_channel": "TEXT",
+    "fb_marketing_status": "TEXT",
+    "customer_old_percentage": "TEXT",
+    "customer_storage_method": "TEXT",
+    "customer_pain": "TEXT",
+    "payment_terms_signal": "TEXT",
+    "color_accent": "TEXT",
+    "feng_shui_signal": "TEXT",
+    "local_dominance_signal": "TEXT",
+    "supplier_negotiation_signal": "TEXT",
+    "community_network_signal": "TEXT",
+    "motivation_signal": "TEXT",
+    "warranty_responsibility_signal": "TEXT",
+    "usp_signal": "TEXT",
+    "province": "TEXT",
+    "district": "TEXT",
+    "province_specialty": "TEXT",
+    "main_category": "TEXT",
+    "dealer_type": "TEXT",
+    "brand_name_short": "TEXT",
+    "initials_full": "TEXT",
+    "initial_single": "TEXT",
+    "contact_name": "TEXT",
+    "contact_role": "TEXT",
+    "hotline": "TEXT",
+    "slogan_options": "TEXT NOT NULL DEFAULT '[]'",
+    "created_at": "TEXT",
+    "updated_at": "TEXT",
+}
+
+_ADMIN_QUEUE_COLUMN_SPECS = {
+    "trigger": "TEXT",
+    "priority": "TEXT",
+    "status": "TEXT NOT NULL DEFAULT 'PENDING'",
+    "assigned_to": "TEXT",
+    "notes": "TEXT",
+    "profile_snapshot": "TEXT",
+    "created_at": "TEXT",
+    "resolved_at": "TEXT",
+}
+
 
 class SQLiteStore:
     """SQLite store cho 3 bảng v8."""
@@ -102,6 +200,9 @@ class SQLiteStore:
             logger.warning("Migration file không tồn tại: %s", migration_path)
             return
         with self._connect() as conn:
+            # Existing Railway volumes may contain older tables. Ensure columns
+            # referenced by CREATE INDEX statements exist before executescript.
+            self._ensure_runtime_columns(conn)
             sql = migration_path.read_text(encoding="utf-8")
             conn.executescript(sql)
             self._ensure_runtime_columns(conn)
@@ -109,30 +210,42 @@ class SQLiteStore:
 
     def _ensure_runtime_columns(self, conn: sqlite3.Connection) -> None:
         """Add columns introduced after initial SQLite DB creation."""
-        # --- sessions table ---
-        existing_sessions = {
-            row["name"]
-            for row in conn.execute("PRAGMA table_info(sessions)").fetchall()
-        }
-        for column in ("pending_address_text", "pending_address_canonical"):
-            if column not in existing_sessions:
-                conn.execute(f"ALTER TABLE sessions ADD COLUMN {column} TEXT")
-        if "acked_direct_keys" not in existing_sessions:
-            conn.execute(
-                "ALTER TABLE sessions ADD COLUMN "
-                "acked_direct_keys TEXT NOT NULL DEFAULT '[]'"
-            )
+        self._add_missing_columns(conn, "sessions", _SESSION_COLUMN_SPECS)
         self._backfill_json_defaults(conn, table="sessions", defaults=_SESSION_JSON_DEFAULTS)
+        self._backfill_session_scalar_defaults(conn)
 
-        # --- dealer_profile_raw table (FIX M2) ---
-        existing_profile = {
-            row["name"]
-            for row in conn.execute("PRAGMA table_info(dealer_profile_raw)").fetchall()
-        }
-        for column in ("phone_secondary",):
-            if column not in existing_profile:
-                conn.execute(f"ALTER TABLE dealer_profile_raw ADD COLUMN {column} TEXT")
-                logger.info("Added column %s to dealer_profile_raw", column)
+        self._add_missing_columns(conn, "dealer_profile_raw", _PROFILE_COLUMN_SPECS)
+        self._backfill_json_defaults(
+            conn, table="dealer_profile_raw", defaults=_PROFILE_JSON_DEFAULTS
+        )
+        self._backfill_profile_scalar_defaults(conn)
+
+        self._add_missing_columns(conn, "admin_queue", _ADMIN_QUEUE_COLUMN_SPECS)
+        self._backfill_admin_queue_scalar_defaults(conn)
+
+    @staticmethod
+    def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
+        row = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+            (table,),
+        ).fetchone()
+        return row is not None
+
+    @classmethod
+    def _add_missing_columns(
+        cls,
+        conn: sqlite3.Connection,
+        table: str,
+        specs: dict[str, str],
+    ) -> None:
+        """Add all current runtime columns to legacy tables if missing."""
+        if not cls._table_exists(conn, table):
+            return
+        existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+        for column, spec in specs.items():
+            if column not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {spec}")
+                logger.info("Added legacy column %s.%s", table, column)
 
     @staticmethod
     def _backfill_json_defaults(
@@ -154,6 +267,66 @@ class SQLiteStore:
                     f"UPDATE {table} SET {column} = ? WHERE {column} IS NULL",
                     (default_json,),
                 )
+
+    @staticmethod
+    def _backfill_session_scalar_defaults(conn: sqlite3.Connection) -> None:
+        if not SQLiteStore._table_exists(conn, "sessions"):
+            return
+        scalar_defaults = {
+            "stage": "GREETING",
+            "confirmation_status": "PENDING",
+            "review_status": "RAW",
+            "address_form": "anh",
+            "channel": "web",
+        }
+        for column, value in scalar_defaults.items():
+            conn.execute(
+                f"UPDATE sessions SET {column} = ? WHERE {column} IS NULL",
+                (value,),
+            )
+        conn.execute("UPDATE sessions SET turn_count = 0 WHERE turn_count IS NULL")
+        conn.execute(
+            "UPDATE sessions SET consecutive_optional_refusal = 0 "
+            "WHERE consecutive_optional_refusal IS NULL"
+        )
+        conn.execute("UPDATE sessions SET rush_mode = 0 WHERE rush_mode IS NULL")
+        conn.execute(
+            "UPDATE sessions SET consecutive_tam_su = 0 "
+            "WHERE consecutive_tam_su IS NULL"
+        )
+        conn.execute(
+            "UPDATE sessions SET created_at = datetime('now') WHERE created_at IS NULL"
+        )
+        conn.execute(
+            "UPDATE sessions SET updated_at = datetime('now') WHERE updated_at IS NULL"
+        )
+
+    @staticmethod
+    def _backfill_profile_scalar_defaults(conn: sqlite3.Connection) -> None:
+        if not SQLiteStore._table_exists(conn, "dealer_profile_raw"):
+            return
+        conn.execute(
+            "UPDATE dealer_profile_raw SET contact_role = ? WHERE contact_role IS NULL",
+            ("Chủ cửa hàng",),
+        )
+        conn.execute(
+            "UPDATE dealer_profile_raw SET created_at = datetime('now') "
+            "WHERE created_at IS NULL"
+        )
+        conn.execute(
+            "UPDATE dealer_profile_raw SET updated_at = datetime('now') "
+            "WHERE updated_at IS NULL"
+        )
+
+    @staticmethod
+    def _backfill_admin_queue_scalar_defaults(conn: sqlite3.Connection) -> None:
+        if not SQLiteStore._table_exists(conn, "admin_queue"):
+            return
+        conn.execute("UPDATE admin_queue SET status = 'PENDING' WHERE status IS NULL")
+        conn.execute(
+            "UPDATE admin_queue SET created_at = datetime('now') "
+            "WHERE created_at IS NULL"
+        )
 
     @contextmanager
     def _connect(self):
@@ -363,6 +536,19 @@ class SQLiteStore:
                 raw = d[col] if d[col] is not None else _SESSION_JSON_DEFAULTS.get(col)
                 if raw is not None:
                     d[col] = json.loads(raw)
+        for key, value in {
+            "stage": "GREETING",
+            "confirmation_status": "PENDING",
+            "review_status": "RAW",
+            "address_form": "anh",
+            "channel": "web",
+            "turn_count": 0,
+            "consecutive_optional_refusal": 0,
+            "rush_mode": 0,
+            "consecutive_tam_su": 0,
+        }.items():
+            if d.get(key) is None:
+                d[key] = value
         # Pydantic v2: parse_obj-like via model_validate
         return SessionState.model_validate(d)
 
@@ -384,6 +570,10 @@ class SQLiteStore:
         d = dict(row)
         d.pop("session_id", None)  # FK, không thuộc schema profile
         for col in _PROFILE_JSON_COLUMNS:
-            if col in d and d[col] is not None:
-                d[col] = json.loads(d[col])
+            if col in d:
+                raw = d[col] if d[col] is not None else _PROFILE_JSON_DEFAULTS.get(col)
+                if raw is not None:
+                    d[col] = json.loads(raw)
+        if d.get("contact_role") is None:
+            d["contact_role"] = "Chủ cửa hàng"
         return DealerProfileRaw.model_validate(d)
