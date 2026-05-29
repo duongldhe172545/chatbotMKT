@@ -352,6 +352,13 @@ class SQLiteStore:
         → xóa mất queue entries. Refer F2C.1 (LUAT_2C v0.1.5).
         """
         row = self._session_to_row(session)
+        with self._connect() as conn:
+            row = self._prepare_insert_row(
+                conn,
+                table="sessions",
+                row=row,
+                legacy_json=session.model_dump_json(),
+            )
         cols = list(row.keys())
         # UPSERT pattern: INSERT ... ON CONFLICT(session_id) DO UPDATE SET ...
         # Tránh DELETE+INSERT cascade.
@@ -394,6 +401,13 @@ class SQLiteStore:
     def save_profile(self, session_id: str, profile: DealerProfileRaw) -> None:
         """Save profile: UPSERT (INSERT or UPDATE) — tránh DELETE+INSERT cascade."""
         row = self._profile_to_row(profile, session_id)
+        with self._connect() as conn:
+            row = self._prepare_insert_row(
+                conn,
+                table="dealer_profile_raw",
+                row=row,
+                legacy_json=profile.model_dump_json(),
+            )
         cols = list(row.keys())
         update_cols = [c for c in cols if c != "session_id"]
         set_clause = ", ".join(f"{c} = excluded.{c}" for c in update_cols)
@@ -486,11 +500,18 @@ class SQLiteStore:
             "created_at": entry.created_at.isoformat(),
             "resolved_at": entry.resolved_at.isoformat() if entry.resolved_at else None,
         }
+        with self._connect() as conn:
+            row = self._prepare_insert_row(
+                conn,
+                table="admin_queue",
+                row=row,
+                legacy_json=entry.model_dump_json(),
+            )
+        cols = list(row.keys())
+        placeholders = ", ".join(f":{c}" for c in cols)
         sql = (
-            "INSERT INTO admin_queue (queue_id, session_id, trigger, priority, "
-            "status, assigned_to, notes, profile_snapshot, created_at, resolved_at) "
-            "VALUES (:queue_id, :session_id, :trigger, :priority, :status, "
-            ":assigned_to, :notes, :profile_snapshot, :created_at, :resolved_at)"
+            f"INSERT INTO admin_queue ({', '.join(cols)}) "
+            f"VALUES ({placeholders})"
         )
         with self._connect() as conn:
             conn.execute(sql, row)
@@ -508,6 +529,56 @@ class SQLiteStore:
     # ============================================================
     # Helpers — Pydantic ↔ SQLite row
     # ============================================================
+
+    @staticmethod
+    def _prepare_insert_row(
+        conn: sqlite3.Connection,
+        *,
+        table: str,
+        row: dict,
+        legacy_json: str,
+    ) -> dict:
+        """Match INSERT row to the real table, including legacy NOT NULL cols.
+
+        Railway persistent volumes can keep older tables with extra NOT NULL
+        columns such as sessions.data_json. New v8 code no longer owns those
+        columns, but SQLite still requires values for new inserts.
+        """
+        columns = conn.execute(f"PRAGMA table_info({table})").fetchall()
+        if not columns:
+            return row
+        existing = {col["name"] for col in columns}
+        prepared = {key: value for key, value in row.items() if key in existing}
+        for col in columns:
+            name = col["name"]
+            if name in prepared or col["pk"]:
+                continue
+            if col["notnull"] and col["dflt_value"] is None:
+                prepared[name] = SQLiteStore._legacy_required_value(
+                    column=name,
+                    column_type=str(col["type"] or ""),
+                    legacy_json=legacy_json,
+                )
+        return prepared
+
+    @staticmethod
+    def _legacy_required_value(
+        *,
+        column: str,
+        column_type: str,
+        legacy_json: str,
+    ):
+        lowered = column.casefold()
+        type_lowered = column_type.casefold()
+        if lowered == "data_json" or lowered.endswith("_json"):
+            return legacy_json
+        if lowered in {"created_at", "updated_at"}:
+            return datetime.now(timezone.utc).isoformat()
+        if "int" in type_lowered:
+            return 0
+        if any(t in type_lowered for t in ("real", "float", "double")):
+            return 0.0
+        return ""
 
     @staticmethod
     def _session_to_row(session: SessionState) -> dict:
