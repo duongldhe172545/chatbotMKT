@@ -20,12 +20,57 @@ from app.models.enums import (
 from app.models.schema import DealerProfileRaw
 
 
+@pytest.fixture(autouse=True)
+def force_legacy_engine(monkeypatch):
+    monkeypatch.setenv("CONVERSATION_ENGINE", "legacy")
+    from app.config import reset_settings
+    reset_settings()
+    yield
+    reset_settings()
+
+
 def _make_mock_client(extract_data: dict | None = None, ack_text: str = "Dạ em note."):
     """Mock LLMClient — return extracted dict + ack text."""
     client = MagicMock()
     client.extract_fast.return_value = extract_data or {}
+
+    def extract_quality_side_effect(*args, **kwargs):
+        fast_res = client.extract_fast() or {}
+        if isinstance(fast_res, dict) and "facts" in fast_res:
+            return fast_res
+        facts_list = []
+        if isinstance(fast_res, dict):
+            for k, v in fast_res.items():
+                facts_list.append({
+                    "field": k,
+                    "value": v,
+                    "evidence": f"extracted {k}",
+                    "confidence": "high",
+                    "is_correction": False
+                })
+        return {"facts": facts_list}
+
+    client.extract_quality.side_effect = extract_quality_side_effect
+
+    # Set default return value
     client.chat_fast.return_value = ack_text
     client.chat_quality.return_value = ack_text
+
+    # Dynamic side_effect that bridges return_value and fallback
+    def chat_fast_side_effect(*args, **kwargs):
+        val = client.chat_fast.return_value
+        if val != "Dạ em note." and not isinstance(val, MagicMock):
+            return val
+        raise Exception("force fallback")
+
+    def chat_quality_side_effect(*args, **kwargs):
+        val = client.chat_quality.return_value
+        if val != "Dạ em note." and not isinstance(val, MagicMock):
+            return val
+        raise Exception("force fallback")
+
+    client.chat_fast.side_effect = chat_fast_side_effect
+    client.chat_quality.side_effect = chat_quality_side_effect
     return client
 
 
@@ -78,7 +123,7 @@ class TestStageGreeting:
         s = create_session()
         p = DealerProfileRaw()
         client = _make_mock_client()
-        reply, s, p = handle_message(s, p, "hi", client)
+        reply, s, p = handle_message(s, p, "bắt đầu xem nào", client)
         assert s.stage == Stage.ASKING
 
     def test_refusal_closes_session(self):
@@ -139,9 +184,11 @@ class TestStageAskingHappyPath:
 class TestConsentNoFlow:
     def test_consent_no_skips_to_confirming(self):
         """Slot 4.0 consent=no → skip 4.1/4.2 → CONFIRMING."""
+        from app.models.schema import SlotAttempts
         s = create_session()
         s.stage = Stage.ASKING
         s.current_slot = "4.0"
+        s.slot_attempts["4.0"] = SlotAttempts(total=1, consecutive=1)
         p = DealerProfileRaw(
             owner_name="Tùng", dealer_name="X", address="HCM",
             phone_or_zalo="0912345678", main_product="cửa",
@@ -213,7 +260,7 @@ class TestStageDone:
         s = create_session()
         s.stage = Stage.DONE
         p = DealerProfileRaw()
-        client = _make_mock_client()
+        client = _make_mock_client(ack_text="Dạ em đã chốt gửi qua Zalo rồi ạ.")
         reply, s, p = handle_message(s, p, "hi again", client)
         assert "chốt" in reply.lower() or "Zalo" in reply
 

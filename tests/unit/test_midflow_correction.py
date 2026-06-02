@@ -8,14 +8,42 @@ from app.core.session import create_session
 from datetime import datetime, timezone
 
 from app.models.enums import Flag, Stage
+import pytest
 from app.models.schema import DealerProfileRaw
+
+
+@pytest.fixture(autouse=True)
+def force_legacy_engine(monkeypatch):
+    monkeypatch.setenv("CONVERSATION_ENGINE", "legacy")
+    from app.config import reset_settings
+    reset_settings()
+    yield
+    reset_settings()
 
 
 def _mock_client():
     client = MagicMock()
     client.extract_fast.return_value = {}
-    client.chat_fast.return_value = "Dạ em note."
-    client.chat_quality.return_value = "Dạ em note."
+
+    def extract_quality_side_effect(*args, **kwargs):
+        fast_res = client.extract_fast() or {}
+        if isinstance(fast_res, dict) and "facts" in fast_res:
+            return fast_res
+        facts_list = []
+        if isinstance(fast_res, dict):
+            for k, v in fast_res.items():
+                facts_list.append({
+                    "field": k,
+                    "value": v,
+                    "evidence": f"extracted {k}",
+                    "confidence": "high",
+                    "is_correction": False
+                })
+        return {"facts": facts_list}
+
+    client.extract_quality.side_effect = extract_quality_side_effect
+    client.chat_fast.side_effect = Exception("force fallback")
+    client.chat_quality.side_effect = Exception("force fallback")
     return client
 
 

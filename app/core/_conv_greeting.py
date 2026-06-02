@@ -144,6 +144,14 @@ def handle_greeting(
         # → advance bình thường + ask slot 1.1 initial.
         session.stage = Stage.ASKING
         session.current_slot = "1.1"
+        if profile is not None:
+            for field in list(profile.model_fields.keys()):
+                if field in ("category_stack", "supplier_brands", "slogan_options"):
+                    setattr(profile, field, [])
+                elif field == "contact_role":
+                    setattr(profile, field, "Chủ cửa hàng")
+                else:
+                    setattr(profile, field, None)
         msg_lower = message.strip().lower()
         # Token AFFIRMATIVE rõ ràng (mở rộng để bắt "tiếp", "làm", "đi")
         ack_tokens = {

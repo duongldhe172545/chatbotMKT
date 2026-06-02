@@ -17,13 +17,13 @@ AFFIRMATIVE_PATTERNS: list[str] = [
     r"\b(ok|okay|oke|okê|ô\s*kê|okie)\b",
     # được / chuẩn / đúng / đồng ý
     r"\b(được\s*r[ồô]i|được|chuẩn\s*r[ồô]i|chuẩn|đúng\s*r[ồô]i|đúng|đồng\s*ý)\b",
-    # vâng / dạ vâng / ừ / ờ
-    r"\b(vâng|dạ\s*vâng|ừ|ừa|ừm|ờ|ò|ờm)\b",
+    # vâng / dạ vâng
+    r"\b(vâng|dạ\s*vâng)\b",
     # affirmative tiếng Anh
     r"\b(good|yes|yeah|yep|right)\b",
-    # 1 chữ ừ / ờ / dạ
+    # Short/standalone confirmations only (prevents matching starting filler words in long sentences like "ờ anh thích màu vàng nhé")
     r"^[uưừ]+$",
-    r"^(dạ|ừ|ừa|ờ|ò|ok)\s*$",
+    r"^(dạ|ừ|ừa|ừm|ờ|ò|ờm|ok)\s*(ạ|nhé|nha|em|bot|ơi)?\s*$",
 ]
 
 

@@ -57,7 +57,7 @@ def render_card(profile: DealerProfileRaw, address_form: str = "anh") -> str:
     lines.append("")
 
     # ----- Phần 4: 🎁 Bộ thương hiệu sẽ tặng -----
-    lines.append(_render_section_4_brandkit(profile))
+    lines.append(_render_section_4_brandkit(profile, af))
     lines.append("")
 
     # ----- Phần 5: ⏰ Trong 3 ngày tới -----
@@ -132,7 +132,21 @@ def _render_section_3_khach_cu(profile: DealerProfileRaw) -> str:
     return "\n".join(lines)
 
 
-def _render_section_4_brandkit(profile: DealerProfileRaw) -> str:
+def get_default_color_for_profile(profile: DealerProfileRaw) -> str:
+    category = (profile.main_category or "").lower()
+    product = (profile.main_product or "").lower()
+    
+    if "bep" in product or "bep" in category:
+        return "vàng hoàng kim phối đen"
+    elif "dien" in product or "solar" in product or "dien_mat_troi" in category:
+        return "xanh lục ngọc phối xám trắng"
+    elif "cuon" in product or "cua_cuon" in category:
+        return "ghi sáng phối xám đậm"
+    # Default for nhôm kính or general
+    return "xanh dương phối ghi bạc"
+
+
+def _render_section_4_brandkit(profile: DealerProfileRaw, af: str = "anh") -> str:
     """Phần 4: Bộ thương hiệu sẽ tặng (slot 4.0, 4.1, 4.2)."""
     lines = ["🎁 BỘ THƯƠNG HIỆU SẼ TẶNG"]
     consent_display = "Có ✓" if profile.brandkit_consent == "yes" else (
@@ -145,14 +159,15 @@ def _render_section_4_brandkit(profile: DealerProfileRaw) -> str:
         raw_category = profile.main_category or "ngành mình"
         category_name = _CATEGORY_DISPLAY_NAMES.get(raw_category, raw_category)
         lines.append(f"   • Phong cách logo: em chọn theo {category_name}")
+        
         # Màu + phong thủy (4.2)
-        if profile.color_accent:
-            color_info = profile.color_accent
-            if profile.feng_shui_signal:
-                color_info += f" ({profile.feng_shui_signal})"
-            lines.append(f"   • Màu chủ đạo: {color_info}")
-        else:
-            lines.append(f"   • Màu chủ đạo: {_PLACEHOLDER_OPTIONAL_DECLINED}")
+        if not profile.color_accent:
+            profile.color_accent = get_default_color_for_profile(profile)
+            
+        color_info = profile.color_accent
+        if profile.feng_shui_signal:
+            color_info += f" ({profile.feng_shui_signal})"
+        lines.append(f"   • Màu chủ đạo: {color_info}")
         if profile.logo_initials:
             initials = "em tự rút gọn theo tên cửa hàng" if profile.logo_initials == "auto" else profile.logo_initials
             lines.append(f"   • Viết tắt logo: {initials}")

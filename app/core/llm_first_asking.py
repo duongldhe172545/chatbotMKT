@@ -228,7 +228,14 @@ def _apply_contextual_guardrail_facts(
         "4.4": "slogan_preference",
         "4.5": "logo_style",
     }.get(session.current_slot or "")
-    if not auto_field or not _dealer_delegates_choice(message):
+    
+    is_delegated = _dealer_delegates_choice(message)
+    if auto_field == "color_accent" and not is_delegated:
+        # If the bot suggested colors and the dealer replies with a simple OK/Yes, auto-assign
+        if detect_intent(message) == Intent.AFFIRMATIVE:
+            is_delegated = True
+
+    if not auto_field or not is_delegated:
         return
     existing = next((fact for fact in facts.facts if fact.field == auto_field), None)
     if existing is not None:
@@ -249,7 +256,15 @@ def _apply_contextual_guardrail_facts(
 
 def _recommended_branding_value(field: str, profile: DealerProfileRaw) -> str:
     if field == "color_accent":
-        return "xanh đậm phối ghi bạc"
+        category = (profile.main_category or "").lower()
+        product = (profile.main_product or "").lower()
+        if "bep" in product or "bep" in category:
+            return "vàng hoàng kim phối đen"
+        elif "dien" in product or "solar" in product or "dien_mat_troi" in category:
+            return "xanh lục ngọc phối xám trắng"
+        elif "cuon" in product or "cua_cuon" in category:
+            return "ghi sáng phối xám đậm"
+        return "xanh dương phối ghi bạc"
     if field == "logo_initials":
         return profile.initials_full or gen_initials_full(profile.dealer_name) or "CH"
     if field == "slogan_preference":
@@ -269,12 +284,14 @@ def _dealer_delegates_choice(message: str) -> bool:
         phrase in folded
         for phrase in (
             "em chon",
-            "em goi y",
+            "chon ho",
             "tuy em",
             "sao cung duoc",
-            "anh khong ranh",
-            "anh khong biet",
-            "chua biet",
+            "chon luon",
+            "thich gi anh chon nay",
+            "thich gi chon nay",
+            "quynh chon",
+            "linh chon",
         )
     )
 
@@ -363,6 +380,19 @@ def _reply_asks_for_required_focus(reply: str, focus: str | None) -> bool:
             "nhan qua", "nhan bo", "nhan logo", "nhan card",
             "lam logo", "mien phi", "tang anh",
         ),
+        "est_team_size": ("doi tho", "bao nhieu nguoi", "co tho", "bao nhieu tho", "so luong tho"),
+        "supplier_brands": ("nhap", "hang nao", "thuong hieu", "nhap cua", "nhap tu", "xingfa", "pma", "viet phap"),
+        "primary_contact_channel": ("lien he", "qua dau", "zalo", "dien thoai", "facebook", "lien lac"),
+        "facebook": ("facebook", "fanpage", "kenh online", "trang cua hang"),
+        "customer_old_percentage": ("khach cu", "khach quen", "gioi thieu", "quay lai", "ti le", "phan tram"),
+        "customer_storage_method": ("luu danh sach", "luu khach", "ghi so", "excel", "so sach", "luu thong tin"),
+        "customer_pain": ("vuong mac", "kho khan", "dau dau", "lo lang", "ngai nhat", "khong thich nhat"),
+        "payment_terms_signal": ("thanh toan", "coc", "dat coc", "cong no", "no"),
+        "warranty_responsibility_signal": ("bao hanh", "sua chua", "loi", "trach nhiem"),
+        "color_accent": ("mau", "phong thuy", "hop menh", "mau sac", "chu dao"),
+        "logo_initials": ("viet tat", "chu tren logo", "chu viet tat", "ten viet tat"),
+        "slogan_preference": ("slogan", "cau chot", "khau hieu", "cau ngon"),
+        "logo_style": ("phong cach", "gu logo", "toi gian", "hien dai", "hinh hoc", "chac chan", "cong nghiep"),
     }.get(focus)
     return True if not markers else any(marker in folded for marker in markers)
 

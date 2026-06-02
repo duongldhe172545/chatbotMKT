@@ -29,23 +29,73 @@ class LogoVariant(BaseModel):
     download_url: str
 
 
-_DEFAULT_PALETTE = [
-    ("#0F766E", "#134E4A", "#ECFDF5"),
-    ("#1D4ED8", "#172554", "#EFF6FF"),
-    ("#B45309", "#7C2D12", "#FFFBEB"),
-    ("#374151", "#111827", "#F9FAFB"),
-    ("#BE123C", "#4C0519", "#FFF1F2"),
+# 5 Premium fallback palettes matching diverse styles
+_DEFAULT_PALETTES = [
+    ("#1E3A8A", "#475569", "#F8FAFC"),  # Navy Steel
+    ("#0F766E", "#134E4A", "#ECFDF5"),  # Teal Mint
+    ("#D97706", "#1F2937", "#FFFBEB"),  # Royal Gold
+    ("#475569", "#0F172A", "#F8FAFC"),  # Carbon Steel
+    ("#BE123C", "#4C0519", "#FFF1F2"),  # Wine Red
 ]
-_COLOR_MAP = {
-    "xanh": ("#0F766E", "#134E4A", "#ECFDF5"),
-    "xanh duong": ("#1D4ED8", "#172554", "#EFF6FF"),
-    "xanh la": ("#15803D", "#14532D", "#F0FDF4"),
-    "do": ("#BE123C", "#4C0519", "#FFF1F2"),
-    "cam": ("#C2410C", "#7C2D12", "#FFF7ED"),
-    "vang": ("#A16207", "#713F12", "#FEFCE8"),
-    "den": ("#374151", "#111827", "#F9FAFB"),
-    "ghi": ("#475569", "#1E293B", "#F8FAFC"),
-    "tim": ("#7E22CE", "#3B0764", "#FAF5FF"),
+
+# 5 Dedicated premium palettes per color family to ensure 100% synchronization (Constraint 2)
+_COLOR_FAMILY_PALETTES = {
+    "xanh_duong": [
+        ("#1E3A8A", "#475569", "#F8FAFC"),  # Navy Steel
+        ("#2563EB", "#1E293B", "#F1F5F9"),  # Royal Blue
+        ("#06B6D4", "#0891B2", "#F0FDFA"),  # Cyan Tech
+        ("#D97706", "#1E3A8A", "#F8FAFC"),  # Gold & Navy
+        ("#0F172A", "#38BDF8", "#F8FAFC"),  # Midnight & Sky
+    ],
+    "xanh_la": [
+        ("#10B981", "#D97706", "#F0FDF4"),  # Emerald Gold
+        ("#065F46", "#34D399", "#ECFDF5"),  # Forest & Mint
+        ("#059669", "#10B981", "#F0FDF4"),  # Mint Tech
+        ("#064E3B", "#374151", "#F3F4F6"),  # Dark Green Carbon
+        ("#3F6212", "#65A30D", "#F7FEE7"),  # Lime Olive
+    ],
+    "vang": [
+        ("#D97706", "#1F2937", "#FFFBEB"),  # Royal Gold & Charcoal
+        ("#B45309", "#78350F", "#FFFBEB"),  # Bronze & Copper
+        ("#EA580C", "#475569", "#FFF7ED"),  # Amber Sunset
+        ("#F59E0B", "#9A3412", "#FEF3C7"),  # Golden Honey
+        ("#D97706", "#1E293B", "#FAFAFA"),  # Champagne Slate
+    ],
+    "do": [
+        ("#DC2626", "#475569", "#FEF2F2"),  # Crimson & Slate
+        ("#991B1B", "#111827", "#FFF5F5"),  # Wine & Charcoal
+        ("#E11D48", "#FDA4AF", "#FFF1F2"),  # Rose Gold
+        ("#BE123C", "#1F2937", "#FFF1F2"),  # Ruby & Carbon
+        ("#881337", "#4C0519", "#FFF1F2"),  # Burgundy Ivory
+    ],
+    "den": [
+        ("#374151", "#1F2937", "#F9FAFB"),  # Titanium Slate
+        ("#475569", "#0F172A", "#F8FAFC"),  # Slate Steel & Matte Black
+        ("#6B7280", "#111827", "#F9FAFB"),  # Carbon Silver
+        ("#1E293B", "#475569", "#F1F5F9"),  # Matte Obsidian
+        ("#000000", "#374151", "#FFFFFF"),  # Pure Monolith
+    ],
+    "ghi": [
+        ("#475569", "#1E293B", "#F8FAFC"),  # Slate Carbon
+        ("#6B7280", "#374151", "#F9FAFB"),  # Brushed Steel
+        ("#374151", "#1E293B", "#F3F4F6"),  # Metallic Graphene
+        ("#94A3B8", "#1E293B", "#F8FAFC"),  # Silver Blue
+        ("#475569", "#0F172A", "#F8FAFC"),  # Dark Silver
+    ],
+    "teal": [
+        ("#0D9488", "#475569", "#F0FDFA"),  # Teal Silver
+        ("#0F766E", "#06B6D4", "#ECFDF5"),  # Deep Turquoise
+        ("#115E59", "#C2410C", "#F0FDFA"),  # Teal Terracotta
+        ("#14B8A6", "#047857", "#F0FDFA"),  # Minty Sage
+        ("#0F766E", "#D97706", "#F0FDFA"),  # Gold Teal
+    ],
+    "tim": [
+        ("#7E22CE", "#475569", "#FAF5FF"),  # Violet Silver
+        ("#581C87", "#111827", "#FAF5FF"),  # Dark Plum
+        ("#6366F1", "#1E293B", "#EEF2FF"),  # Indigo Tech
+        ("#A855F7", "#4A044E", "#FAF5FF"),  # Lavender Purple
+        ("#3B0764", "#7E22CE", "#FAFAFA"),  # Amethyst Gold
+    ]
 }
 
 
@@ -123,11 +173,35 @@ def _select_slogan(profile: DealerProfileRaw) -> str:
 
 
 def _select_palettes(color_accent: str | None) -> list[tuple[str, str, str]]:
-    folded = _fold_vn(color_accent or "")
-    preferred = next((value for key, value in _COLOR_MAP.items() if key in folded), None)
-    if not preferred:
-        return list(_DEFAULT_PALETTE)
-    return [preferred, *_DEFAULT_PALETTE[:4]]
+    if not color_accent:
+        return _DEFAULT_PALETTES
+        
+    folded = _fold_vn(color_accent)
+    
+    if "duong" in folded or "lam" in folded or "navy" in folded or "bien" in folded:
+        family = "xanh_duong"
+    elif "la" in folded or "cay" in folded or "emerald" in folded or "luc" in folded:
+        family = "xanh_la"
+    elif "teal" in folded or "ngoc" in folded or "lam" in folded:
+        family = "teal"
+    elif "xanh" in folded:
+        family = "xanh_duong"
+    elif "vang" in folded or "gold" in folded or "hoang kim" in folded or "kim" in folded:
+        family = "vang"
+    elif "cam" in folded or "orange" in folded:
+        family = "vang"
+    elif "do" in folded or "crimson" in folded or "ruou" in folded:
+        family = "do"
+    elif "den" in folded or "charcoal" in folded or "toi" in folded:
+        family = "den"
+    elif "ghi" in folded or "xam" in folded or "silver" in folded or "bac" in folded:
+        family = "ghi"
+    elif "tim" in folded or "purple" in folded:
+        family = "tim"
+    else:
+        return _DEFAULT_PALETTES
+        
+    return _COLOR_FAMILY_PALETTES[family]
 
 
 def _display_preference(style: str | None) -> str:
@@ -152,74 +226,88 @@ def _text(value: str) -> str:
     return escape(value, quote=True)
 
 
-def _base_svg(body: str, *, background: str) -> str:
+def _base_svg(body: str, *, background: str, primary: str, secondary: str) -> str:
     return (
-        '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="440" '
-        'viewBox="0 0 640 440" role="img">\n'
-        f'<rect width="640" height="440" fill="{background}"/>\n'
-        f"{body}\n"
-        "</svg>\n"
+        '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="440" viewBox="0 0 640 440" role="img">\n'
+        '  <defs>\n'
+        '    <!-- Premium Drop Shadow Filter -->\n'
+        '    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">\n'
+        '      <feDropShadow dx="3" dy="5" stdDeviation="4" flood-color="#000000" flood-opacity="0.2"/>\n'
+        '    </filter>\n'
+        '    <!-- Primary Linear Gradient -->\n'
+        '    <linearGradient id="grad-primary" x1="0%" y1="0%" x2="100%" y2="100%">\n'
+        f'      <stop offset="0%" stop-color="{primary}"/>\n'
+        f'      <stop offset="100%" stop-color="{secondary}"/>\n'
+        '    </linearGradient>\n'
+        '    <!-- Secondary Linear Gradient -->\n'
+        '    <linearGradient id="grad-secondary" x1="0%" y1="0%" x2="0%" y2="100%">\n'
+        f'      <stop offset="0%" stop-color="{secondary}"/>\n'
+        f'      <stop offset="100%" stop-color="{primary}"/>\n'
+        '    </linearGradient>\n'
+        '  </defs>\n'
+        f'  <rect width="640" height="440" fill="{background}"/>\n'
+        f"  {body}\n"
+        '</svg>\n'
     )
 
 
 def _style_note(style_preference: str) -> str:
     if not style_preference:
         return ""
-    return f'<text x="320" y="410" text-anchor="middle" fill="#64748B" font-family="Arial" font-size="13">{_text(style_preference)}</text>'
+    return f'<text x="320" y="410" text-anchor="middle" fill="#64748B" font-family="Arial" font-size="13" font-weight="bold" letter-spacing="1">{_text(style_preference)}</text>'
 
 
 def _svg_monogram_frame(**data: str) -> str:
     body = f"""
-<rect x="228" y="54" width="184" height="154" rx="12" fill="none" stroke="{data['primary']}" stroke-width="16"/>
-<path d="M254 176 L320 88 L386 176" fill="none" stroke="{data['secondary']}" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
-<text x="320" y="156" text-anchor="middle" fill="{data['primary']}" font-family="Arial" font-size="50" font-weight="700">{_text(data['initials'])}</text>
-<text x="320" y="272" text-anchor="middle" fill="{data['secondary']}" font-family="Arial" font-size="31" font-weight="700">{_text(data['brand_name'])}</text>
-<text x="320" y="310" text-anchor="middle" fill="{data['primary']}" font-family="Arial" font-size="17">{_text(data['slogan'])}</text>
+<rect x="228" y="54" width="184" height="154" rx="16" fill="none" stroke="url(#grad-primary)" stroke-width="12" filter="url(#shadow)"/>
+<path d="M254 176 L320 88 L386 176" fill="none" stroke="url(#grad-secondary)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" filter="url(#shadow)"/>
+<text x="320" y="148" text-anchor="middle" fill="url(#grad-primary)" font-family="Arial" font-size="44" font-weight="800" letter-spacing="1">{_text(data['initials'])}</text>
+<text x="320" y="278" text-anchor="middle" fill="url(#grad-primary)" font-family="Arial" font-size="28" font-weight="800" letter-spacing="2">{_text(data['brand_name'])}</text>
+<text x="320" y="318" text-anchor="middle" fill="url(#grad-secondary)" font-family="Arial" font-size="15" font-weight="600" letter-spacing="3">{_text(data['slogan'])}</text>
 {_style_note(data['style_preference'])}"""
-    return _base_svg(body, background=data["background"])
+    return _base_svg(body, background=data["background"], primary=data["primary"], secondary=data["secondary"])
 
 
 def _svg_door_line(**data: str) -> str:
     body = f"""
-<path d="M245 208 V78 H382 V208" fill="none" stroke="{data['secondary']}" stroke-width="14" stroke-linejoin="round"/>
-<path d="M278 208 V112 H348 V208" fill="none" stroke="{data['primary']}" stroke-width="12"/>
-<circle cx="330" cy="162" r="7" fill="{data['primary']}"/>
-<text x="320" y="262" text-anchor="middle" fill="{data['secondary']}" font-family="Arial" font-size="34" font-weight="700">{_text(data['brand_name'])}</text>
-<text x="320" y="302" text-anchor="middle" fill="{data['primary']}" font-family="Arial" font-size="18" letter-spacing="2">{_text(data['initials'])}</text>
-<text x="320" y="342" text-anchor="middle" fill="{data['secondary']}" font-family="Arial" font-size="16">{_text(data['slogan'])}</text>
+<path d="M245 208 V78 H382 V208" fill="none" stroke="url(#grad-secondary)" stroke-width="12" stroke-linejoin="round" filter="url(#shadow)"/>
+<path d="M278 208 V112 H348 V208" fill="none" stroke="url(#grad-primary)" stroke-width="10" stroke-linejoin="round" filter="url(#shadow)"/>
+<circle cx="330" cy="162" r="6" fill="url(#grad-primary)"/>
+<text x="320" y="268" text-anchor="middle" fill="url(#grad-secondary)" font-family="Arial" font-size="30" font-weight="800" letter-spacing="2">{_text(data['brand_name'])}</text>
+<text x="320" y="306" text-anchor="middle" fill="url(#grad-primary)" font-family="Arial" font-size="16" letter-spacing="4" font-weight="700">{_text(data['initials'])}</text>
+<text x="320" y="344" text-anchor="middle" fill="url(#grad-secondary)" font-family="Arial" font-size="14" font-weight="600" letter-spacing="1">{_text(data['slogan'])}</text>
 {_style_note(data['style_preference'])}"""
-    return _base_svg(body, background=data["background"])
+    return _base_svg(body, background=data["background"], primary=data["primary"], secondary=data["secondary"])
 
 
 def _svg_industrial_badge(**data: str) -> str:
     body = f"""
-<path d="M320 48 L418 102 L418 208 L320 262 L222 208 L222 102 Z" fill="{data['secondary']}"/>
-<path d="M320 70 L396 113 L396 196 L320 240 L244 196 L244 113 Z" fill="none" stroke="{data['primary']}" stroke-width="8"/>
-<text x="320" y="178" text-anchor="middle" fill="#FFFFFF" font-family="Arial" font-size="58" font-weight="700">{_text(data['initials'])}</text>
-<text x="320" y="316" text-anchor="middle" fill="{data['secondary']}" font-family="Arial" font-size="31" font-weight="700">{_text(data['brand_name'])}</text>
-<text x="320" y="352" text-anchor="middle" fill="{data['primary']}" font-family="Arial" font-size="16">{_text(data['slogan'])}</text>
+<path d="M320 48 L418 102 L418 208 L320 262 L222 208 L222 102 Z" fill="url(#grad-secondary)" filter="url(#shadow)"/>
+<path d="M320 70 L396 113 L396 196 L320 240 L244 196 L244 113 Z" fill="none" stroke="url(#grad-primary)" stroke-width="6"/>
+<text x="320" y="174" text-anchor="middle" fill="#FFFFFF" font-family="Arial" font-size="52" font-weight="900" letter-spacing="2">{_text(data['initials'])}</text>
+<text x="320" y="318" text-anchor="middle" fill="url(#grad-secondary)" font-family="Arial" font-size="28" font-weight="800" letter-spacing="2">{_text(data['brand_name'])}</text>
+<text x="320" y="356" text-anchor="middle" fill="url(#grad-primary)" font-family="Arial" font-size="15" font-weight="600" letter-spacing="2">{_text(data['slogan'])}</text>
 {_style_note(data['style_preference'])}"""
-    return _base_svg(body, background=data["background"])
+    return _base_svg(body, background=data["background"], primary=data["primary"], secondary=data["secondary"])
 
 
 def _svg_wordmark_block(**data: str) -> str:
     body = f"""
-<rect x="68" y="95" width="154" height="154" rx="8" fill="{data['primary']}"/>
-<text x="145" y="190" text-anchor="middle" fill="#FFFFFF" font-family="Arial" font-size="54" font-weight="700">{_text(data['initials'])}</text>
-<text x="260" y="160" fill="{data['secondary']}" font-family="Arial" font-size="34" font-weight="700">{_text(data['brand_name'])}</text>
-<rect x="260" y="181" width="286" height="8" fill="{data['primary']}"/>
-<text x="260" y="229" fill="{data['secondary']}" font-family="Arial" font-size="17">{_text(data['slogan'])}</text>
+<rect x="68" y="95" width="154" height="154" rx="16" fill="url(#grad-primary)" filter="url(#shadow)"/>
+<text x="145" y="188" text-anchor="middle" fill="#FFFFFF" font-family="Arial" font-size="50" font-weight="900" letter-spacing="1">{_text(data['initials'])}</text>
+<text x="260" y="156" fill="url(#grad-secondary)" font-family="Arial" font-size="30" font-weight="800" letter-spacing="2">{_text(data['brand_name'])}</text>
+<rect x="260" y="176" width="310" height="6" fill="url(#grad-primary)"/>
+<text x="260" y="222" fill="url(#grad-secondary)" font-family="Arial" font-size="15" font-weight="600" letter-spacing="1">{_text(data['slogan'])}</text>
 {_style_note(data['style_preference'])}"""
-    return _base_svg(body, background=data["background"])
+    return _base_svg(body, background=data["background"], primary=data["primary"], secondary=data["secondary"])
 
 
 def _svg_premium_mark(**data: str) -> str:
     body = f"""
-<circle cx="320" cy="145" r="90" fill="none" stroke="{data['primary']}" stroke-width="8"/>
-<path d="M270 182 L320 86 L370 182 M292 142 H348" fill="none" stroke="{data['secondary']}" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
-<text x="320" y="178" text-anchor="middle" fill="{data['primary']}" font-family="Arial" font-size="30" font-weight="700">{_text(data['initials'])}</text>
-<text x="320" y="288" text-anchor="middle" fill="{data['secondary']}" font-family="Arial" font-size="32" font-weight="700">{_text(data['brand_name'])}</text>
-<text x="320" y="328" text-anchor="middle" fill="{data['primary']}" font-family="Arial" font-size="16">{_text(data['slogan'])}</text>
+<circle cx="320" cy="145" r="90" fill="none" stroke="url(#grad-primary)" stroke-width="6" filter="url(#shadow)"/>
+<path d="M270 182 L320 86 L370 182 M292 142 H348" fill="none" stroke="url(#grad-secondary)" stroke-width="11" stroke-linecap="round" stroke-linejoin="round" filter="url(#shadow)"/>
+<text x="320" y="174" text-anchor="middle" fill="url(#grad-primary)" font-family="Arial" font-size="26" font-weight="800" letter-spacing="1">{_text(data['initials'])}</text>
+<text x="320" y="292" text-anchor="middle" fill="url(#grad-secondary)" font-family="Arial" font-size="28" font-weight="800" letter-spacing="2">{_text(data['brand_name'])}</text>
+<text x="320" y="330" text-anchor="middle" fill="url(#grad-primary)" font-family="Arial" font-size="15" font-weight="600" letter-spacing="2">{_text(data['slogan'])}</text>
 {_style_note(data['style_preference'])}"""
-    return _base_svg(body, background=data["background"])
-
+    return _base_svg(body, background=data["background"], primary=data["primary"], secondary=data["secondary"])

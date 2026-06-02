@@ -82,12 +82,15 @@ def compute_intake_coverage(
         if not _optional_slot_resolved(profile, slot_id, skipped_slots)
     ]
 
-    pre_consent_required_missing = [
-        field for field in required_missing if field != "brandkit_consent"
-    ]
     pre_consent_optional_open = [
         slot_id for slot_id in PRE_CONSENT_OPTIONAL_SLOTS
         if slot_id in open_optional_slots
+    ]
+    if pre_consent_optional_open and "brandkit_consent" in required_missing:
+        required_missing.remove("brandkit_consent")
+
+    pre_consent_required_missing = [
+        field for field in required_missing if field != "brandkit_consent"
     ]
     post_consent_optional_open = [
         slot_id for slot_id in POST_CONSENT_OPTIONAL_SLOTS
