@@ -17,6 +17,7 @@ from app.admin.queue import increment_flag_count
 from app.core._conv_derive import merge_extracted
 from app.core._conv_helpers import (
     gen_ack_safe,
+    gen_unified_response_safe,
     gen_partial_question,
     get_slot_question_for_attempt,
     phase_1_pause_fallback,
@@ -245,33 +246,34 @@ def handle_asking(
 
     # ADVANCE / SKIP / DEFER → ack + question for next slot
     if action in (Action.ADVANCE, Action.SKIP, Action.DEFER):
-        # Phase 6 R+ fix bug 2: REFUSAL/DEFER cho REQUIRED → ack "không tiện
-        # thì em hỏi sau" TRƯỚC khi chuyển slot (1A § 1.6 nuance).
-        # Bug 3: Lửa Lò → ack ngắn ≤8 từ.
         defer_ack = _gen_defer_skip_ack(intent, action, current_slot, session)
+        question = get_slot_question_for_attempt(next_slot, session)
         if defer_ack:
-            ack = defer_ack
+            base = f"{defer_ack}\n\n{rush_offer}" if rush_offer else defer_ack
+            if question:
+                return f"{base}\n\n{question}"
+            return base
         elif (
             not _has_extracted_value(extracted)
             and (intent == Intent.AFFIRMATIVE or _is_ack_only(message))
         ):
             ack = "Dạ vâng."
-        else:
-            ack = gen_ack_safe(
-                slot_id=current_slot or "",
-                extracted_data=extracted or {},
-                client=client,
-                session=session,
-            )
-        question = get_slot_question_for_attempt(next_slot, session)
-        if rush_offer:
-            base = f"{ack}\n\n{rush_offer}" if ack else rush_offer
+            base = f"{ack}\n\n{rush_offer}" if rush_offer else ack
             if question:
                 return f"{base}\n\n{question}"
             return base
-        if question:
-            return f"{ack}\n\n{question}" if ack else question
-        return ack or "Dạ vâng ạ."
+        else:
+            unified_reply = gen_unified_response_safe(
+                slot_id=current_slot or "",
+                extracted_data=extracted or {},
+                next_slot_id=next_slot or "",
+                next_slot_question=question or "",
+                client=client,
+                session=session,
+            )
+            if rush_offer:
+                return f"{unified_reply}\n\n{rush_offer}"
+            return unified_reply
 
     # RETRY → variant rotate + retry tone (Phase 5 R1 Gap 7 + Phase 6 R+ fix)
     if action == Action.RETRY:
@@ -300,14 +302,16 @@ def handle_asking(
 
     # PARTIAL_RETRY → ack + hỏi field cụ thể (1A § 1.5)
     if action == Action.PARTIAL_RETRY:
-        ack = gen_ack_safe(
+        partial_q = gen_partial_question(current_slot, profile)
+        unified_reply = gen_unified_response_safe(
             slot_id=current_slot or "",
             extracted_data=extracted or {},
+            next_slot_id=current_slot or "",
+            next_slot_question=partial_q or "",
             client=client,
             session=session,
         )
-        partial_q = gen_partial_question(current_slot, profile)
-        return f"{ack}\n\n{partial_q}" if ack else partial_q
+        return unified_reply
 
     # Fallback
     return safe_ack()

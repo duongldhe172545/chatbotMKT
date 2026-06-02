@@ -89,6 +89,9 @@ CREATE TABLE IF NOT EXISTS dealer_profile_raw (
     payment_terms_signal    TEXT,
     color_accent            TEXT,
     feng_shui_signal        TEXT,
+    logo_initials           TEXT,                                       -- dealer chọn viết tắt hoặc "auto"
+    slogan_preference       TEXT,                                       -- slogan dealer chọn hoặc "auto"
+    logo_style              TEXT,                                       -- tối giản / hình học / công nghiệp / "auto"
 
     -- RAW SIGNAL (6) — mining từ câu trả lời slot, cho Backend Scoring chấm C1-C9
     local_dominance_signal          TEXT,                               -- C6 (slot 1.2 bán kính)

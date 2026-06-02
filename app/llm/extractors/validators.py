@@ -8,6 +8,7 @@ Mọi validator có pattern:
 from __future__ import annotations
 
 import re
+import unicodedata
 from typing import Optional
 
 
@@ -15,8 +16,10 @@ from typing import Optional
 # Phone — refer F2A.7 check 2 + F2B.2 strict validation
 # ============================================================
 
-# digits-only, len 9-11, bắt đầu '0' (vd "0912345678") hoặc "84..." (vd "84912345678")
-_PHONE_NUMERIC = re.compile(r"^(0\d{9,10}|84\d{9,10})$")
+# VN active mobile prefixes: 03/05/07/08/09. Landline starts with 02.
+# Keep 84 country-code variants for the same ranges. Reject old retired 01x
+# prefixes such as 014, which otherwise look valid by length only.
+_PHONE_NUMERIC = re.compile(r"^((?:0(?:[35789]\d{8}|2\d{8,9}))|(?:84(?:[35789]\d{8}|2\d{8,9})))$")
 
 
 def validate_phone(value: Optional[str]) -> tuple[bool, Optional[str]]:
@@ -130,6 +133,51 @@ def validate_free_text(
 
 
 # ============================================================
+# Team size — LLM-first extractor uses one generic string value
+# ============================================================
+
+
+def validate_est_team_size(value) -> tuple[bool, Optional[int]]:
+    """Normalize a dealer's approximate team size to one integer estimate.
+
+    The legacy slot extractor already emits an integer. The LLM-first fact
+    extractor intentionally uses one generic string value for heterogeneous
+    fields, so ranges such as ``"6-7"`` must be normalized at the merge edge.
+    """
+    if value is None or isinstance(value, bool):
+        return (False, None)
+    if isinstance(value, int):
+        return (True, value) if 0 <= value <= 200 else (False, None)
+    if isinstance(value, float):
+        return (True, int(value)) if value.is_integer() and 0 <= value <= 200 else (False, None)
+    if not isinstance(value, str):
+        return (False, None)
+
+    cleaned = value.strip().lower()
+    if not cleaned:
+        return (False, None)
+    folded = "".join(
+        ch for ch in unicodedata.normalize("NFD", cleaned)
+        if unicodedata.category(ch) != "Mn"
+    ).replace("đ", "d")
+
+    range_match = re.search(
+        r"(?<!\d)(\d{1,3})\s*(?:[-–—]|den|toi)\s*(\d{1,3})(?!\d)",
+        folded,
+    )
+    if range_match:
+        low, high = sorted((int(range_match.group(1)), int(range_match.group(2))))
+        estimate = (low + high) // 2
+        return (True, estimate) if 0 <= estimate <= 200 else (False, None)
+
+    number_match = re.search(r"(?<!\d)(\d{1,3})(?!\d)", folded)
+    if number_match:
+        estimate = int(number_match.group(1))
+        return (True, estimate) if 0 <= estimate <= 200 else (False, None)
+    return (False, None)
+
+
+# ============================================================
 # Master validator dispatch — field name → validator
 # ============================================================
 
@@ -140,6 +188,7 @@ _FIELD_VALIDATORS: dict[str, callable] = {
     "brandkit_consent": validate_brandkit_consent,
     "owner_name": validate_name,
     "dealer_name": validate_name,
+    "est_team_size": validate_est_team_size,
     # RAW signal + free text fields → free_text validator
     "local_dominance_signal": validate_free_text,
     "main_product": validate_free_text,
@@ -159,6 +208,9 @@ _FIELD_VALIDATORS: dict[str, callable] = {
     "payment_terms_signal": validate_free_text,
     "color_accent": validate_free_text,
     "feng_shui_signal": validate_free_text,
+    "logo_initials": validate_free_text,
+    "slogan_preference": validate_free_text,
+    "logo_style": validate_free_text,
 }
 
 
@@ -173,8 +225,8 @@ def validate_field(field_name: str, value):
         (True, cleaned) nếu valid.
         (False, None) nếu invalid.
 
-    Note: với field không có validator dedicated (vd est_team_size int,
-    category_stack list, supplier_brands list), passthrough giữ NGUYÊN
+    Note: với field không có validator dedicated (vd category_stack list,
+    supplier_brands list), passthrough giữ NGUYÊN
     type — Pydantic JSON schema đã enforce type ở LLM call.
     """
     validator = _FIELD_VALIDATORS.get(field_name)

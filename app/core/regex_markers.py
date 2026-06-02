@@ -18,12 +18,12 @@ AFFIRMATIVE_PATTERNS: list[str] = [
     # được / chuẩn / đúng / đồng ý
     r"\b(được\s*r[ồô]i|được|chuẩn\s*r[ồô]i|chuẩn|đúng\s*r[ồô]i|đúng|đồng\s*ý)\b",
     # vâng / dạ vâng / ừ / ờ
-    r"\b(vâng|dạ\s*vâng|ừ|ừm|ờ|ờm)\b",
+    r"\b(vâng|dạ\s*vâng|ừ|ừa|ừm|ờ|ò|ờm)\b",
     # affirmative tiếng Anh
     r"\b(good|yes|yeah|yep|right)\b",
     # 1 chữ ừ / ờ / dạ
     r"^[uưừ]+$",
-    r"^(dạ|ừ|ờ|ok)\s*$",
+    r"^(dạ|ừ|ừa|ờ|ò|ok)\s*$",
 ]
 
 

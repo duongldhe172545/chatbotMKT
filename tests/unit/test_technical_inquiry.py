@@ -36,9 +36,9 @@ class TestSlotContextSkip:
             # Tại slot 3.5 — KHÔNG escalate
             assert not detect_technical_inquiry(m, current_slot="3.5"), \
                 f"Should NOT escalate at slot 3.5: {m!r}"
-            # Tại slot khác (vd 1.1) — VẪN escalate (vì user hỏi bảo hành)
-            assert detect_technical_inquiry(m, current_slot="1.1"), \
-                f"Should escalate at slot 1.1: {m!r}"
+            # Câu mô tả nghiệp vụ không phải inquiry, kể cả focus đã advance.
+            assert not detect_technical_inquiry(m, current_slot="1.1"), \
+                f"Should remain descriptive data at slot 1.1: {m!r}"
 
     def test_slot_3_5_real_technical_question_still_escalate(self):
         """Slot 3.5 nhưng dealer hỏi câu KHÁC (báo giá/y tế/pháp lý)
@@ -53,10 +53,27 @@ class TestSlotContextSkip:
             assert detect_technical_inquiry(m, current_slot="3.5"), \
                 f"Should escalate (non-warranty pattern): {m!r}"
 
-    def test_no_current_slot_default_check_all(self):
-        """KHÔNG truyền current_slot → check all pattern (backward compat)."""
-        assert detect_technical_inquiry("anh chịu bảo hành") is True
-        assert detect_technical_inquiry("anh chịu bảo hành", current_slot=None) is True
+    def test_no_current_slot_still_distinguishes_descriptive_data(self):
+        """Không cần slot context để nhận ra câu mô tả trách nhiệm bảo hành."""
+        assert detect_technical_inquiry("anh chịu bảo hành") is False
+        assert detect_technical_inquiry("anh chịu bảo hành", current_slot=None) is False
+
+    def test_slot_2_2_business_model_answer_mentions_warranty_not_escalate(self):
+        """Slot 2.2 dealer mô tả dịch vụ trọn gói, không hỏi tư vấn kỹ thuật."""
+        assert not detect_technical_inquiry(
+            "anh vừa sản xuất vừa lắp đặt thi công bảo hành các thứ",
+            current_slot="2.2",
+        )
+        assert detect_technical_inquiry(
+            "Cửa hỏng rồi, ai bảo hành?",
+            current_slot="2.2",
+        )
+
+    def test_business_distribution_description_not_escalate_after_focus_advanced(self):
+        assert not detect_technical_inquiry(
+            "anh sản xuất với phân phối cho đại lý khác thôi",
+            current_slot="2.4",
+        )
 
 
 # ============================================================

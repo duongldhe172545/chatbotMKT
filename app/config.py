@@ -29,6 +29,14 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str = ""
     LLM_FAST: str = "gemini-2.5-flash"
     LLM_QUALITY: str = "gemini-2.5-pro"
+
+    # ----- Conversation engine rollout -----
+    # legacy: existing slot/state-machine flow.
+    # planner_shadow: run legacy response, call planner only for logs/tests.
+    # planner: intermediate planner-first ASKING engine.
+    # llm_first: Quynh-style full-context conversation brain for ASKING.
+    CONVERSATION_ENGINE: str = "legacy"
+
     # ----- Storage -----
     SQLITE_PATH: str = "data/chatbot.db"
 

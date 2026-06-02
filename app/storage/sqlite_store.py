@@ -127,6 +127,9 @@ _PROFILE_COLUMN_SPECS = {
     "payment_terms_signal": "TEXT",
     "color_accent": "TEXT",
     "feng_shui_signal": "TEXT",
+    "logo_initials": "TEXT",
+    "slogan_preference": "TEXT",
+    "logo_style": "TEXT",
     "local_dominance_signal": "TEXT",
     "supplier_negotiation_signal": "TEXT",
     "community_network_signal": "TEXT",
@@ -645,6 +648,21 @@ class SQLiteStore:
                 raw = d[col] if d[col] is not None else _PROFILE_JSON_DEFAULTS.get(col)
                 if raw is not None:
                     d[col] = json.loads(raw)
+        # Compatibility repair for rows written before the LLM-first merge
+        # normalized approximate team sizes. SQLite accepts text in INTEGER
+        # columns, while DealerProfileRaw correctly requires an int.
+        if d.get("est_team_size") is not None:
+            from app.llm.extractors.validators import validate_est_team_size
+
+            valid, normalized = validate_est_team_size(d["est_team_size"])
+            if valid:
+                d["est_team_size"] = normalized
+            else:
+                logger.warning(
+                    "Discarding invalid persisted est_team_size=%r",
+                    d["est_team_size"],
+                )
+                d["est_team_size"] = None
         if d.get("contact_role") is None:
             d["contact_role"] = "Chủ cửa hàng"
         return DealerProfileRaw.model_validate(d)

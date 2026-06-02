@@ -153,6 +153,15 @@ def _render_section_4_brandkit(profile: DealerProfileRaw) -> str:
             lines.append(f"   • Màu chủ đạo: {color_info}")
         else:
             lines.append(f"   • Màu chủ đạo: {_PLACEHOLDER_OPTIONAL_DECLINED}")
+        if profile.logo_initials:
+            initials = "em tự rút gọn theo tên cửa hàng" if profile.logo_initials == "auto" else profile.logo_initials
+            lines.append(f"   • Viết tắt logo: {initials}")
+        if profile.slogan_preference:
+            slogan = "em chọn phương án phù hợp" if profile.slogan_preference == "auto" else profile.slogan_preference
+            lines.append(f"   • Slogan: {slogan}")
+        if profile.logo_style:
+            style = "em chọn phương án phù hợp" if profile.logo_style == "auto" else profile.logo_style
+            lines.append(f"   • Gu logo: {style}")
     return "\n".join(lines)
 
 

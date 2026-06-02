@@ -26,6 +26,52 @@ function appendBubble(role, content) {
   chatEl.scrollTop = chatEl.scrollHeight;
 }
 
+function appendLogoGallery(variants) {
+  if (!Array.isArray(variants) || !variants.length) return;
+  const existing = document.getElementById("logo-gallery");
+  if (existing) existing.remove();
+
+  const section = document.createElement("section");
+  section.id = "logo-gallery";
+  section.className = "logo-gallery";
+
+  const heading = document.createElement("div");
+  heading.className = "logo-gallery-heading";
+  heading.textContent = "5 mẫu logo của cửa hàng";
+  section.appendChild(heading);
+
+  const grid = document.createElement("div");
+  grid.className = "logo-grid";
+  for (const variant of variants) {
+    const card = document.createElement("article");
+    card.className = "logo-card";
+
+    const image = document.createElement("img");
+    image.src = variant.url;
+    image.alt = variant.name;
+    image.loading = "lazy";
+    card.appendChild(image);
+
+    const name = document.createElement("strong");
+    name.textContent = variant.name;
+    card.appendChild(name);
+
+    const style = document.createElement("span");
+    style.textContent = variant.style;
+    card.appendChild(style);
+
+    const link = document.createElement("a");
+    link.href = variant.download_url;
+    link.download = "";
+    link.textContent = "Tải SVG";
+    card.appendChild(link);
+    grid.appendChild(card);
+  }
+  section.appendChild(grid);
+  chatEl.appendChild(section);
+  chatEl.scrollTop = chatEl.scrollHeight;
+}
+
 
 // Phase 6 R+ 2026-05-25: button "Bắt đầu chat mới" khi session DONE.
 function _addStartNewButton() {
@@ -135,8 +181,10 @@ async function sendMessage(text) {
 
     typing.stop();
     appendBubble("bot", data.reply);
+    appendLogoGallery(data.logo_variants);
 
     setStatus(`Stage: ${data.stage}${data.current_slot ? ' | Slot: ' + data.current_slot : ''}`);
+    if (data.stage === "DONE") _addStartNewButton();
   } catch (err) {
     typing.stop();
     setStatus(`Lỗi: ${err.message}`, true);
@@ -168,15 +216,13 @@ async function init() {
           for (const msg of data.messages || []) {
             appendBubble(msg.role, msg.content);
           }
+          appendLogoGallery(data.logo_variants);
           if (data.stage === "DONE") {
-            // Session đã đóng — disable input, show notice
+            // Session đã chốt nhưng vẫn cho phép nói chuyện phiếm.
             appendBubble("bot",
-              "── Cuộc trò chuyện này đã kết thúc ──\n\n" +
-              "Anh muốn bắt đầu lại từ đầu thì bấm nút bên dưới nhé.");
-            setStatus(`Session đã đóng — ${(data.messages || []).length} tin nhắn lưu lại`, false);
-            // Disable input + show start-new button
-            if (inputEl) inputEl.disabled = true;
-            if (sendBtn) sendBtn.disabled = true;
+              "── Hồ sơ đã chốt ──\n\n" +
+              "Anh vẫn có thể nhắn em thêm, hoặc bắt đầu một hồ sơ mới bằng nút bên dưới.");
+            setStatus(`Hồ sơ đã chốt — ${(data.messages || []).length} tin nhắn lưu lại`, false);
             _addStartNewButton();
             setBusy(false);
             return;

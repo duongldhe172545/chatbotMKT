@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from app.admin.queue import increment_flag_count
+from app.config import get_settings
 from app.core._conv_asking import handle_asking
 from app.core._conv_confirming import handle_confirming, handle_done
 from app.core._conv_greeting import handle_greeting, start_session
@@ -27,6 +28,7 @@ from app.core.abuse_detector import (
     handle_abuse_escalation,
     is_personal_abuse,
 )
+from app.core.address_form import repair_named_address_form
 from app.core.bridge_rotation import record_bridge
 from app.core.closing import render_soft_end_closing
 from app.core.edge_cases import (
@@ -34,6 +36,13 @@ from app.core.edge_cases import (
     is_voice_fail_message,
 )
 from app.core.garbage_detector import is_garbage, is_meaningful_short
+from app.core.intake_planner import (
+    PlannerError,
+    handle_asking_with_planner,
+    is_planner_eligible,
+    plan_intake_turn,
+)
+from app.core.llm_first_asking import handle_asking_llm_first
 from app.core.reply_pipeline import compose_and_validate_reply
 from app.core.session import is_session_timeout, mark_session_closed, touch_session
 from app.guards import (
@@ -104,6 +113,7 @@ def handle_message(
         )
         session.history.append(HistoryMessage(role="bot", content=voice_reply, ts=now))
         return (voice_reply, session, profile)
+    raw_message = message
     # Brand/STT correction also helps typed text in chat tests, e.g. dealer
     # corrects "ốt đo" -> Austdoor. Apply before guards/extractors.
     message = correct_stt(message) or message
@@ -167,9 +177,27 @@ def handle_message(
     if session.stage == Stage.GREETING:
         reply = handle_greeting(session, message, client, profile=profile)
     elif session.stage == Stage.ASKING:
-        reply = handle_asking(session, profile, message, client)
+        reply = _handle_asking_with_selected_engine(
+            session,
+            profile,
+            message,
+            client,
+            raw_message=raw_message,
+        )
     elif session.stage == Stage.CONFIRMING:
         reply = handle_confirming(session, profile, message, client)
+    else:  # Stage.DONE
+        reply = handle_done(session=session, profile=profile, message=message, client=client)
+
+    # G3: Drift guard — auto-rewrite vocab cấm trong bot reply
+    if reply:
+        if stage_before_dispatch == Stage.ASKING:
+            reply = _soften_repeated_opening(reply, session)
+        if has_forbidden_scoring_vocab(reply):
+            logger.error(
+                "Scoring vocab LEAK trong bot reply session=%s reply=%r",
+                session.session_id, reply[:200],
+            )
     else:  # Stage.DONE
         reply = handle_done(session=session, profile=profile, message=message, client=client)
 
@@ -187,13 +215,16 @@ def handle_message(
         # Bug 11: fix LLM missing-space (e.g. "nàyđể" → "này để")
         reply = _fix_missing_spaces(reply)
 
-        reply = _compose_reply_safely(
-            reply,
-            message=message,
-            session=session,
-            profile=profile,
-            stage_before_dispatch=stage_before_dispatch,
-        )
+        from app.config import get_settings
+        is_llm_first = (get_settings().CONVERSATION_ENGINE or "legacy").strip().lower() == "llm_first"
+        if not (is_llm_first and stage_before_dispatch == Stage.ASKING):
+            reply = _compose_reply_safely(
+                reply,
+                message=message,
+                session=session,
+                profile=profile,
+                stage_before_dispatch=stage_before_dispatch,
+            )
 
         # GLOBAL address_form post-processing — CRITICAL FIX.
         # LLM thường bỏ qua system prompt instruction về address_form.
@@ -201,6 +232,11 @@ def handle_message(
         # "anh" → "chị" khi session.address_form == CHI.
         from app.core._conv_helpers import _adapt_address_form
         reply = _adapt_address_form(reply, session) or reply
+        reply = repair_named_address_form(
+            reply,
+            owner_name=profile.owner_name,
+            address_form=session.address_form.value,
+        )
 
         # B.4 luật #2 (Phase 6 R+): parrot guard — KHÔNG lặp y nguyên
         # đoạn ≥ 4 từ liên tiếp từ dealer message. Chỉ flag để admin
@@ -281,9 +317,11 @@ def _fix_missing_spaces(text: str) -> str:
     text = _STUCK_PATTERN.sub(r"\1 \2", text)
     # FIX H5 v2: tách anh/chị chỉ sau filler word cụ thể
     text = _STUCK_ANH_CHI.sub(r"\1 \2", text)
-    text = _re.sub(r'\b(anh|chị)(anh|chị)\b', r'\1, \2', text, flags=_re.IGNORECASE)
+    text = _re.sub(r'\b(anh|chị)(anh|chị)\b', r'\1', text, flags=_re.IGNORECASE)
     # FIX H4: normalize "D ạ" → "Dạ" AFTER stuck pattern
     text = _re.sub(r'D\s+ạ', 'Dạ', text)
+    # Normalize duplicated closing particles from LLM output.
+    text = _re.sub(r'\b(nhé|nha)\s+ạ\b', r'\1', text, flags=_re.IGNORECASE)
     return text
 
 
@@ -345,6 +383,57 @@ def _compose_reply_safely(
             [i.code for i in composed.issues],
         )
     return composed.text
+
+
+def _handle_asking_with_selected_engine(
+    session: SessionState,
+    profile: DealerProfileRaw,
+    message: str,
+    client: LLMClient,
+    *,
+    raw_message: str | None = None,
+) -> str:
+    """Route ASKING through legacy or planner engine via feature flag."""
+    engine = (get_settings().CONVERSATION_ENGINE or "legacy").strip().lower()
+    if engine == "legacy":
+        return handle_asking(session, profile, message, client)
+
+    if engine == "planner_shadow":
+        if is_planner_eligible(session, message):
+            try:
+                shadow = plan_intake_turn(session, profile, message, client)
+                logger.info(
+                    "Planner shadow result: session=%s move=%s facts=%s focus=%s",
+                    session.session_id,
+                    shadow.move,
+                    [fact.field for fact in shadow.facts],
+                    shadow.next_focus_fields,
+                )
+            except Exception:
+                logger.exception("Planner shadow failed; legacy response unaffected")
+        return handle_asking(session, profile, message, client)
+
+    if engine == "planner":
+        if is_planner_eligible(session, message):
+            try:
+                return handle_asking_with_planner(session, profile, message, client)
+            except PlannerError:
+                logger.exception("Planner output unusable; falling back to legacy")
+            except Exception:
+                logger.exception("Planner engine failed; falling back to legacy")
+        return handle_asking(session, profile, message, client)
+
+    if engine == "llm_first":
+        return handle_asking_llm_first(
+            session,
+            profile,
+            message,
+            client,
+            raw_message=raw_message,
+        )
+
+    logger.warning("Unknown CONVERSATION_ENGINE=%r; using legacy", engine)
+    return handle_asking(session, profile, message, client)
 
 
 def _soften_repeated_opening(reply: str, session: SessionState) -> str:

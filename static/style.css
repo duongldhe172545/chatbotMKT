@@ -172,3 +172,54 @@ body {
   font-size: 13px;
   color: var(--muted);
 }
+
+.logo-gallery {
+  width: 100%;
+  padding: 14px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.logo-gallery-heading {
+  margin-bottom: 12px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.logo-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.logo-card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.logo-card img {
+  width: 100%;
+  aspect-ratio: 16 / 11;
+  object-fit: contain;
+  border: 1px solid var(--border);
+}
+
+.logo-card strong,
+.logo-card span {
+  overflow-wrap: anywhere;
+}
+
+.logo-card strong { font-size: 13px; }
+.logo-card span { color: var(--muted); font-size: 12px; }
+.logo-card a { color: var(--primary); font-size: 13px; font-weight: 600; }
+
+@media (max-width: 520px) {
+  .logo-grid { grid-template-columns: 1fr; }
+}

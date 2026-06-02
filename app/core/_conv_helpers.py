@@ -18,7 +18,7 @@ import logging
 from typing import Optional
 
 from app.core.bridge_rotation import get_avoid_hint
-from app.llm.ack_generator import generate_ack
+from app.llm.ack_generator import generate_unified_response
 from app.llm.client import LLMClient
 from app.llm.fallback import safe_ack
 from app.models.enums import DealerType
@@ -27,6 +27,30 @@ from app.slots.definitions import is_thong_bao
 from app.slots.templates import get_question, get_retry_question
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================================
+# Business Whys for the 17 slots
+# ============================================================
+SLOT_BUSINESS_WHY: dict[str, str] = {
+    "1.1": "Để biết cách xưng hô xưng em gọi anh/chị cho lịch sự và ghi nhận tên thương hiệu gốc của mình.",
+    "1.2": "Để em biết khu vực địa lý của mình, hỗ trợ thiết kế bộ nhận diện phù hợp với đặc thù khách hàng vùng miền đó.",
+    "1.3": "Để lưu thông tin liên lạc chính xác, giúp đội ngũ kỹ thuật có thể gửi link tải bộ thương hiệu và liên hệ hỗ trợ nâng cấp sau này.",
+    "2.1": "Cực kỳ quan trọng để lấy cảm hứng thiết kế logo. Làm mảng nào thì logo cần có nét đặc trưng của mảng đó mới chuyên nghiệp.",
+    "2.2": "Để biết logo nên thiết kế theo hướng vững chãi, quy mô (nếu có xưởng sản xuất) hay hướng dịch vụ, linh hoạt (nếu phân phối thương mại).",
+    "2.3": "Để hiểu quy mô hoạt động thực tế của mình, từ đó em gợi ý slogan thể hiện được năng lực sản xuất hoặc tay nghề cao của đội ngũ.",
+    "2.4": "Để khi lên video giới thiệu thương hiệu hoặc card, bên em có thể khéo léo lồng ghép nguồn hàng chất lượng cao của anh vào để tăng uy tín.",
+    "2.5": "Để em biết thiết kế danh thiếp nên làm nổi bật kênh nào nhất (quét mã QR Zalo, số Hotline hay trang Facebook cá nhân) giúp khách dễ liên hệ.",
+    "2.6": "Để kiểm tra xem cửa hàng mình đã có sự hiện diện trên mạng xã hội chưa, từ đó em tư vấn cách tối ưu ảnh bìa/ảnh đại diện theo bộ nhận diện mới.",
+    "3.1": "Để đánh giá sức khỏe thương hiệu hiện tại. Tỉ lệ khách cũ cao chứng tỏ tay nghề anh cực tốt, slogan cần nhấn mạnh vào chữ 'Tín' và chất lượng.",
+    "3.2": "Để em tư vấn cho anh giải pháp lưu trữ thông minh giúp chăm sóc lại khách cũ dễ dàng vào các dịp lễ tết mà không bị trôi số.",
+    "3.3": "Để tìm ra điểm nghẽn lớn nhất trong dịch vụ chăm sóc khách hàng của mình, từ đó đưa ra giải pháp giải quyết triệt để.",
+    "3.4": "Để tư vấn cho anh cách thiết kế hợp đồng mẫu và quy trình tạm ứng chuyên nghiệp hơn, hạn chế tối đa việc bị nợ đọng dòng tiền.",
+    "3.5": "Để biết vị thế đàm phán của xưởng mình, giúp slogan/cam kết thương hiệu đưa ra đúng bản chất, tránh hứa suông gây mất lòng tin.",
+    "4.0": "Xác nhận cuối cùng để em kích hoạt hệ thống thiết kế tự động bộ Logo, Danh thiếp và Video giới thiệu thương hiệu hoàn toàn miễn phí.",
+    "4.1": "Chọn gu thẩm mỹ mà anh ưng mắt nhất để định hình nét vẽ của họa sĩ số thiết kế đúng ý anh ngay từ bản phác thảo đầu tiên.",
+    "4.2": "Để phối màu logo chuẩn mệnh phong thủy của anh giúp kinh doanh thuận lợi, hoặc chọn màu hợp gu thẩm mỹ đặc trưng của ngành nhôm kính.",
+}
 
 
 # ============================================================
@@ -68,38 +92,43 @@ _PARTIAL_FIELD_QUESTIONS: dict[str, str] = {
     # Slot 4.2
     "color_accent": "Anh thích màu chủ đạo nào cho thương hiệu ạ?",
     "feng_shui_signal": "Anh có quan tâm phong thủy / màu hợp mệnh không ạ?",
+    "logo_initials": "Anh muốn logo dùng viết tắt nào ạ? Nếu chưa rành, em tự rút gọn theo tên cửa hàng giúp anh.",
+    "slogan_preference": "Cửa hàng mình đã có slogan chưa anh? Nếu chưa, em gợi ý vài câu ngắn để anh chọn.",
+    "logo_style": "Anh thích logo tối giản hiện đại, hình học chắc chắn hay công nghiệp mạnh mẽ ạ? Nếu chưa rành, em chọn giúp anh.",
+}
+
+_LLM_FIRST_BRANDING_QUESTIONS: dict[str, str] = {
+    "4.3": _PARTIAL_FIELD_QUESTIONS["logo_initials"],
+    "4.4": _PARTIAL_FIELD_QUESTIONS["slogan_preference"],
+    "4.5": _PARTIAL_FIELD_QUESTIONS["logo_style"],
 }
 
 
-def gen_ack_safe(
+def gen_unified_response_safe(
     slot_id: str,
     extracted_data: dict,
+    next_slot_id: str,
+    next_slot_question: str,
     client: LLMClient,
     session: SessionState,
 ) -> str:
-    """Gen ack với fallback safe (refer F2B.4 + memory feedback_ack_and_why)."""
+    """Sinh câu thoại hợp nhất với fallback an toàn khi gọi LLM gặp sự cố."""
     if not slot_id or not extracted_data:
         return safe_ack()
 
-    # Phase 6 R+ Fix C v2: DETERMINISTIC ack khi reference fill —
-    # LLM_FAST không reliably follow "ack explicit cũng là X" hint.
-    # Code-gen template trực tiếp + clear flag.
+    # Phase 6 R+ Fix C v2: DETERMINISTIC ack khi reference fill
     ref_fields = session.last_ref_filled_fields or []
     if ref_fields:
-        ack = _gen_reference_ack(slot_id, extracted_data, ref_fields)
-        if ack:
+        ref_ack = _gen_reference_ack(slot_id, extracted_data, ref_fields)
+        if ref_ack:
             # Track + clear flag
             new_name = extracted_data.get("owner_name") or extracted_data.get("dealer_name")
             if new_name:
                 session.last_acked_name = str(new_name)
             session.last_ref_filled_fields = []
-            return ack
+            return f"{ref_ack}\n\n{next_slot_question}" if next_slot_question else ref_ack
 
-    direct_ack = _gen_direct_ack(slot_id, extracted_data, address_form=session.address_form.value, session=session)
-    if direct_ack:
-        return direct_ack
-
-    # Bug 12: extract already-acked brand names to hint LLM
+    # Bug 12: tránh lặp brand name đã ack
     acked_brands = [
         k.split("_brand_", 1)[1] for k in session.acked_direct_keys
         if "_brand_" in k
@@ -108,29 +137,65 @@ def gen_ack_safe(
     if acked_brands:
         brand_avoid_hint = f"Đã ack brand {', '.join(acked_brands)} turn trước — KHÔNG nhắc lại."
 
+    next_why = SLOT_BUSINESS_WHY.get(next_slot_id, "")
+
+    # Gọi LLM sinh phản hồi hợp nhất mượt mà
     try:
-        ack = generate_ack(
+        response = generate_unified_response(
             slot_id=slot_id,
             extracted_data=extracted_data,
+            next_slot_id=next_slot_id,
+            next_slot_question=next_slot_question,
+            next_slot_why=next_why,
             client=client,
             dealer_type=session.detected_dealer_type or DealerType.UNKNOWN,
             address_form=session.address_form,
-            use_fallback_on_error=True,
+            history_summary=summarize_history(session),
+            use_fallback_on_error=False,  # Ép throw để catch & fallback
             bridge_avoid_hint=get_avoid_hint(session) + (" " + brand_avoid_hint if brand_avoid_hint else ""),
             recently_acked_name=session.last_acked_name,
             ref_filled_fields=session.last_ref_filled_fields or None,
         )
+        if response:
+            new_name = extracted_data.get("owner_name") or extracted_data.get("dealer_name")
+            if new_name:
+                session.last_acked_name = str(new_name)
+            session.last_ref_filled_fields = []
+            return response
     except Exception as e:
-        logger.exception("Ack gen fail: %s", e)
-        return safe_ack()
+        logger.exception("Unified response generation failed, falling back to deterministic template: %s", e)
+
+    # ==========================================
+    # FALLBACK AN TOÀN KHI LLM THẤT BẠI
+    # ==========================================
+    direct_ack = _gen_direct_ack(slot_id, extracted_data, address_form=session.address_form.value, session=session)
+    if not direct_ack:
+        direct_ack = safe_ack()
+
     new_name = extracted_data.get("owner_name") or extracted_data.get("dealer_name")
     if new_name:
         session.last_acked_name = str(new_name)
     session.last_ref_filled_fields = []
-    # Phase 6 R+ Fix question-leak: strip câu hỏi cuối ack (LLM hay bịa
-    # hỏi lại slot đã fill — engine append slot question riêng).
-    ack = _strip_storage_cliche(_strip_trailing_question(ack))
-    return ack
+
+    # Ghép nối cơ học làm phương án dự phòng an toàn
+    return f"{direct_ack}\n\n{next_slot_question}" if next_slot_question else direct_ack
+
+
+def gen_ack_safe(
+    slot_id: str,
+    extracted_data: dict,
+    client: LLMClient,
+    session: SessionState,
+) -> str:
+    """Gen ack với fallback safe (legacy/compatibility)."""
+    return gen_unified_response_safe(
+        slot_id=slot_id,
+        extracted_data=extracted_data,
+        next_slot_id="",
+        next_slot_question="",
+        client=client,
+        session=session,
+    )
 
 
 def _gen_direct_ack(slot_id: str, extracted_data: dict, address_form: str = "anh", session=None) -> Optional[str]:
@@ -397,6 +462,8 @@ def get_slot_question_for_attempt(
     if not slot_id:
         return None
     sid = session.session_id
+    if slot_id in _LLM_FIRST_BRANDING_QUESTIONS:
+        return _adapt_address_form(_LLM_FIRST_BRANDING_QUESTIONS[slot_id], session)
     if is_thong_bao(slot_id):
         q = get_question(slot_id, session_id=sid)
         return _adapt_address_form(q, session)

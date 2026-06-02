@@ -59,7 +59,7 @@ assert (
 
 # 7 multi-field slot — refer 1A § 1.5 + F2A.4 step 2.6 (PARTIAL_RETRY)
 MULTI_FIELD_SLOTS: list[str] = [
-    "1.1", "1.2", "2.1", "2.4", "2.6", "3.3",  # FIX M1: bỏ "2.5" (giờ chỉ 1 field)
+    "1.1", "1.2", "2.1", "2.4", "2.5", "2.6", "3.3",
 ]
 
 # Phase 1 MVP scope — D9 STRATEGY (3 slot REQUIRED đơn giản nhất)
@@ -96,7 +96,7 @@ SLOT_TO_ALL_FIELDS: dict[str, list[str]] = {
     "2.2": ["business_model_signal", "dealer_type"],
     "2.3": ["est_team_size", "team_stability_signal"],
     "2.4": ["supplier_brands", "customer_segment_signal", "supplier_negotiation_signal"],
-    "2.5": ["primary_contact_channel"],  # FIX M1: bỏ "zalo" — SĐT = Zalo luôn
+    "2.5": ["primary_contact_channel", "zalo"],
     "2.6": ["facebook", "fb_marketing_status", "community_network_signal"],
     "3.1": ["customer_old_percentage"],
     "3.2": ["customer_storage_method"],

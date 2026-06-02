@@ -15,7 +15,7 @@ from app.models.enums import Intent
 class TestAffirmative:
     @pytest.mark.parametrize("msg", [
         "ok", "OK", "oke", "okê",
-        "vâng", "dạ vâng", "ừ", "ờ",
+        "vâng", "dạ vâng", "ừ", "ừa", "ờ", "ò",
         "được", "được rồi", "chuẩn", "đúng", "đồng ý",
         "ok anh",
         "ok ok ok",

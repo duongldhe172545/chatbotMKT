@@ -107,6 +107,30 @@ _TECHNICAL_INQUIRY_COMPILED: list[re.Pattern] = [
 #   6. Tài chính cá nhân
 _WARRANTY_PATTERN_INDEX = 1
 _COOPERATION_PATTERN_INDEX = 3  # "hợp tác / phân phối" pattern
+_BUSINESS_MODEL_DATA_RE = re.compile(
+    r"\b(sản\s*xuất|lắp\s*đặt|thi\s*công|gia\s*công|bán\s*lẻ|"
+    r"phân\s*phối|có\s*xưởng|đội\s*thợ|làm\s*hết|trọn\s*gói)\b",
+    _RE_FLAGS,
+)
+_REQUEST_OR_QUESTION_RE = re.compile(
+    r"\?|"
+    r"\b(ai|sao|thế\s*nào|như\s*nào|bao\s*nhiêu|có\s+.*\s+không|"
+    r"muốn|cần|xin|tư\s*vấn|cho\s+anh|giúp\s+anh|đăng\s*ký)\b",
+    _RE_FLAGS,
+)
+_WARRANTY_DATA_RE = re.compile(
+    r"\b(anh|bên\s+anh|team\s+(?:anh|em)|nhà\s+cung\s+cấp|bên\s+lắp\s+đặt|"
+    r"thợ|đại\s+lý).{0,100}\b(bảo\s*hành|sửa\s+chữa|đổi\s+trả)\b|"
+    r"\b(bảo\s+hành|sửa\s+chữa|đổi\s+trả).{0,100}\b"
+    r"(anh|bên\s+anh|team\s+(?:anh|em)|nhà\s+cung\s+cấp|bên\s+lắp\s+đặt|thợ|đại\s+lý)\b",
+    _RE_FLAGS,
+)
+_COOPERATION_DATA_RE = re.compile(
+    r"\b(sản\s*xuất|gia\s*công|thi\s*công|lắp\s*đặt|bán|cung\s*cấp|"
+    r"chuyên|làm|có\s+làm|vừa).{0,120}\b(phân\s*phối|đại\s*lý)\b|"
+    r"\b(phân\s*phối|đại\s*lý).{0,120}\b(khác|khách|bên\s+anh|của\s+anh)\b",
+    _RE_FLAGS,
+)
 
 # Map slot_id → set pattern indexes cần SKIP (vì dealer expected reply
 # về topic đó, KHÔNG phải technical inquiry).
@@ -135,9 +159,6 @@ def detect_technical_inquiry(
     Vd slot 3.5 hỏi "bảo hành ai chịu?" → dealer reply "anh chịu bảo hành"
     là valid DATA, KHÔNG phải technical inquiry → skip pattern #2.
 
-    FIX C2: short message guard — message ≤ 8 từ + đang trong slot = dealer
-    đang trả lời câu hỏi, KHÔNG phải hỏi kỹ thuật.
-
     Args:
         message: dealer text
         current_slot: slot đang hỏi. Nếu trong _SLOT_TECHNICAL_SKIP_MAP →
@@ -149,13 +170,35 @@ def detect_technical_inquiry(
         return False
     msg_lower = message.strip().lower()
 
-    # FIX C2: short message guard — dealer đang trả lời slot, không hỏi kỹ thuật
-    if current_slot and len(msg_lower.split()) <= 8:
-        return False
-
     skip_indexes = _SLOT_TECHNICAL_SKIP_MAP.get(current_slot or "", set())
     for idx, pattern in enumerate(_TECHNICAL_INQUIRY_COMPILED):
         if idx in skip_indexes:
+            continue
+        # A description such as "anh chịu bảo hành" or "anh sản xuất và
+        # phân phối cho đại lý khác" is intake data, not a request for advice.
+        # This check is slot-independent because the LLM-first engine may have
+        # already advanced its debug focus before the reply pipeline runs.
+        if (
+            idx == _WARRANTY_PATTERN_INDEX
+            and _WARRANTY_DATA_RE.search(msg_lower)
+            and not _REQUEST_OR_QUESTION_RE.search(msg_lower)
+        ):
+            continue
+        if (
+            idx == _COOPERATION_PATTERN_INDEX
+            and (_COOPERATION_DATA_RE.search(msg_lower) or _BUSINESS_MODEL_DATA_RE.search(msg_lower))
+            and not _REQUEST_OR_QUESTION_RE.search(msg_lower)
+        ):
+            continue
+        # Slot 2.2 asks for the business model. A dealer can naturally answer
+        # "vừa sản xuất vừa lắp đặt thi công bảo hành" without asking for
+        # technical support. Keep a real warranty question eligible.
+        if (
+            idx == _WARRANTY_PATTERN_INDEX
+            and current_slot == "2.2"
+            and "?" not in msg_lower
+            and _BUSINESS_MODEL_DATA_RE.search(msg_lower)
+        ):
             continue
         if pattern.search(msg_lower):
             return True

@@ -208,3 +208,61 @@ def detect_address_form(text: str, owner_name: str | None) -> str:
                 return "chị"
 
     return "anh"
+
+
+def repair_named_address_form(
+    text: str,
+    *,
+    owner_name: str | None = None,
+    address_form: str = "anh",
+) -> str:
+    """Normalize duplicated honorifics and repair bare owner vocatives.
+
+    LLM replies occasionally contain ``anh anh`` or address a known dealer as
+    ``Hưng ơi``. Apply this after every stage, not only while collecting data.
+    """
+    if not text:
+        return text
+
+    repaired = re.sub(
+        r"\b(anh|chị)\s+\1\b",
+        r"\1",
+        text,
+        flags=re.IGNORECASE | re.UNICODE,
+    )
+    owner = (owner_name or "").strip()
+    if not owner:
+        return repaired
+
+    names = sorted({owner, owner.split()[-1]}, key=len, reverse=True)
+    alternatives = "|".join(re.escape(name) for name in names)
+    pattern = re.compile(
+        rf"(?P<form>\b(?:anh|chị)\s+)?(?P<name>{alternatives})\s+ơi\b",
+        re.IGNORECASE | re.UNICODE,
+    )
+    requested_form = (address_form or "anh").strip().capitalize()
+
+    def _replace(match: re.Match) -> str:
+        if match.group("form"):
+            return match.group(0)
+        return f"{requested_form} {match.group('name')} ơi"
+
+    repaired = pattern.sub(_replace, repaired)
+
+    # LLMs occasionally use the known owner name as a bare sentence opener,
+    # e.g. "Cường vui tính quá". Prefix only clear conversational forms so a
+    # shop name such as "Cường Vinh" is not rewritten accidentally.
+    bare_opener = re.compile(
+        rf"(?P<prefix>^|[.!?\n]\s*)(?P<name>{alternatives})"
+        rf"(?P<tail>\s+(?:cho|giúp|xác nhận|thích|muốn|có|đã|đang|vui|"
+        rf"yên tâm|nhớ)\b|(?=[,!:]))",
+        re.IGNORECASE | re.UNICODE,
+    )
+
+    def _prefix_bare_opener(match: re.Match) -> str:
+        return (
+            f"{match.group('prefix')}{requested_form} "
+            f"{match.group('name')}{match.group('tail')}"
+        )
+
+    return bare_opener.sub(_prefix_bare_opener, repaired)

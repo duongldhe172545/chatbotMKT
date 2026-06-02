@@ -17,6 +17,8 @@ Fallback: caller dùng template L1/L2/L3 từ edge_cases nếu LLM fail.
 from __future__ import annotations
 
 import logging
+import re
+import unicodedata
 from typing import Optional
 
 from app.llm.client import LLMClient
@@ -27,6 +29,11 @@ logger = logging.getLogger(__name__)
 
 
 DEFENSIVE_ESCALATE_AT = 3  # Lần thứ N defensive → kết offer dừng
+
+_SCAM_OR_FEE_RE = re.compile(
+    r"\b(?:lua dao|scam|mat phi|co phi|phi gi|ton tien|mien phi that)\b",
+    re.IGNORECASE,
+)
 
 
 def _build_defensive_task(
@@ -146,4 +153,43 @@ def handle_defensive(
             defensive_count, dealer_message[:80],
         )
         return None
-    return text
+    return _repair_scam_or_fee_reply(text, dealer_message, address_form)
+
+
+def _repair_scam_or_fee_reply(
+    text: str,
+    dealer_message: str,
+    address_form: AddressForm,
+) -> str:
+    """Enforce the trust contract when the LLM omits a required reassurance."""
+    folded_message = _fold_vn(dealer_message)
+    if not _SCAM_OR_FEE_RE.search(folded_message):
+        return text
+
+    folded_reply = _fold_vn(text)
+    has_direct_answer = (
+        "khong lua dao" in folded_reply
+        and ("khong mat phi" in folded_reply or "hoan toan mien phi" in folded_reply)
+    )
+    has_privacy = any(
+        marker in folded_reply
+        for marker in ("luu noi bo", "khong share", "khong chia se", "yeu cau xoa")
+    )
+    if has_direct_answer and has_privacy:
+        return text
+
+    af = address_form.value
+    return (
+        f"Dạ KHÔNG lừa đảo, KHÔNG mất phí gì cả {af} ạ. Team Cộng Đồng "
+        f"Thợ 4.0 tặng {af} bộ thương hiệu gồm logo, danh thiếp và video "
+        f"giới thiệu cửa hàng. Thông tin {af} chia sẻ chỉ dùng nội bộ để "
+        f"làm bộ quà; {af} có thể yêu cầu xóa bất cứ lúc nào. Mình tiếp "
+        f"tục nhé {af}? 🌷"
+    )
+
+
+def _fold_vn(text: str) -> str:
+    normalized = unicodedata.normalize("NFD", text or "")
+    return "".join(
+        ch for ch in normalized if unicodedata.category(ch) != "Mn"
+    ).replace("đ", "d").replace("Đ", "D").casefold()

@@ -31,6 +31,8 @@ class TestIsGarbage:
         "ok",
         "OK",
         "ờ",
+        "ò",
+        "ừa",
         "có",
         "không",
         "anh tên Tùng",
@@ -55,7 +57,7 @@ class TestIsGarbage:
 
 
 class TestIsMeaningfulShort:
-    @pytest.mark.parametrize("msg", ["ok", "có", "ờ", "vâng", "dạ", "đúng"])
+    @pytest.mark.parametrize("msg", ["ok", "có", "ờ", "ò", "ừa", "vâng", "dạ", "đúng"])
     def test_valid_short_words(self, msg):
         assert is_meaningful_short(msg) is True
 

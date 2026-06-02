@@ -11,12 +11,14 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.core.conversation import handle_message, start_session
+from app.core.logo_generator import LogoVariant, generate_logo_variants
 from app.core.reply_pipeline import compose_and_validate_reply
 from app.core.session import create_session
 from app.llm.client import LLMClient, get_default_client
+from app.models.enums import ConfirmationStatus, Stage
 from app.models.schema import DealerProfileRaw
 
 logger = logging.getLogger(__name__)
@@ -45,6 +47,7 @@ class ChatResponse(BaseModel):
     stage: str
     current_slot: Optional[str] = None
     is_first_turn: bool = False           # True nếu vừa tạo session (return greeting)
+    logo_variants: list[LogoVariant] = Field(default_factory=list)
 
 
 # ============================================================
@@ -182,6 +185,7 @@ def post_chat(req: ChatRequest) -> ChatResponse:
         message=req.message,
         client=client,
     )
+    reply_changed_after_conversation = False
 
     # ----- Phase 5 R2 Gap 9: Cross-session dealer return detect (CORE § K.3) -----
     # Khi phone vừa fill ở turn này + match CONFIRMED session cũ → prepend ack.
@@ -203,6 +207,7 @@ def post_chat(req: ChatRequest) -> ChatResponse:
                 "Em xác nhận lại thông tin nhé.\n\n"
             )
             reply = return_ack + reply
+            reply_changed_after_conversation = True
             logger.info(
                 "Cross-session dealer return: phone=%s current=%s old=%s",
                 profile.phone_or_zalo, session.session_id, old_sid,
@@ -237,20 +242,35 @@ def post_chat(req: ChatRequest) -> ChatResponse:
             "Dạ em xin lỗi, em đang có chút trục trặc. Anh nhắn lại "
             "giúp em sau ít phút nhé."
         )
+        reply_changed_after_conversation = True
         # Update last bot message in history (đã append trong handle_message)
         if session.history and session.history[-1].role == "bot":
             session.history[-1].content = reply
 
-    reply = _compose_api_reply_safely(
-        reply,
-        message=req.message,
-        session=session,
-        profile=profile,
-        stage_before=stage_before_process,
-        is_security_override=bool(leaked),
-    )
+    if reply_changed_after_conversation:
+        reply = _compose_api_reply_safely(
+            reply,
+            message=req.message,
+            session=session,
+            profile=profile,
+            stage_before=stage_before_process,
+            is_security_override=bool(leaked),
+        )
     if session.history and session.history[-1].role == "bot":
         session.history[-1].content = reply
+
+    logo_variants = _get_logo_variants(session, profile)
+    if (
+        logo_variants
+        and stage_before_process != Stage.DONE
+        and session.stage == Stage.DONE
+    ):
+        reply += (
+            "\n\nEm đã dựng 5 mẫu logo để anh xem ngay bên dưới. "
+            "Anh có thể mở từng mẫu hoặc tải file SVG về ạ."
+        )
+        if session.history and session.history[-1].role == "bot":
+            session.history[-1].content = reply
 
     # ----- Save -----
     store.save_session(session)
@@ -268,6 +288,7 @@ def post_chat(req: ChatRequest) -> ChatResponse:
         stage=session.stage.value,
         current_slot=session.current_slot,
         is_first_turn=False,
+        logo_variants=logo_variants,
     )
 
 
@@ -310,4 +331,41 @@ def get_session_history(session_id: str) -> dict:
             }
             for h in (session.history or [])
         ],
+        "logo_variants": [
+            item.model_dump()
+            for item in _get_logo_variants(
+                session,
+                store.get_profile(session_id) or DealerProfileRaw(),
+            )
+        ],
     }
+
+
+@router.get("/chat/{session_id}/logos")
+def get_session_logos(session_id: str) -> dict:
+    """Return generated local logo concepts for a confirmed dealer."""
+    store = _get_store()
+    session = store.get_session(session_id)
+    if session is None:
+        raise HTTPException(404, detail="Session không tồn tại")
+    profile = store.get_profile(session_id) or DealerProfileRaw()
+    return {
+        "session_id": session_id,
+        "logo_variants": [
+            item.model_dump() for item in _get_logo_variants(session, profile)
+        ],
+    }
+
+
+def _get_logo_variants(session, profile: DealerProfileRaw) -> list[LogoVariant]:
+    if (
+        session.stage != Stage.DONE
+        or session.confirmation_status != ConfirmationStatus.CONFIRMED
+        or profile.brandkit_consent != "yes"
+    ):
+        return []
+    try:
+        return generate_logo_variants(session.session_id, profile)
+    except Exception:
+        logger.exception("Generate logo variants failed: session=%s", session.session_id)
+        return []

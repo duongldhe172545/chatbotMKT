@@ -41,7 +41,7 @@ class TestDefensiveHandler:
         custom = "Dạ anh yên tâm, em lưu nội bộ, mình tiếp tục nhé?"
         client = _make_client(chat_quality_return=custom)
         result = handle_defensive(
-            dealer_message="lừa đảo à?",
+            dealer_message="bên nào làm vậy em?",
             defensive_count=1,
             dealer_type=DealerType.LO,
             address_form=AddressForm.ANH,
@@ -49,6 +49,26 @@ class TestDefensiveHandler:
         )
         assert result == custom
         client.chat_quality.assert_called_once()
+
+    def test_repairs_scam_reply_when_llm_omits_direct_answer_or_privacy(self):
+        client = _make_client(
+            chat_quality_return=(
+                "Bộ thương hiệu gồm logo, danh thiếp và video hoàn toàn miễn "
+                "phí. Mình tiếp tục nhé anh?"
+            )
+        )
+
+        result = handle_defensive(
+            dealer_message="có lừa đảo gì không em",
+            defensive_count=1,
+            dealer_type=DealerType.LO,
+            address_form=AddressForm.ANH,
+            client=client,
+        )
+
+        assert "KHÔNG lừa đảo" in result
+        assert "KHÔNG mất phí" in result
+        assert "chỉ dùng nội bộ" in result
 
     def test_empty_message_returns_none(self):
         client = _make_client()

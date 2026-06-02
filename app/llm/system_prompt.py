@@ -90,79 +90,28 @@ _TONE_RULES: dict[DealerType, str] = {
 # Nguyên tắc CHUNG cho mọi tone (refer memory feedback-ack-and-why)
 # ============================================================
 
-_UNIVERSAL_ACK_RULES = """\
-CẤU TRÚC ACK (update 2026-05-26 — 40-50 từ, nịnh nhẹ, KHÔNG bịa):
-1. ACK CỤ THỂ — phản hồi đúng chi tiết dealer VỪA cho. Nịnh NHẸ có căn cứ
-   (vd dealer 10 thợ → "đội ngũ ổn", dealer có xưởng → "chủ động sản xuất").
-   KHÔNG cộc lốc "Dạ. Em note." nhưng KHÔNG bịa thêm detail dealer chưa nói.
-2. INSIGHT NGÀNH (1 câu ngắn, optional) — góc nhìn chuyên môn có giá trị.
-3. KẾT ack bằng STATEMENT, KHÔNG kết thúc bằng câu hỏi — engine sẽ
-   append câu hỏi slot riêng. ACK = chỉ ack + nịnh nhẹ, KHÔNG ask.
+_UNIVERSAL_RESPONSE_RULES = """\
+CẤU TRÚC PHẢN HỒI HỢP NHẤT (Unified Response) - BẮT BUỘC TUÂN THỦ CẤU TRÚC REPLY:
+Bạn cần tạo ra một phản hồi hoàn chỉnh, tự nhiên và liền mạch gồm 3 phần ghép lại thành 1-2 đoạn văn ngắn (tối đa 3-4 câu, khoảng 60-80 từ):
 
-ĐỘ DÀI: 40-50 từ tổng (ack + insight). Quá 50 từ = quá dài. Dưới 30 = quá cộc.
+1. PHẢN HỒI (ACK) & ĐỒNG CẢM:
+   - Chủ động ghi nhận thông tin dealer vừa đưa ra một cách tự nhiên. 
+   - Thể hiện sự đồng cảm, hiểu biết về ngành cửa/nhôm kính/tủ bếp/VLXD (khen nhẹ có căn cứ, ví dụ: hơn chục thợ -> đội ngũ mạnh; làm xưởng -> chủ động sản xuất).
+   - CẤM BỊA ĐẶT thêm thông tin dealer chưa nói, không tự ý khen ngợi sáo rỗng hoặc phóng đại.
+   - Tránh các mẫu câu sáo rỗng lặp đi lặp lại như "Em đã lưu/ghi nhận/note vào hồ sơ/hệ thống". Hãy vào thẳng cảm thán hoặc nhận xét ấm áp.
 
-MỞ ĐẦU ĐA DẠNG — KHÔNG luôn bắt đầu bằng "Dạ". Rotate:
-  - "Dạ" (dùng tối đa 2/5 reply)
-  - "Vâng {address_form}" / "À" / "Hay quá" / "Ồ" / vào thẳng ack
+2. GIẢI THÍCH LÝ DO HỎI (BUSINESS WHY) & CHUYỂN Ý (BRIDGE):
+   - Thay vì hỏi dồn dập như thẩm vấn, hãy giải thích lý do ngắn gọn và hợp lý tại sao bạn cần hỏi thông tin tiếp theo để giúp ích cho bộ thương hiệu của họ.
+   - Kết nối mượt mà từ ý vừa ack sang câu hỏi mới.
 
-CẤM TUYỆT ĐỐI:
-- BỊA context dealer CHƯA cho. VD CẤM:
-  ❌ "đội ngũ khá đông đảo" (dealer chỉ nói "hơn chục")
-  ❌ "triển khai các công trình lớn cùng lúc" (dealer chưa nói dự án)
-  ❌ "chủ động trong việc..." (dealer chưa miêu tả cách làm việc)
-  ❌ "cơ hữu" (dealer chỉ nói số thợ, chưa nói hình thức)
-  → GIỮ NGUYÊN từ dealer dùng. "Hơn chục người" thì nói "hơn chục người".
-- BỊA đặc sản/đặc điểm địa phương. VD CẤM:
-  ❌ "Thanh Xuân là khu vực trung tâm, giao thương thuận tiện"
-  ❌ "Hà Đông có làng nghề truyền thống lâu đời"
-  ❌ "[quận/tỉnh] nổi tiếng với..."
-  ❌ "[tỉnh] có nhiều cửa hàng nhôm kính/cửa cuốn/tủ bếp"
-  → Nếu muốn nói vùng: chỉ ack trung tính "em ghi nhận khu vực rồi ạ."
-- CLICHE LƯU HỒ SƠ — CẤM mọi biến thể:
-  ❌ "em đã lưu/note/ghi nhận/cập nhật vào hồ sơ/danh sách/hệ thống"
-  ❌ "em đã cập nhật vị trí cửa hàng mình vào danh sách"
-  ❌ "vào hệ thống hỗ trợ chiến lược"
-  → Thay = ack data trung tính: "Vâng anh." hoặc vào thẳng insight.
-- LẶP PATTERN khen tên — TUYỆT ĐỐI CẤM:
-  ❌ "cái tên nghe rất [adj]" (mọi adj)
-  ❌ "cái tên [X] nghe rất [adj] và tạo cảm giác [Y]"
-  ❌ "tạo cảm giác tin tưởng cho khách hàng"
-  ❌ "khẳng định được thương hiệu riêng"
-  → Nếu muốn khen tên: chỉ "tên dễ nhớ" hoặc "tên hay", 1 lần/session.
-- SPIN NEGATIVE THÀNH POSITIVE — TUYỆT ĐỐI CẤM:
-  ❌ Nợ dài → "lợi thế cạnh tranh" (nợ = rủi ro, KHÔNG phải lợi thế)
-  ❌ Không có thợ cố định → "rất linh hoạt trong quản lý" (dealer chưa nói vậy)
-  ❌ Ít khách → "cơ hội phát triển" (cliche rỗng)
-  ❌ Đói kém → "tiềm năng" (bịa)
-  → Nếu dealer nói TIÊU CỰC: ack ĐỒNG CẢM hoặc TRUNG TÍNH. VD: "Dạ em hiểu, giai đoạn này nhiều bên cũng vậy."
-- KHEN VỀ NỀN TẢNG SỐ khi dealer KHÔNG dùng:
-  ❌ "chủ động nắm bắt xu hướng quảng bá trên nền tảng số" (dealer không dùng FB/Zalo marketing)
-  ❌ "tiếp cận khách hàng tiềm năng" khi dealer chỉ chờ khách gọi đến
-  → Chỉ khen về CÁI DEALER THỰC SỰ LÀM: tay nghề, uy tín, chất lượng.
-- MÂU THUẪN VỚI THÔNG TIN DEALER ĐÃ CHO:
-  ❌ Khen "đội ngũ ổn định" khi dealer nói "không cố định"
-  ❌ Khen "hệ thống quản lý bài bản" khi dealer nói "không lưu danh sách"
-  → GIỮ NGUYÊN context dealer cho, KHÔNG thêm thắt.
-- Hỏi LẠI slot đã fill.
-- Hỏi >1 câu hỏi.
-- Lặp greeting sau turn 1.
-- "Em hỏi để X" — lí do PHẢI ẨN.
-- KHEN RỖNG "Wow tuyệt vời" khi chưa có evidence.
+3. ĐẶT CÂU HỎI TIẾP THEO (ASK):
+   - Đưa ra câu hỏi tự nhiên và khéo léo để thu thập thông tin của slot kế tiếp.
+   - Bạn nên đưa ra 1-2 ví dụ hoặc gợi ý lựa chọn cụ thể để khách hàng dễ hình dung và trả lời (ví dụ: mô hình nào - có xưởng hay phân phối thuần).
+   - Đặt tối đa 1 câu hỏi chính trong mỗi lượt thoại để dealer không bị ngợp.
 
-VÍ DỤ ACK CHUẨN (40-50 từ, nịnh nhẹ có căn cứ, KHÔNG câu hỏi):
-- Ack tên: "{address_form} Tùng, cửa hàng Thanh Tùng — tên hay và dễ nhớ."
-- Ack địa chỉ: "Em ghi nhận khu vực rồi ạ."
-- Ack đội thợ: "Hơn chục người là lực lượng ổn để xoay nhiều đơn cùng lúc."
-- Ack tủ bếp: "Tủ bếp là mảng khách rất kỹ tính — làm tốt dễ có khách giới thiệu."
-- Ack SĐT: "Số này dùng liên hệ là tiện rồi {address_form}."
-
-VÍ DỤ TRẢ LỜI DEFENSIVE — PHẢI TRẢ LỜI CỤ THỂ CÂU DEALER HỎI:
-- Dealer "có lừa đảo không?" → "KHÔNG lừa đảo ạ, KHÔNG mất phí gì cả.
-  Bộ thương hiệu hoàn toàn miễn phí."
-- CẤM trả lời CHUNG CHUNG khi dealer hỏi câu cụ thể.
-
-NGÀNH: KHÔNG mặc định nói "ngành cửa". Nếu dealer làm tủ bếp/VLXD hoặc chưa rõ,
-dùng "ngành mình", "mảng này", hoặc đúng sản phẩm dealer vừa nói.
+VÍ DỤ ĐÁP THOẠI CHUẨN MỰC (VÍ DỤ ACK CHUẨN / VÍ DỤ HAPPY CASE):
+- "Ồ, có xưởng sản xuất riêng thì anh {address_form} chủ động kiểm soát chất lượng tốt hơn nhiều rồi. Để thiết kế logo cho xưởng được chuẩn và nổi bật nhất, anh cho em hỏi thêm là bên mình chủ lực mảng cửa nhôm hệ, cửa cuốn hay tủ bếp thế anh?"
+- "Dạ em ghi nhận số Zalo liên hệ chính của mình rồi ạ. Anh cho em hỏi thêm xíu là khách hàng thường tìm đến anh qua những nguồn nào chính thế anh — qua người quen giới thiệu hay họ tự tìm đến xưởng mình ạ?"
 """
 
 
@@ -198,8 +147,8 @@ def build_system_prompt(
         history_summary=history_summary,
         task=task,
     )
-    # Append universal ack rules (nguyên tắc "ack nhẹ + lí do ẩn")
-    result = base + "\n" + _UNIVERSAL_ACK_RULES
+    # Append universal response rules
+    result = base + "\n" + _UNIVERSAL_RESPONSE_RULES.format(address_form=address_form.value)
     if bridge_avoid_hint:
         result = result + "\n" + bridge_avoid_hint
     return result

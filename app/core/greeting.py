@@ -13,7 +13,7 @@ from __future__ import annotations
 _GREETING_TEXT: str = (
     "Dạ em chào anh ạ! 🌷\n\n"
     "Em là Linh, chuyên gia hỗ trợ chiến lược kinh doanh trên nền tảng số "
-    "cho các anh chị làm cửa, nhôm kính, tủ bếp trong Cộng Đồng Thợ 4.0.\n\n"
+    "cho các anh chị làm cửa, nhôm kính, tủ bếp, điện mặt trời trong Cộng Đồng Thợ 4.0.\n\n"
     "Để chào mừng anh tham gia cộng đồng của bên em, sau cuộc trò chuyện "
     "này em xin phép tặng anh một bộ thương hiệu hoàn toàn miễn phí, "
     "bao gồm:\n\n"

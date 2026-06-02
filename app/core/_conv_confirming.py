@@ -23,6 +23,7 @@ from app.core.edit_parser import parse_edit_command
 from app.core.intent import detect_intent
 from app.core.sanity import check_sanity
 from app.core.session import mark_session_closed
+from app.core.validators import validate_field
 from app.llm.client import LLMClient
 from app.models.enums import ConfirmationStatus, DealerType, Flag, Intent, Stage
 from app.models.schema import DealerProfileRaw, SessionState
@@ -53,6 +54,14 @@ def handle_confirming(
 
     intent = detect_intent(message)
     af = _af(session)
+
+    if intent == Intent.TAM_SU:
+        return _reply_smalltalk_without_advancing(
+            session=session,
+            message=message,
+            client=client,
+            resume_hint=f"Khi tiện, {af} duyệt OK hay cần sửa chỗ nào giúp em nhé.",
+        )
 
     # Bug 10: de-escalate profanity at CONFIRMING
     if intent == Intent.DEFENSIVE:
@@ -187,6 +196,12 @@ def handle_done(
 
     # Dealer nói thêm sau DONE — phân loại ý
     msg_lower = message.strip().lower()
+    if session is not None and detect_intent(message) == Intent.TAM_SU:
+        return _reply_smalltalk_without_advancing(
+            session=session,
+            message=message,
+            client=client,
+        )
 
     # Cảm ơn / chào
     thank_words = {"cảm ơn", "cam on", "thanks", "thank", "cám ơn"}
@@ -380,6 +395,14 @@ def _handle_edit(
         field, new_value = parsed
         if hasattr(profile, field):
             new_value = _normalize_edit_value(field, new_value)
+            valid, cleaned_value = validate_field(field, new_value)
+            if not valid:
+                field_display = _FIELD_DISPLAY_NAMES.get(field, field)
+                return (
+                    f"Dạ {field_display} này chưa đúng định dạng ạ. "
+                    f"{af.capitalize()} gửi lại giúp em giá trị chính xác nhé."
+                )
+            new_value = cleaned_value
             if field == "address":
                 profile.province = None
                 profile.district = None
@@ -556,4 +579,40 @@ def _parse_edit_llm(
         logger.debug("LLM edit parse fail: %s", e)
 
     return None
+
+
+def _reply_smalltalk_without_advancing(
+    *,
+    session: SessionState,
+    message: str,
+    client: Optional[LLMClient],
+    resume_hint: Optional[str] = None,
+) -> str:
+    """Reply naturally to smalltalk while keeping CONFIRMING/DONE state intact."""
+    af = _af(session)
+    owner = (getattr(session, "last_acked_name", None) or "").strip()
+    task = (
+        "Dealer đang nói chuyện phiếm hoặc tâm sự. Trả lời tự nhiên, ngắn, "
+        "đúng chuyện dealer vừa nói. Xưng em, gọi dealer là "
+        f"'{af}'. Không nhắc lại hồ sơ, không dựng card, không tư vấn chuyên "
+        "môn y tế/pháp lý/tài chính, không spam Zalo. "
+        "Không viết kiểu lặp xưng hô như 'anh Dương và anh'."
+    )
+    if resume_hint:
+        task += f" Sau 1-2 câu đồng cảm, nối nhẹ bằng ý này: {resume_hint}"
+    if owner:
+        task += f" Nếu gọi tên thì phải dùng đủ vai: {af} {owner}."
+    if client:
+        try:
+            reply = client.chat_quality(
+                system_prompt=task,
+                messages=[{"role": "user", "content": message}],
+                max_tokens=180,
+            )
+            if reply and reply.strip():
+                return reply.strip()
+        except Exception:
+            logger.exception("Smalltalk reply failed")
+    fallback = f"Em nghe {af} chia sẻ rồi ạ."
+    return f"{fallback} {resume_hint}" if resume_hint else fallback
 

@@ -42,7 +42,7 @@ _MULTI_KEYBOARD_SEGMENT = re.compile(
 
 # Common short answers — KHÔNG phải garbage (whitelist)
 _VALID_SHORT_WORDS: set[str] = {
-    "ok", "okay", "oke", "okê", "ờ", "ừ", "uh", "uhm", "ạ", "à",
+    "ok", "okay", "oke", "okê", "ờ", "ò", "ừ", "ừa", "ừm", "uh", "uhm", "ạ", "à",
     "có", "k", "ko", "không", "vâng", "dạ", "đúng", "rồi",
     "chuẩn", "phải", "yes", "no", "y", "n",
 }

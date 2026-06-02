@@ -61,6 +61,18 @@ class TestStageGreeting:
         # Reply có câu hỏi slot 1.1
         assert "tên" in reply.lower()
 
+    def test_spoken_oke_advances_without_extra_casual_ack(self):
+        s = create_session()
+        p = DealerProfileRaw()
+        client = _make_mock_client()
+
+        reply, s, p = handle_message(s, p, "ô kê em", client)
+
+        assert s.stage == Stage.ASKING
+        assert s.current_slot == "1.1"
+        assert "Dạ em nghe đây" not in reply
+        assert "tên" in reply.lower()
+
     def test_normal_message_advances(self):
         """Message normal (vd "hi") → vẫn advance ASKING."""
         s = create_session()

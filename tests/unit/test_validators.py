@@ -25,7 +25,7 @@ class TestValidatePhone:
         ("0912-345-678", "0912345678"),  # strip dashes
         ("0912.345.678", "0912345678"),  # strip dots
         ("(091) 2345-678", "0912345678"),  # strip parens
-        ("0123456789", "0123456789"),
+        ("02412345678", "02412345678"),  # landline
         ("84912345678", "84912345678"),  # international
     ])
     def test_valid_phone_formats(self, raw, expected):
@@ -41,6 +41,8 @@ class TestValidatePhone:
         "0912",  # quá ngắn
         "0912345678901234",  # quá dài
         "1234567890",  # không start với 0/84
+        "0123456789",  # đầu số di động cũ đã dừng
+        "0143281232",  # đầu số 014 không còn hợp lệ
         "+84912345678",  # có dấu +
         "+",
     ])

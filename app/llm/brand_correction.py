@@ -76,6 +76,35 @@ def correct_stt(text: str | None) -> str:
     return result
 
 
+def get_correction_candidates(
+    text: str | None,
+    *,
+    brands_only: bool = False,
+) -> list[tuple[str, str]]:
+    """Return dictionary corrections present in raw text, longest-first.
+
+    The voice pipeline may apply these automatically. The LLM-first typed
+    intake flow also uses this list to ask for confirmation before persisting
+    a phonetically guessed supplier brand.
+    """
+    if not text or not isinstance(text, str):
+        return []
+    corrections = _load_corrections()
+    if brands_only:
+        data = _load_json_file("stt_corrections.json")
+        corrections = {
+            typo.lower().strip(): correct
+            for typo, correct in data.get("brand_corrections", {}).get("mapping", {}).items()
+            if isinstance(typo, str) and isinstance(correct, str)
+        }
+    candidates: list[tuple[str, str]] = []
+    for typo, correct in sorted(corrections.items(), key=lambda item: len(item[0]), reverse=True):
+        pattern = re.compile(r"\b" + re.escape(typo) + r"\b", re.IGNORECASE)
+        if pattern.search(text):
+            candidates.append((typo, correct))
+    return candidates
+
+
 def correct_brand(brand_name: str | None) -> str:
     """Correct 1 brand name (exact match trong mapping).
 

@@ -49,6 +49,10 @@ class TestGreeting:
         text = render_greeting("session-1")
         assert "Zalo" in text
 
+    def test_mentions_solar_dealers(self):
+        text = render_greeting("session-1")
+        assert "điện mặt trời" in text.lower()
+
     def test_no_forbidden_vocab(self):
         """Greeting KHÔNG vocab cấm Tier/C-score/BRANDKIT."""
         forbidden = ["Tier", "C-score", "Scoring", "BRANDKIT",

@@ -177,6 +177,21 @@ class TestProfileCRUD:
         assert loaded.supplier_brands == ["Xingfa", "Việt Pháp"]
         assert len(loaded.slogan_options) == 5
 
+    def test_load_repairs_legacy_text_team_size_range(self, store: SQLiteStore):
+        session = SessionState(session_id="profile-team-range")
+        store.save_session(session)
+        store.save_profile("profile-team-range", DealerProfileRaw())
+        with store._connect() as conn:
+            conn.execute(
+                "UPDATE dealer_profile_raw SET est_team_size = ? WHERE session_id = ?",
+                ("6-7", "profile-team-range"),
+            )
+
+        loaded = store.get_profile("profile-team-range")
+
+        assert loaded is not None
+        assert loaded.est_team_size == 6
+
     def test_find_by_phone(self, store: SQLiteStore):
         """Refer CORE § K.3 cross-session detect."""
         session = SessionState(session_id="phone-1")
