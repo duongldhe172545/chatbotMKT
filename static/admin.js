@@ -54,7 +54,6 @@ const tabContents = {
   dashboard: document.getElementById("tab-dashboard"),
   sessions: document.getElementById("tab-sessions"),
   confirmed: document.getElementById("tab-confirmed"),
-  queue: document.getElementById("tab-queue"),
 };
 
 // Conversation tone display labels (refer 1B § 2).
@@ -82,7 +81,6 @@ tabs.forEach((btn) => {
     if (tabName === "dashboard") loadStats();
     if (tabName === "sessions") loadSessions();
     if (tabName === "confirmed") loadConfirmed();
-    if (tabName === "queue") loadQueue();
   });
 });
 
@@ -130,14 +128,12 @@ async function loadStats() {
   try {
     const stats = await apiGet("/stats");
     document.getElementById("stat-total").textContent = stats.total_sessions;
-    document.getElementById("stat-confirmed").textContent =
-      stats.by_confirmation.CONFIRMED || 0;
-    document.getElementById("stat-queue").textContent = stats.queue_pending;
-    document.getElementById("stat-queue-high").textContent = stats.queue_high;
+    document.getElementById("stat-active").textContent = stats.by_status.ACTIVE || 0;
+    document.getElementById("stat-closed").textContent = stats.by_status.CLOSED || 0;
+    document.getElementById("stat-rejected").textContent = stats.by_status.REJECTED || 0;
 
     renderStatsTable("stats-by-stage", stats.by_stage);
-    renderStatsTable("stats-by-dealer-type", stats.by_dealer_type);
-    renderStatsTable("stats-by-confirmation", stats.by_confirmation);
+    renderStatsTable("stats-by-status", stats.by_status);
   } catch (err) {
     showStatus(`Lỗi load stats: ${err.message}`, true);
   }
@@ -159,13 +155,13 @@ function renderStatsTable(tbodyId, data) {
 // ---------- Sessions ----------
 async function loadSessions() {
   const stage = document.getElementById("filter-stage").value;
+  const status = document.getElementById("filter-status").value;
   const confirmation = document.getElementById("filter-confirmation").value;
-  const dealerType = document.getElementById("filter-dealer-type").value;
 
   const params = new URLSearchParams();
   if (stage) params.set("stage", stage);
+  if (status) params.set("status", status);
   if (confirmation) params.set("confirmation_status", confirmation);
-  if (dealerType) params.set("dealer_type", dealerType);
   // Phase 6 R+ Fix: load tới max 500 (backend cap), thay vì default 50
   params.set("limit", "500");
 
@@ -178,33 +174,56 @@ async function loadSessions() {
   }
 }
 
+async function updateSessionStatus(sessionId, status) {
+  try {
+    await apiPost(`/sessions/${sessionId}/status`, { status });
+    showStatus(`Đã cập nhật trạng thái session ${shortId(sessionId)} thành ${status}`);
+    loadSessions();
+    loadStats();
+  } catch (err) {
+    showStatus(`Lỗi cập nhật trạng thái: ${err.message}`, true);
+  }
+}
+
 function renderSessionsTable(sessions) {
   const tbody = document.getElementById("sessions-tbody");
   if (!sessions || sessions.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="12" style="text-align:center;color:#a0aec0;padding:24px">(không có session)</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;color:#a0aec0;padding:24px">(không có session)</td></tr>`;
     return;
   }
   tbody.innerHTML = sessions
     .map(
-      (s) => `
-    <tr>
-      <td class="mono" title="${escapeHtml(s.session_id)}">${shortId(s.session_id)}</td>
-      <td>${escapeHtml(s.owner_name || "—")}</td>
-      <td>${escapeHtml(s.dealer_name || "—")}</td>
-      <td class="mono">${escapeHtml(s.phone_or_zalo || "—")}</td>
-      <td>${renderBadge(s.stage, "stage")}</td>
-      <td class="mono">${escapeHtml(s.current_slot || "—")}</td>
-      <td>${s.turn_count}</td>
-      <td>${renderBadge(s.confirmation_status, "status")}</td>
-      <td class="mono">${dealerTypeLabel(s.detected_dealer_type)}</td>
-      <td>${renderFlags(s.flags)}</td>
-      <td class="mono">${formatDate(s.updated_at)}</td>
-      <td>
-        <button class="btn-sm btn-view" onclick="viewSession('${s.session_id}')">Xem</button>
-        <button class="btn-sm btn-delete" onclick="deleteSession('${s.session_id}')">Xóa</button>
-      </td>
-    </tr>
-  `,
+      (s) => {
+        let actionButtons = "";
+        if (s.status === "ACTIVE") {
+          actionButtons = `
+            <button class="btn-sm btn-approve" onclick="updateSessionStatus('${s.session_id}', 'CLOSED')">Chốt</button>
+            <button class="btn-sm btn-reject" onclick="updateSessionStatus('${s.session_id}', 'REJECTED')">Không chốt</button>
+          `;
+        } else {
+          actionButtons = `
+            <button class="btn-sm btn-view" style="background:#4a5568" onclick="updateSessionStatus('${s.session_id}', 'ACTIVE')">Mở lại</button>
+          `;
+        }
+        return `
+          <tr>
+            <td class="mono" title="${escapeHtml(s.session_id)}">${shortId(s.session_id)}</td>
+            <td>${escapeHtml(s.owner_name || "—")}</td>
+            <td>${escapeHtml(s.dealer_name || "—")}</td>
+            <td class="mono">${escapeHtml(s.phone_or_zalo || "—")}</td>
+            <td>${renderBadge(s.stage, "stage")}</td>
+            <td>${s.turn_count}</td>
+            <td>${renderBadge(s.confirmation_status, "status")}</td>
+            <td>${renderBadge(s.status, "status")}</td>
+            <td class="mono">${formatDate(s.updated_at)}</td>
+            <td>
+              <button class="btn-sm btn-view" onclick="viewSession('${s.session_id}')">Xem</button>
+              ${actionButtons}
+              <button class="btn-sm btn-delete" onclick="deleteSession('${s.session_id}')">Xóa</button>
+            </td>
+          </tr>
+        `;
+      }
     )
     .join("");
 }
@@ -219,13 +238,63 @@ async function viewSession(sessionId) {
 }
 
 function renderSessionModal(detail) {
-  const profileEntries = Object.entries(detail.profile || {})
-    .filter(([k, v]) => v !== null && v !== "" && (!Array.isArray(v) || v.length > 0))
-    .map(([k, v]) => `
-      <div class="kv-key">${escapeHtml(k)}</div>
-      <div class="kv-value">${escapeHtml(JSON.stringify(v))}</div>
-    `)
-    .join("");
+  const p = detail.profile || {};
+  
+  // 1. Basic Info Fields
+  const basicFields = [
+    { label: "Chủ cửa hàng (Owner)", value: p.owner_name },
+    { label: "Tên cửa hàng (Dealer)", value: p.dealer_name },
+    { label: "Số điện thoại / Zalo", value: p.phone_or_zalo },
+    { label: "Số điện thoại phụ", value: p.phone_secondary },
+    { label: "Địa chỉ", value: p.address },
+    { label: "Tỉnh / Xã chuẩn hóa", value: p.province && p.ward ? `${p.ward}, ${p.province}` : (p.province || p.ward) },
+    { label: "Quận / Huyện", value: p.district },
+    { label: "Mô hình kinh doanh", value: p.business_model_signal || p.dealer_type },
+    { label: "Sản phẩm chính", value: p.main_product },
+    { label: "Danh mục sản phẩm", value: Array.isArray(p.category_stack) ? p.category_stack.join(", ") : p.category_stack },
+    { label: "Kênh liên hệ chính", value: p.primary_contact_channel },
+    { label: "Số Zalo phụ", value: p.zalo }
+  ];
+  
+  // 2. 9 Criteria Fields (C1-C9)
+  const criteriaFields = [
+    { label: "C1. Tỉ lệ khách cũ", value: p.customer_old_percentage },
+    { label: "C2. Quy trình cọc/thanh toán", value: p.payment_terms_signal },
+    { label: "C3. Quy mô & độ ổn định đội thợ", value: p.est_team_size ? `${p.est_team_size} người ${p.team_stability_signal ? ' — ' + p.team_stability_signal : ''}` : p.team_stability_signal },
+    { label: "C4. Trách nhiệm xử lý bảo hành", value: p.warranty_responsibility_signal },
+    { label: "C5. Khó khăn & động lực", value: [p.customer_pain, p.motivation_signal ? `(Động lực: ${p.motivation_signal})` : null].filter(Boolean).join(" ") },
+    { label: "C6. Bán kính & nhận diện địa bàn", value: p.local_dominance_signal },
+    { label: "C7. Cách lưu thông tin khách", value: p.customer_storage_method },
+    { label: "C8. Hãng nhập & đàm phán cung ứng", value: [p.supplier_brands ? p.supplier_brands.join(", ") : null, p.supplier_negotiation_signal ? `(Đàm phán: ${p.supplier_negotiation_signal})` : null].filter(Boolean).join(" — ") },
+    { label: "C9. Mạng lưới & sức ảnh hưởng", value: [p.facebook ? `Facebook: ${p.facebook} ${p.fb_marketing_status ? '(' + p.fb_marketing_status + ')' : ''}` : null, p.community_network_signal ? `Mạng lưới: ${p.community_network_signal}` : null].filter(Boolean).join(" — ") }
+  ];
+  
+  // 3. Logo/Brandkit Details
+  const brandkitFields = [
+    { label: "Đồng ý nhận bộ thương hiệu", value: p.brandkit_consent === "yes" ? "Có ✓" : (p.brandkit_consent === "no" ? "Không ✗" : null) },
+    { label: "Màu chủ đạo & Phong thủy", value: p.color_accent ? `${p.color_accent} ${p.feng_shui_signal ? '(' + p.feng_shui_signal + ')' : ''}` : p.feng_shui_signal },
+    { label: "Viết tắt logo", value: p.logo_initials },
+    { label: "Tên rút gọn", value: p.brand_name_short },
+    { label: "Viết tắt đầy đủ", value: p.initials_full },
+    { label: "Gu slogan / slogan lựa chọn", value: p.slogan_preference },
+    { label: "Gu logo / phong cách", value: p.logo_style },
+    { label: "Slogan gợi ý", value: Array.isArray(p.slogan_options) ? p.slogan_options.map((s, i) => `${i+1}. ${s}`).join("<br>") : p.slogan_options }
+  ];
+
+  const renderFormFields = (fields) => {
+    const filtered = fields.filter(f => f.value !== null && f.value !== undefined && f.value !== "" && (!Array.isArray(f.value) || f.value.length > 0));
+    if (filtered.length === 0) {
+      return '<div class="kv-value" style="grid-column:span 2;color:#a0aec0;padding:4px 0">(Trống)</div>';
+    }
+    return filtered.map(f => `
+      <div class="kv-key">${escapeHtml(f.label)}</div>
+      <div class="kv-value">${f.label.includes("Slogan gợi ý") ? f.value : escapeHtml(f.value)}</div>
+    `).join("");
+  };
+
+  const basicHtml = renderFormFields(basicFields);
+  const criteriaHtml = renderFormFields(criteriaFields);
+  const brandkitHtml = renderFormFields(brandkitFields);
 
   const historyHtml = (detail.history || [])
     .map(
@@ -288,17 +357,12 @@ function renderSessionModal(detail) {
       <button class="btn-sm btn-md" onclick="exportSessionMd('${detail.session_id}')">📄 Export Markdown (.md)</button>
     </div>
 
-    <div class="kv-grid">
+    <div class="kv-grid" style="margin-bottom:24px">
+      <div class="kv-key">Trạng thái</div><div class="kv-value">${renderBadge(detail.status, "status")}</div>
       <div class="kv-key">Stage</div><div class="kv-value">${renderBadge(detail.stage, "stage")}</div>
-      <div class="kv-key">Current slot</div><div class="kv-value mono">${escapeHtml(detail.current_slot || "—")}</div>
       <div class="kv-key">Turn count</div><div class="kv-value">${detail.turn_count}</div>
-      <div class="kv-key">Confirmation</div><div class="kv-value">${renderBadge(detail.confirmation_status, "status")}</div>
-      <div class="kv-key">Review status</div><div class="kv-value">${escapeHtml(detail.review_status)}</div>
-      <div class="kv-key">Dealer type / Business type</div><div class="kv-value">${escapeHtml((detail.profile && detail.profile.dealer_type) || "—")}</div>
-      <div class="kv-key">Conversation tone</div><div class="kv-value">${escapeHtml(detail.detected_dealer_type || "—")}</div>
+      <div class="kv-key">Review status (Dealer)</div><div class="kv-value">${escapeHtml(detail.review_status)}</div>
       <div class="kv-key">Form of address</div><div class="kv-value">${escapeHtml(detail.address_form)}</div>
-      <div class="kv-key">Flags</div><div class="kv-value">${renderFlags(detail.flags)}</div>
-      <div class="kv-key">Skipped slots</div><div class="kv-value mono">${(detail.skipped_slots || []).join(", ") || "—"}</div>
       <div class="kv-key">Channel</div><div class="kv-value">${escapeHtml(detail.channel)}</div>
       <div class="kv-key">IP</div><div class="kv-value mono">${escapeHtml(detail.ip_address || "—")}</div>
       <div class="kv-key">Created</div><div class="kv-value mono">${formatDate(detail.created_at)}</div>
@@ -306,8 +370,14 @@ function renderSessionModal(detail) {
       <div class="kv-key">Closed</div><div class="kv-value mono">${formatDate(detail.closed_at)}</div>
     </div>
 
-    <h3>Profile (${Object.keys(detail.profile || {}).filter((k) => detail.profile[k]).length} field có data)</h3>
-    <div class="kv-grid">${profileEntries || '<div class="kv-value" style="grid-column:span 2;color:#a0aec0">(profile rỗng)</div>'}</div>
+    <h3>🏪 1. Thông tin cơ bản</h3>
+    <div class="kv-grid" style="margin-bottom:24px">${basicHtml}</div>
+
+    <h3>🛠 2. 9 Tiêu chí đánh giá</h3>
+    <div class="kv-grid" style="margin-bottom:24px">${criteriaHtml}</div>
+
+    <h3>🎁 3. Thông tin bổ sung làm Logo & Thương hiệu</h3>
+    <div class="kv-grid" style="margin-bottom:24px">${brandkitHtml}</div>
 
     <h3>History (${(detail.history || []).length} message)</h3>
     <div class="history">${historyHtml || '<div style="color:#a0aec0;padding:8px">(chưa có history)</div>'}</div>
@@ -386,7 +456,7 @@ async function loadConfirmed() {
 function renderConfirmedTable(sessions) {
   const tbody = document.getElementById("confirmed-tbody");
   if (!sessions || sessions.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="11" style="text-align:center;color:#a0aec0;padding:24px">(chưa có hồ sơ CONFIRMED)</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;color:#a0aec0;padding:24px">(chưa có hồ sơ CONFIRMED)</td></tr>`;
     return;
   }
   tbody.innerHTML = sessions
@@ -400,8 +470,6 @@ function renderConfirmedTable(sessions) {
       <td class="mono">${escapeHtml(s.phone_or_zalo || "—")}</td>
       <td title="${escapeHtml(s.address || "")}">${escapeHtml((s.address || "—").slice(0, 30))}</td>
       <td>—</td>
-      <td>${dealerTypeLabel(s.detected_dealer_type)}</td>
-      <td>${renderFlags(s.flags)}</td>
       <td class="mono">${formatDate(s.closed_at || s.updated_at)}</td>
       <td>
         <button class="btn-sm btn-view" onclick="viewSession('${s.session_id}')">Xem</button>
@@ -428,91 +496,6 @@ async function deleteSession(sessionId) {
 }
 
 
-// ---------- Queue ----------
-async function loadQueue() {
-  const status = document.getElementById("filter-queue-status").value;
-  const priority = document.getElementById("filter-queue-priority").value;
-  const params = new URLSearchParams();
-  params.set("status", status);
-  if (priority) params.set("priority", priority);
-  params.set("limit", "500");
-
-  try {
-    const queue = await apiGet(`/queue?${params.toString()}`);
-    renderQueueTable(queue);
-    showStatus(`Loaded ${queue.length} queue entry`);
-  } catch (err) {
-    showStatus(`Lỗi: ${err.message}`, true);
-  }
-}
-
-function renderQueueTable(items) {
-  const tbody = document.getElementById("queue-tbody");
-  if (!items || items.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:#a0aec0;padding:24px">(queue rỗng)</td></tr>`;
-    return;
-  }
-  tbody.innerHTML = items
-    .map(
-      (q) => `
-    <tr>
-      <td class="mono" title="${escapeHtml(q.queue_id)}">${shortId(q.queue_id)}</td>
-      <td class="mono" title="${escapeHtml(q.session_id)}">
-        <a href="#" onclick="viewSession('${q.session_id}');return false;">${shortId(q.session_id)}</a>
-      </td>
-      <td><span class="badge flag">${escapeHtml(q.trigger)}</span></td>
-      <td>${renderBadge(q.priority, "priority")}</td>
-      <td>${renderBadge(q.status, "status")}</td>
-      <td>${escapeHtml(q.assigned_to || "—")}</td>
-      <td class="mono">${formatDate(q.created_at)}</td>
-      <td>
-        ${q.status === "PENDING" ? `<button class="btn-sm btn-claim" onclick="claimQueue('${q.queue_id}')">Claim</button>` : ""}
-        ${q.status !== "APPROVED" && q.status !== "REJECTED" ? `
-          <button class="btn-sm btn-approve" onclick="approveQueue('${q.queue_id}')">✓ Duyệt</button>
-          <button class="btn-sm btn-reject" onclick="rejectQueue('${q.queue_id}')">✗ Từ chối</button>
-        ` : ""}
-      </td>
-    </tr>
-  `,
-    )
-    .join("");
-}
-
-async function claimQueue(queueId) {
-  try {
-    await apiPost(`/queue/${queueId}/claim`);
-    showStatus(`Đã claim queue ${shortId(queueId)}`);
-    loadQueue();
-  } catch (err) {
-    showStatus(`Lỗi: ${err.message}`, true);
-  }
-}
-
-async function approveQueue(queueId) {
-  const notes = prompt("Notes (optional):", "");
-  try {
-    const path = notes ? `/queue/${queueId}/approve?notes=${encodeURIComponent(notes)}` : `/queue/${queueId}/approve`;
-    await apiPost(path);
-    showStatus(`Đã duyệt ${shortId(queueId)}`);
-    loadQueue();
-  } catch (err) {
-    showStatus(`Lỗi: ${err.message}`, true);
-  }
-}
-
-async function rejectQueue(queueId) {
-  const notes = prompt("Lý do từ chối (optional):", "");
-  try {
-    const path = notes ? `/queue/${queueId}/reject?notes=${encodeURIComponent(notes)}` : `/queue/${queueId}/reject`;
-    await apiPost(path);
-    showStatus(`Đã từ chối ${shortId(queueId)}`);
-    loadQueue();
-  } catch (err) {
-    showStatus(`Lỗi: ${err.message}`, true);
-  }
-}
-
-
 // ---------- Modal ----------
 const modal = document.getElementById("modal");
 const modalClose = document.getElementById("modal-close");
@@ -531,8 +514,6 @@ modal.addEventListener("click", (e) => {
 // ---------- Bind filters ----------
 document.getElementById("btn-filter").addEventListener("click", loadSessions);
 document.getElementById("btn-refresh").addEventListener("click", loadSessions);
-document.getElementById("btn-queue-filter").addEventListener("click", loadQueue);
-document.getElementById("btn-queue-refresh").addEventListener("click", loadQueue);
 document.getElementById("btn-confirmed-refresh").addEventListener("click", loadConfirmed);
 document.getElementById("btn-confirmed-bulk-export").addEventListener("click", bulkExportConfirmed);
 document.getElementById("confirmed-check-all").addEventListener("change", (e) => {

@@ -14,9 +14,7 @@ const SESSION_TOKEN_KEY = "em_linh_session_token_v8";
 let sessionId = localStorage.getItem(SESSION_ID_KEY) || null;
 let sessionToken = localStorage.getItem(SESSION_TOKEN_KEY) || null;
 
-// Chặn double-submit
 let isSending = false;
-let logoPollTimer = null;
 
 
 // ---------- UI helpers ----------
@@ -30,92 +28,131 @@ function appendBubble(role, content) {
   chatEl.scrollTop = chatEl.scrollHeight;
 }
 
-function appendLogoGallery(variants) {
-  if (!Array.isArray(variants) || !variants.length) return;
-  const existing = document.getElementById("logo-gallery");
-  if (existing) existing.remove();
+function appendAddressForm(eventId, isSubmitted = false) {
+  const formId = `address-form-${eventId}`;
+  if (document.getElementById(formId)) return;
 
-  const section = document.createElement("section");
-  section.id = "logo-gallery";
-  section.className = "logo-gallery";
-
-  const heading = document.createElement("div");
-  heading.className = "logo-gallery-heading";
-  heading.textContent = `${variants.length} mẫu logo của cửa hàng`;
-  section.appendChild(heading);
-
-  const grid = document.createElement("div");
-  grid.className = "logo-grid";
-  for (const variant of variants) {
-    const card = document.createElement("article");
-    card.className = "logo-card";
-
-    const image = document.createElement("img");
-    image.src = variant.url;
-    image.alt = variant.name;
-    image.loading = "lazy";
-    card.appendChild(image);
-
-    const name = document.createElement("strong");
-    name.textContent = variant.name;
-    card.appendChild(name);
-
-    const style = document.createElement("span");
-    style.textContent = variant.style;
-    card.appendChild(style);
-
-    const link = document.createElement("a");
-    link.href = variant.download_url;
-    link.download = "";
-    link.textContent = "Tải ảnh";
-    card.appendChild(link);
-    grid.appendChild(card);
+  const card = document.createElement("div");
+  card.id = formId;
+  card.className = "address-form-card";
+  if (isSubmitted) {
+    card.className += " submitted";
   }
-  section.appendChild(grid);
-  chatEl.appendChild(section);
-  chatEl.scrollTop = chatEl.scrollHeight;
-}
 
+  const title = document.createElement("div");
+  title.className = "form-title";
+  title.innerHTML = `
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/>
+      <circle cx="12" cy="10" r="3"/>
+    </svg>
+    Nhập Địa Chỉ Cửa Hàng
+  `;
+  card.appendChild(title);
 
-function trackLogoJob(job) {
-  if (!job || !["queued", "working"].includes(job.status)) {
-    if (logoPollTimer) clearTimeout(logoPollTimer);
-    logoPollTimer = null;
-    return;
-  }
-  setStatus(`Đang dựng logo ${job.progress || 0}/${job.total || 3}`);
-  if (logoPollTimer) clearTimeout(logoPollTimer);
-  logoPollTimer = setTimeout(pollLogos, 1500);
-}
+  // Group 1: Tỉnh / Thành phố
+  const grpProv = document.createElement("div");
+  grpProv.className = "address-form-group";
+  const lblProv = document.createElement("label");
+  lblProv.textContent = "Tỉnh / Thành phố *";
+  const inpProv = document.createElement("input");
+  inpProv.type = "text";
+  inpProv.placeholder = "Ví dụ: Hà Nội, TP.HCM, Hải Phòng...";
+  inpProv.required = true;
+  if (isSubmitted) inpProv.disabled = true;
+  grpProv.appendChild(lblProv);
+  grpProv.appendChild(inpProv);
+  card.appendChild(grpProv);
 
+  // Group 2: Xã / Phường / Thị trấn
+  const grpWard = document.createElement("div");
+  grpWard.className = "address-form-group";
+  const lblWard = document.createElement("label");
+  lblWard.textContent = "Xã / Phường / Thị trấn *";
+  const inpWard = document.createElement("input");
+  inpWard.type = "text";
+  inpWard.placeholder = "Ví dụ: Phường Cát Linh, Xã Đại Thịnh...";
+  inpWard.required = true;
+  if (isSubmitted) inpWard.disabled = true;
+  grpWard.appendChild(lblWard);
+  grpWard.appendChild(inpWard);
+  card.appendChild(grpWard);
 
-async function pollLogos() {
-  if (!sessionId || !sessionToken) return;
-  try {
-    const res = await fetch(`/api/v1/sessions/${sessionId}/logos`, {
-      headers: {
-        "Authorization": `Bearer ${sessionToken}`
+  // Group 3: Địa chỉ chi tiết
+  const grpDetail = document.createElement("div");
+  grpDetail.className = "address-form-group";
+  const lblDetail = document.createElement("label");
+  lblDetail.textContent = "Địa chỉ chi tiết (Số nhà, Tên đường...) *";
+  const inpDetail = document.createElement("input");
+  inpDetail.type = "text";
+  inpDetail.placeholder = "Ví dụ: 123 Lê Lợi, Thôn Đông...";
+  inpDetail.required = true;
+  if (isSubmitted) inpDetail.disabled = true;
+  grpDetail.appendChild(lblDetail);
+  grpDetail.appendChild(inpDetail);
+  card.appendChild(grpDetail);
+
+  // Submit button
+  const submitBtn = document.createElement("button");
+  submitBtn.className = "address-form-submit";
+  submitBtn.textContent = isSubmitted ? "Đã xác nhận" : "Xác nhận địa chỉ";
+  if (isSubmitted) submitBtn.disabled = true;
+  card.appendChild(submitBtn);
+
+  // Error message placeholder
+  const errText = document.createElement("div");
+  errText.style.color = "var(--danger)";
+  errText.style.fontSize = "12px";
+  errText.style.marginTop = "-6px";
+  errText.style.display = "none";
+  card.appendChild(errText);
+
+  if (!isSubmitted) {
+    submitBtn.addEventListener("click", () => {
+      const provVal = inpProv.value.trim();
+      const wardVal = inpWard.value.trim();
+      const detailVal = inpDetail.value.trim();
+
+      if (!provVal || !wardVal || !detailVal) {
+        errText.textContent = "Vui lòng nhập đầy đủ cả 3 thông tin.";
+        errText.style.display = "block";
+        return;
       }
+
+      errText.style.display = "none";
+
+      // Form ward value with prefix if missing
+      let formattedWard = wardVal;
+      const lowerWard = wardVal.toLowerCase();
+      if (
+        !lowerWard.startsWith("phường") &&
+        !lowerWard.startsWith("xã") &&
+        !lowerWard.startsWith("thị trấn") &&
+        !/^p\s*\d/.test(lowerWard) &&
+        !/^p\.\s*\d/.test(lowerWard)
+      ) {
+        if (/^\d+$/.test(wardVal)) {
+          formattedWard = "Phường " + wardVal;
+        } else {
+          formattedWard = "Phường " + wardVal;
+        }
+      }
+
+      const fullAddressText = `${detailVal}, ${formattedWard}, ${provVal}`;
+      
+      inpProv.disabled = true;
+      inpWard.disabled = true;
+      inpDetail.disabled = true;
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Đã gửi";
+      card.classList.add("submitted");
+
+      sendMessage(fullAddressText);
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const envelope = await res.json();
-    if (!envelope.ok) throw new Error(envelope.error?.message || "Lỗi tải logo");
-    
-    const data = envelope.data;
-    appendLogoGallery(data.logo_variants);
-    if (data.logo_job?.status === "failed") {
-      setStatus("Dựng logo chưa thành công, anh thử lại sau nhé.", true);
-      return;
-    }
-    if (data.logo_job?.status === "completed") {
-      const total = data.logo_job?.total || data.logo_variants?.length || 3;
-      setStatus(`Đã dựng xong ${total} mẫu logo`);
-      return;
-    }
-    trackLogoJob(data.logo_job);
-  } catch (err) {
-    setStatus(`Lỗi tải logo: ${err.message}`, true);
   }
+
+  chatEl.appendChild(card);
+  chatEl.scrollTop = chatEl.scrollHeight;
 }
 
 
@@ -263,6 +300,7 @@ async function sendMessage(text) {
     }
 
     const data = envelope.data;
+    const addressFilled = !!(data.profile_snapshot?.all_fields?.address);
     typing.stop();
 
     if (Array.isArray(data.events)) {
@@ -270,18 +308,16 @@ async function sendMessage(text) {
         if (event.event_type === "message") {
           const role = event.source === "user" ? "dealer" : "bot";
           appendBubble(role, event.text);
+          if (event.message_type === "address_form" && role === "bot") {
+            appendAddressForm(event.event_id, addressFilled);
+          }
         }
       }
     }
 
     setStatus(`Stage: ${data.workflow_state}`);
     
-    // Check if we need to poll logos
-    if (data.workflow_state === "LOGO_PENDING" || data.workflow_state === "LOGO_READY" || data.workflow_state === "CLOSED" || data.workflow_state === "ESCALATED") {
-      pollLogos();
-    }
-    
-    if (data.workflow_state === "CLOSED" || data.workflow_state === "LOGO_READY" || data.workflow_state === "ESCALATED") {
+    if (data.status === "CLOSED" || data.status === "REJECTED") {
       _addStartNewButton();
     }
   } catch (err) {
@@ -312,6 +348,7 @@ async function init() {
           const envelope = await res.json();
           if (envelope.ok) {
             const data = envelope.data;
+            const addressFilled = !!(data.profile_snapshot?.all_fields?.address);
             chatEl.innerHTML = "";
             const events = data.recent_events || [];
             
@@ -320,16 +357,19 @@ async function init() {
               if (event.event_type === "message") {
                 const role = event.source === "user" ? "dealer" : "bot";
                 appendBubble(role, event.text);
+                if (event.message_type === "address_form" && role === "bot") {
+                  appendAddressForm(event.event_id, addressFilled);
+                }
               }
             }
             
-            pollLogos();
-            
-            if (data.workflow_state === "CLOSED" || data.workflow_state === "LOGO_READY" || data.workflow_state === "ESCALATED") {
+            if (data.status === "CLOSED" || data.status === "REJECTED") {
+              let finalTitle = data.status === "CLOSED" ? "── Hồ sơ đã chốt ──" : "── Hồ sơ không chốt ──";
+              let finalLabel = data.status === "CLOSED" ? "Hồ sơ đã chốt" : "Hồ sơ không chốt";
               appendBubble("bot",
-                "── Hồ sơ đã chốt ──\n\n" +
+                `${finalTitle}\n\n` +
                 "Anh vẫn có thể nhắn em thêm, hoặc bắt đầu một hồ sơ mới bằng nút bên dưới.");
-              setStatus(`Hồ sơ đã chốt — ${events.length} tin nhắn lưu lại`, false);
+              setStatus(`${finalLabel} — ${events.length} tin nhắn lưu lại`, false);
               _addStartNewButton();
             } else {
               setStatus(`Resume — Stage: ${data.workflow_state}, ${events.length} tin nhắn`);

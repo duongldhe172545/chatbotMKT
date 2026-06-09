@@ -80,6 +80,7 @@ class AgentReplyGenerator:
                     max_tokens=2048
                 )
                 if reply:
+                    reply = self._append_card_if_needed(reply, context)
                     return AgentResult(
                         text=reply,
                         model_id=client.quality_provider.model,
@@ -143,6 +144,7 @@ class AgentReplyGenerator:
         changed = []  # Phase 4 will pass changed_fields
 
         reply = _stub_reply(objective, address_form, changed)
+        reply = self._append_card_if_needed(reply, context)
 
         return AgentResult(
             text=reply,
@@ -150,6 +152,26 @@ class AgentReplyGenerator:
             system_prompt=self.build_system_prompt(context),
             usage={"input_tokens": 0, "output_tokens": 0},
         )
+
+    def _append_card_if_needed(self, reply: str, context: dict[str, Any]) -> str:
+        objective = context.get("suggested_objective", {})
+        if objective.get("type") == "show_profile_review":
+            try:
+                from app.models.schema import DealerProfileRaw
+                from app.core.card_renderer import render_card
+                
+                snapshot = context.get("profile_snapshot", {})
+                all_fields = snapshot.get("all_fields", {})
+                profile_dict = {}
+                for field_name in DealerProfileRaw.model_fields:
+                    if field_name in all_fields:
+                        profile_dict[field_name] = all_fields[field_name]
+                profile_raw = DealerProfileRaw(**profile_dict)
+                card_text = render_card(profile_raw, address_form=context.get("address_form", "anh"))
+                return f"{reply}\n\n{card_text}"
+            except Exception as e:
+                logger.warning("Failed to render confirmation card: %s", e)
+        return reply
 
 
 class AgentResult:

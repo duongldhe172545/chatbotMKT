@@ -48,10 +48,9 @@ class TestRenderProfileMd:
         md = render_profile_md(session, profile)
         assert "# Hồ sơ đại lý" in md
         assert "Tùng" in md
-        assert "## 🏪 Danh thiếp" in md
-        assert "## 🛠 Công việc" in md
-        assert "## 💛 Khách cũ" in md
-        assert "## 🎁 Bộ thương hiệu" in md
+        assert "## 🏪 1. Thông tin cơ bản" in md
+        assert "## 🛠 2. 9 Tiêu chí đánh giá" in md
+        assert "## 🎁 3. Thông tin bổ sung làm Logo & Thương hiệu" in md
         assert "## ⏰ Hành động trong 3 ngày tới" in md
 
     def test_full_profile(self):
@@ -81,14 +80,6 @@ class TestRenderProfileMd:
         # Slogan list
         assert "1. A" in md
 
-    def test_flags_shown(self):
-        session = create_session()
-        session.flags = [Flag.REQUIRED_MISSING, Flag.HALLUCINATE]
-        profile = DealerProfileRaw()
-        md = render_profile_md(session, profile)
-        assert "Flags:" in md
-        assert "required_missing" in md
-        assert "hallucinate" in md
 
     def test_no_forbidden_vocab(self):
         """Refer GLOSSARY § 6: không có Tier/C-score/BRANDKIT."""
@@ -107,7 +98,7 @@ class TestRenderProfileMd:
         session = create_session()
         profile = DealerProfileRaw(brandkit_consent="no")
         md = render_profile_md(session, profile)
-        assert "✗ Không" in md
+        assert "Không ✗" in md
         # Section 5 vẫn có (giới thiệu nhóm)
         assert "Cộng Đồng Thợ 4.0" in md
 

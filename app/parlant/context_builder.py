@@ -125,4 +125,14 @@ def _task_from_objective(
     if obj_type == "show_logo_brief":
         return f"Ho so xac nhan. Gui brief logo de {address_form} duyet."
 
+    if obj_type == "zalo_handoff":
+        from app.core.config_v2 import get_settings
+        settings = get_settings()
+        zalo_url = settings.zalo_group_url or "[Link Zalo Cộng Đồng Thợ 4.0]"
+        return (
+            f"Ho so da duoc xac nhan hoan toan. Khong can gen logo/tra logo. "
+            f"Hay cam on va chuc {address_form} kinh doanh phat dat, chot duoc nhieu cong trinh. "
+            f"Huong dan {address_form} bam vao link Zalo sau de gap doi ngu va nhan bo thuong hieu mien phi: {zalo_url}."
+        )
+
     return f"Tiep tuc tro chuyen tu nhien voi {address_form}."

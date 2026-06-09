@@ -244,13 +244,17 @@ class ChatService:
             )
 
             # 8. Insert bot reply message
+            msg_type = "text"
+            if turn_result.suggested_objective and turn_result.suggested_objective.get("target_field") == "address":
+                msg_type = "address_form"
+
             linh_messages = [
                 self.store.insert_message(
                     conn,
                     session_id=session_id,
                     turn_id=turn["id"],
                     source="linh_mkt",
-                    message_type="text",
+                    message_type=msg_type,
                     text=turn_result.reply_text,
                     raw_payload={
                         "runtime": self.settings.conversation_runtime,
@@ -272,18 +276,18 @@ class ChatService:
                 workflow_state=turn_result.workflow_state,
             )
 
-            # 11. Trigger background logo job if state is LOGO_PENDING and consent is yes
-            if turn_result.workflow_state == "LOGO_PENDING" and updated_snapshot.get("design_fields", {}).get("brandkit_consent") == "yes":
-                from app.core.logo_jobs import start_logo_job
-                from app.models.schema import DealerProfileRaw
-                
-                profile_dict = {}
-                for field_name in DealerProfileRaw.model_fields:
-                    if field_name in updated_snapshot.get("all_fields", {}):
-                        profile_dict[field_name] = updated_snapshot["all_fields"][field_name]
-                
-                profile_raw = DealerProfileRaw(**profile_dict)
-                start_logo_job(session_id, profile_raw)
+            # 11. Trigger background logo job (DISABLED - Logo gen removed)
+            # if turn_result.workflow_state == "LOGO_PENDING" and updated_snapshot.get("design_fields", {}).get("brandkit_consent") == "yes":
+            #     from app.core.logo_jobs import start_logo_job
+            #     from app.models.schema import DealerProfileRaw
+            #     
+            #     profile_dict = {}
+            #     for field_name in DealerProfileRaw.model_fields:
+            #         if field_name in updated_snapshot.get("all_fields", {}):
+            #             profile_dict[field_name] = updated_snapshot["all_fields"][field_name]
+            #     
+            #     profile_raw = DealerProfileRaw(**profile_dict)
+            #     start_logo_job(session_id, profile_raw)
 
         # Build response
         events = [chat_event_from_message(msg) for msg in linh_messages]

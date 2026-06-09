@@ -154,6 +154,7 @@ class DealerProfileRaw(BaseModel):
 class SessionState(BaseModel):
     """State machine + lifecycle metadata."""
     session_id: str                                            # uuid v4
+    status: str = "ACTIVE"                                     # ACTIVE / CLOSED / REJECTED
     stage: Stage = Stage.GREETING
     current_slot: Optional[str] = None                         # vd "2.3"
 

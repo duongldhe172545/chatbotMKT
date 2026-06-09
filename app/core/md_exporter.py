@@ -60,125 +60,126 @@ def render_profile_md(
                  f"**Turn:** {session.turn_count}")
     lines.append("")
 
-    if session.flags:
-        flag_list = ", ".join(f"`{f.value}`" for f in session.flags)
-        lines.append(f"> ⚠️ **Flags:** {flag_list}")
-        lines.append("")
-
-    # Section 1: Danh thiếp
-    lines.append("## 🏪 Danh thiếp cửa hàng")
+    # 1. Thông tin cơ bản
+    lines.append("## 🏪 1. Thông tin cơ bản")
     lines.append("")
     lines.append(f"- **Chủ cửa hàng:** {profile.owner_name or '_(chưa có)_'}")
     lines.append(f"- **Tên cửa hàng:** {profile.dealer_name or '_(chưa có)_'}")
-    lines.append(f"- **Địa chỉ:** {profile.address or '_(chưa có)_'}")
     lines.append(f"- **SĐT / Zalo:** {profile.phone_or_zalo or '_(chưa có)_'}")
-    if profile.facebook:
-        lines.append(f"- **Facebook:** {profile.facebook}")
-    if profile.zalo and profile.zalo != profile.phone_or_zalo:
-        lines.append(f"- **Zalo riêng:** {profile.zalo}")
+    if profile.phone_secondary:
+        lines.append(f"- **SĐT phụ:** {profile.phone_secondary}")
+    lines.append(f"- **Địa chỉ:** {profile.address or '_(chưa có)_'}")
+    location = ""
     if profile.province:
         location = profile.province
         if profile.ward:
             location = f"{profile.ward}, {location}"
-        lines.append(f"- **Tỉnh / Xã:** {location}")
-    lines.append("")
-
-    # Section 2: Công việc & Kênh
-    lines.append("## 🛠 Công việc & Kênh khách")
-    lines.append("")
+    if location:
+        lines.append(f"- **Tỉnh / Xã chuẩn hóa:** {location}")
+    if profile.district:
+        lines.append(f"- **Quận / Huyện:** {profile.district}")
+    if profile.business_model_signal or profile.dealer_type:
+        model_str = profile.business_model_signal or profile.dealer_type
+        lines.append(f"- **Mô hình kinh doanh:** {model_str}")
     if profile.main_product:
-        lines.append(f"- **Sản phẩm mạnh nhất:** {profile.main_product}")
-    if profile.main_category:
-        lines.append(f"- **Danh mục chuẩn hóa:** `{profile.main_category}`")
+        lines.append(f"- **Sản phẩm chính:** {profile.main_product}")
     if profile.category_stack:
-        cats = ", ".join(profile.category_stack)
-        lines.append(f"- **Danh mục đang làm:** {cats}")
-    if profile.business_model_signal:
-        lines.append(f"- **Mô hình kinh doanh:** {profile.business_model_signal}")
-    if profile.dealer_type:
-        lines.append(f"- **Loại đại lý:** `{profile.dealer_type}`")
-    if profile.est_team_size is not None:
-        team_str = f"{profile.est_team_size} người"
-        if profile.team_stability_signal:
-            team_str += f" — {profile.team_stability_signal}"
-        lines.append(f"- **Đội thợ:** {team_str}")
-    if profile.supplier_brands:
-        brands = ", ".join(profile.supplier_brands)
-        lines.append(f"- **Hãng nhập:** {brands}")
-    if profile.customer_segment_signal:
-        lines.append(f"- **Phân khúc khách:** {profile.customer_segment_signal}")
+        lines.append(f"- **Danh mục sản phẩm:** {', '.join(profile.category_stack)}")
     if profile.primary_contact_channel:
         lines.append(f"- **Kênh liên hệ chính:** {profile.primary_contact_channel}")
-    if profile.fb_marketing_status:
-        lines.append(f"- **Facebook marketing:** {profile.fb_marketing_status}")
-    if len(lines) > 0 and lines[-1].startswith("## 🛠"):
-        # Empty section
-        lines.append("_(chưa thu thập phần này)_")
+    if profile.zalo:
+        lines.append(f"- **Số Zalo phụ:** {profile.zalo}")
     lines.append("")
 
-    # Section 3: Khách cũ & Vướng mắc
-    lines.append("## 💛 Khách cũ & Vướng mắc")
+    # 2. 9 Tiêu chí đánh giá
+    lines.append("## 🛠 2. 9 Tiêu chí đánh giá")
     lines.append("")
-    has_section_3 = False
-    if profile.customer_old_percentage:
-        lines.append(f"- **Tỉ lệ khách cũ giới thiệu:** {profile.customer_old_percentage}")
-        has_section_3 = True
-    if profile.customer_storage_method:
-        lines.append(f"- **Cách lưu khách:** {profile.customer_storage_method}")
-        has_section_3 = True
+    
+    # C1
+    c1_str = profile.customer_old_percentage or '_(chưa có)_'
+    lines.append(f"- **C1. Tỉ lệ khách cũ:** {c1_str}")
+    
+    # C2
+    c2_str = profile.payment_terms_signal or '_(chưa có)_'
+    lines.append(f"- **C2. Quy trình cọc/thanh toán:** {c2_str}")
+    
+    # C3
+    c3_str = '_(chưa có)_'
+    if profile.est_team_size is not None:
+        c3_str = f"{profile.est_team_size} người"
+        if profile.team_stability_signal:
+            c3_str += f" — {profile.team_stability_signal}"
+    elif profile.team_stability_signal:
+        c3_str = profile.team_stability_signal
+    lines.append(f"- **C3. Quy mô & độ ổn định đội thợ:** {c3_str}")
+    
+    # C4
+    c4_str = profile.warranty_responsibility_signal or '_(chưa có)_'
+    lines.append(f"- **C4. Trách nhiệm xử lý bảo hành:** {c4_str}")
+    
+    # C5
+    c5_parts = []
     if profile.customer_pain:
-        lines.append(f"- **Vướng mắc:** {profile.customer_pain}")
-        has_section_3 = True
-    if profile.payment_terms_signal:
-        lines.append(f"- **Cọc & công nợ:** {profile.payment_terms_signal}")
-        has_section_3 = True
-    if profile.warranty_responsibility_signal:
-        lines.append(f"- **Trách nhiệm bảo hành:** {profile.warranty_responsibility_signal}")
-        has_section_3 = True
-    # RAW signals
-    raw_signals = []
-    if profile.local_dominance_signal:
-        raw_signals.append(f"  - Địa bàn: {profile.local_dominance_signal}")
-    if profile.supplier_negotiation_signal:
-        raw_signals.append(f"  - Đàm phán supplier: {profile.supplier_negotiation_signal}")
-    if profile.community_network_signal:
-        raw_signals.append(f"  - Mạng lưới thợ: {profile.community_network_signal}")
+        c5_parts.append(profile.customer_pain)
     if profile.motivation_signal:
-        raw_signals.append(f"  - Động lực: {profile.motivation_signal}")
-    if profile.usp_signal:
-        raw_signals.append(f"  - USP: {profile.usp_signal}")
-    if raw_signals:
-        lines.append("- **Tín hiệu thô (RAW, cho team review):**")
-        lines.extend(raw_signals)
-        has_section_3 = True
-    if not has_section_3:
-        lines.append("_(chưa thu thập phần này)_")
+        c5_parts.append(f"(Động lực: {profile.motivation_signal})")
+    c5_str = " ".join(c5_parts) if c5_parts else '_(chưa có)_'
+    lines.append(f"- **C5. Khó khăn & động lực:** {c5_str}")
+    
+    # C6
+    c6_str = profile.local_dominance_signal or '_(chưa có)_'
+    lines.append(f"- **C6. Bán kính & nhận diện địa bàn:** {c6_str}")
+    
+    # C7
+    c7_str = profile.customer_storage_method or '_(chưa có)_'
+    lines.append(f"- **C7. Cách lưu thông tin khách:** {c7_str}")
+    
+    # C8
+    c8_parts = []
+    if profile.supplier_brands:
+        c8_parts.append(", ".join(profile.supplier_brands))
+    if profile.supplier_negotiation_signal:
+        c8_parts.append(f"(Đàm phán: {profile.supplier_negotiation_signal})")
+    c8_str = " — ".join(c8_parts) if c8_parts else '_(chưa có)_'
+    lines.append(f"- **C8. Hãng nhập & đàm phán cung ứng:** {c8_str}")
+    
+    # C9
+    c9_parts = []
+    if profile.facebook:
+        c9_parts.append(f"Facebook: {profile.facebook}")
+        if profile.fb_marketing_status:
+            c9_parts.append(f"({profile.fb_marketing_status})")
+    if profile.community_network_signal:
+        c9_parts.append(f"Mạng lưới: {profile.community_network_signal}")
+    c9_str = " — ".join(c9_parts) if c9_parts else '_(chưa có)_'
+    lines.append(f"- **C9. Mạng lưới & sức ảnh hưởng:** {c9_str}")
     lines.append("")
 
-    # Section 4: Bộ thương hiệu
-    lines.append("## 🎁 Bộ thương hiệu")
+    # 3. Thông tin bổ sung làm Logo & Thương hiệu
+    lines.append("## 🎁 3. Thông tin bổ sung làm Logo & Thương hiệu")
     lines.append("")
+    consent_display = "Có ✓" if profile.brandkit_consent == "yes" else (
+        "Không ✗" if profile.brandkit_consent == "no" else '_(chưa có)_'
+    )
+    lines.append(f"- **Đồng ý nhận bộ thương hiệu:** {consent_display}")
+    
     if profile.brandkit_consent == "yes":
-        lines.append("- **Đồng ý nhận:** ✓ Có")
-        if profile.color_accent:
-            color_info = profile.color_accent
-            if profile.feng_shui_signal:
-                color_info += f" ({profile.feng_shui_signal})"
-            lines.append(f"- **Màu chủ đạo:** {color_info}")
+        color_info = profile.color_accent or '_(chưa có)_'
+        if profile.feng_shui_signal:
+            color_info += f" ({profile.feng_shui_signal})"
+        lines.append(f"- **Màu chủ đạo:** {color_info}")
+        lines.append(f"- **Viết tắt logo:** {profile.logo_initials or '_(chưa có)_'}")
         if profile.brand_name_short:
             lines.append(f"- **Tên rút gọn:** {profile.brand_name_short}")
         if profile.initials_full:
             lines.append(f"- **Viết tắt đầy đủ:** {profile.initials_full}")
-        if profile.initial_single:
-            lines.append(f"- **Chữ cái biểu trưng:** {profile.initial_single}")
+        if profile.slogan_preference:
+            lines.append(f"- **Gu slogan / slogan lựa chọn:** {profile.slogan_preference}")
         if profile.slogan_options:
-            lines.append("- **Slogan options:**")
+            lines.append("- **Slogan gợi ý:**")
             for i, s in enumerate(profile.slogan_options, 1):
                 lines.append(f"  {i}. {s}")
-    elif profile.brandkit_consent == "no":
-        lines.append("- **Đồng ý nhận:** ✗ Không")
-    else:
-        lines.append("- **Đồng ý nhận:** _(chưa có)_")
+        lines.append(f"- **Gu logo / phong cách:** {profile.logo_style or '_(chưa có)_'}")
     lines.append("")
 
     # Section 5: Trong 3 ngày tới

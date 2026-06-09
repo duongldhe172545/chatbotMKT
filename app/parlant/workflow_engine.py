@@ -142,17 +142,8 @@ class WorkflowEngine:
                 "prompt_hint": "Show profile review card",
             }
 
-        # 5. Check if logo brief needed
-        logo_status = profile_snapshot.get("logo_issued_status", "NONE")
-        if review_status == "CONFIRMED" and logo_status == "NONE":
-            return {
-                "type": "show_logo_brief",
-                "target_field": None,
-                "prompt_hint": "Show logo brief",
-            }
-
-        # 6. Check if Zalo handoff
-        if logo_status in ("ISSUED", "BLOCKED_DUPLICATE"):
+        # 5. Check if Zalo handoff
+        if review_status == "CONFIRMED":
             return {
                 "type": "zalo_handoff",
                 "target_field": None,
@@ -211,11 +202,5 @@ class WorkflowEngine:
         review_status = profile_snapshot.get("review_status", "DRAFT")
         if review_status == "DRAFT":
             return "READY_FOR_REVIEW"
-
-        if review_status == "CONFIRMED" and logo_status == "NONE":
-            return "LOGO_PENDING"
-
-        if logo_status == "ISSUED":
-            return "LOGO_READY"
 
         return "CONFIRMED"

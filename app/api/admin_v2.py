@@ -65,21 +65,22 @@ def get_stats(request: Request, admin: str = Depends(require_admin_v2)):
             "PENDING": total_sessions - confirmed_cnt,
         }
 
-        # queue items
-        queue_pending = conn.execute("SELECT COUNT(*) as c FROM admin_review_items WHERE status = 'PENDING'").fetchone()["c"]
-        queue_high = conn.execute("SELECT COUNT(*) as c FROM admin_review_items WHERE status = 'PENDING' AND priority <= 20").fetchone()["c"]
-        queue_medium = conn.execute("SELECT COUNT(*) as c FROM admin_review_items WHERE status = 'PENDING' AND priority > 20 AND priority <= 60").fetchone()["c"]
-        queue_low = conn.execute("SELECT COUNT(*) as c FROM admin_review_items WHERE status = 'PENDING' AND priority > 60").fetchone()["c"]
+        # manual categorization status counts
+        active_cnt = conn.execute("SELECT COUNT(*) as c FROM sessions WHERE status = 'ACTIVE'").fetchone()["c"]
+        closed_cnt = conn.execute("SELECT COUNT(*) as c FROM sessions WHERE status = 'CLOSED'").fetchone()["c"]
+        rejected_cnt = conn.execute("SELECT COUNT(*) as c FROM sessions WHERE status = 'REJECTED'").fetchone()["c"]
+        by_status = {
+            "ACTIVE": active_cnt,
+            "CLOSED": closed_cnt,
+            "REJECTED": rejected_cnt,
+        }
 
     return {
         "total_sessions": total_sessions,
         "by_stage": by_stage,
         "by_dealer_type": {},
         "by_confirmation": by_confirmation,
-        "queue_pending": queue_pending,
-        "queue_high": queue_high,
-        "queue_medium": queue_medium,
-        "queue_low": queue_low,
+        "by_status": by_status,
     }
 
 
@@ -87,6 +88,7 @@ def get_stats(request: Request, admin: str = Depends(require_admin_v2)):
 def list_sessions(
     request: Request,
     stage: str | None = Query(None),
+    status: str | None = Query(None),
     confirmation_status: str | None = Query(None),
     dealer_type: str | None = Query(None),
     limit: int = Query(50, ge=1, le=500),
@@ -102,6 +104,9 @@ def list_sessions(
         if stage:
             clauses.append("s.workflow_state = ?")
             params.append(stage)
+        if status:
+            clauses.append("s.status = ?")
+            params.append(status)
         if confirmation_status:
             clauses.append("p.review_status = ?")
             params.append(confirmation_status)
@@ -140,6 +145,7 @@ def list_sessions(
 
             sessions.append({
                 "session_id": sid,
+                "status": r["status"],
                 "stage": r["workflow_state"],
                 "current_slot": None,
                 "current_focus_field": None,
@@ -218,6 +224,7 @@ def get_session(session_id: str, request: Request, admin: str = Depends(require_
 
         detail = {
             "session_id": session["id"],
+            "status": session["status"],
             "stage": session["workflow_state"],
             "current_slot": None,
             "current_focus_field": None,
@@ -257,70 +264,36 @@ def delete_session(session_id: str, request: Request, admin: str = Depends(requi
     return {"deleted": True}
 
 
-@router.get("/queue")
-def list_queue(request: Request, status: str = Query("PENDING"), admin: str = Depends(require_admin_v2)):
-    """List review items from admin review queue."""
-    status_map = {
-        "PENDING": "OPEN",
-        "IN_REVIEW": "CLAIMED",
-        "APPROVED": "RESOLVED",
-        "REJECTED": "RESOLVED",
-    }
-    db_status = status_map.get(status, "OPEN")
+class UpdateSessionStatusRequest(BaseModel):
+    status: str
+
+
+@router.post("/sessions/{session_id}/status")
+def update_session_status(
+    session_id: str,
+    payload: UpdateSessionStatusRequest,
+    request: Request,
+    admin: str = Depends(require_admin_v2),
+):
+    """Manually update the classification status of a session."""
+    if payload.status not in ("ACTIVE", "CLOSED", "REJECTED"):
+        raise HTTPException(400, detail="Trạng thái không hợp lệ. Phải là ACTIVE, CLOSED, hoặc REJECTED.")
+    
     store = request.app.state.store
     with store.database.transaction() as conn:
-        rows = conn.execute(
-            "SELECT * FROM admin_review_items WHERE status = ? ORDER BY priority ASC, created_at ASC",
-            (db_status,),
-        ).fetchall()
-
-        queue_entries = []
-        for r in rows:
-            queue_entries.append({
-                "queue_id": r["id"],
-                "session_id": r["session_id"],
-                "trigger": r["review_type"],
-                "priority": "HIGH" if r["priority"] <= 20 else "MEDIUM" if r["priority"] <= 60 else "LOW",
-                "status": status,
-                "assigned_to": None,
-                "notes": r["summary"],
-                "created_at": r["created_at"],
-                "resolved_at": r["resolved_at"],
-            })
-    return queue_entries
-
-
-@router.post("/queue/{queue_id}/claim")
-def claim_queue(queue_id: str, request: Request, admin: str = Depends(require_admin_v2)):
-    store = request.app.state.store
-    with store.database.transaction() as conn:
+        session = store.get_session(conn, session_id)
+        if not session:
+            raise HTTPException(404, detail="Session không tồn tại")
+        
+        closed_at = None
+        if payload.status in ("CLOSED", "REJECTED"):
+            closed_at = utc_now_iso()
+        
         conn.execute(
-            "UPDATE admin_review_items SET status = 'CLAIMED' WHERE id = ?",
-            (queue_id,),
+            "UPDATE sessions SET status = ?, closed_at = ? WHERE id = ?",
+            (payload.status, closed_at, session_id),
         )
-    return {"status": "CLAIMED"}
-
-
-@router.post("/queue/{queue_id}/approve")
-def approve_queue(queue_id: str, request: Request, notes: str | None = Query(None), admin: str = Depends(require_admin_v2)):
-    store = request.app.state.store
-    with store.database.transaction() as conn:
-        conn.execute(
-            "UPDATE admin_review_items SET status = 'RESOLVED', resolved_at = ? WHERE id = ?",
-            (utc_now_iso(), queue_id),
-        )
-    return {"status": "APPROVED"}
-
-
-@router.post("/queue/{queue_id}/reject")
-def reject_queue(queue_id: str, request: Request, notes: str | None = Query(None), admin: str = Depends(require_admin_v2)):
-    store = request.app.state.store
-    with store.database.transaction() as conn:
-        conn.execute(
-            "UPDATE admin_review_items SET status = 'RESOLVED', resolved_at = ? WHERE id = ?",
-            (utc_now_iso(), queue_id),
-        )
-    return {"status": "REJECTED"}
+    return {"status": payload.status}
 
 
 class BulkExportRequest(BaseModel):
@@ -507,7 +480,7 @@ def _load_pydantic_session_and_profile(conn, session_id: str):
         stage_val = Stage.ASKING
     elif wf == "READY_FOR_REVIEW":
         stage_val = Stage.CONFIRMING
-    elif wf in ("LOGO_PENDING", "LOGO_READY", "CLOSED", "ESCALATED"):
+    elif wf in ("LOGO_PENDING", "LOGO_READY", "CLOSED", "ESCALATED", "CONFIRMED"):
         stage_val = Stage.DONE
 
     # Map confirmation status
@@ -531,6 +504,7 @@ def _load_pydantic_session_and_profile(conn, session_id: str):
 
     session_obj = SessionState(
         session_id=session_id,
+        status=session_row["status"],
         stage=stage_val,
         turn_count=len(history) // 2,
         confirmation_status=conf_status,

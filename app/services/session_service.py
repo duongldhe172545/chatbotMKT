@@ -111,7 +111,7 @@ class SessionService:
                     "visible": bool(
                         self.settings.zalo_group_url
                         and session["workflow_state"]
-                        in {"LOGO_READY", "CLOSED", "ESCALATED"}
+                        in {"CONFIRMED", "LOGO_READY", "CLOSED", "ESCALATED"}
                     ),
                     "url": self.settings.zalo_group_url,
                 },
