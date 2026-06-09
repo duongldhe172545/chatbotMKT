@@ -78,10 +78,18 @@ class Settings:
     @classmethod
     def from_env(cls) -> "Settings":
         """Load settings from environment variables with validation."""
+        db_url = os.getenv("DATABASE_URL")
+        if not db_url:
+            sqlite_path = os.getenv("SQLITE_PATH")
+            if sqlite_path:
+                db_url = sqlite_path
+            else:
+                db_url = cls.database_url
+
         settings = cls(
             app_env=os.getenv("APP_ENV", cls.app_env),
             app_base_url=os.getenv("APP_BASE_URL", cls.app_base_url),
-            database_url=os.getenv("DATABASE_URL", cls.database_url),
+            database_url=db_url,
             session_token_secret=os.getenv("SESSION_TOKEN_SECRET", cls.session_token_secret),
             admin_api_token=os.getenv("ADMIN_API_TOKEN", cls.admin_api_token),
             gemini_api_key=os.getenv("GEMINI_API_KEY", cls.gemini_api_key),
