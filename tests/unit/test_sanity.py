@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 from app.core.sanity import check_sanity
-from app.core.session import create_session
+import uuid
 from app.models.enums import Flag
-from app.models.schema import DealerProfileRaw
+from app.models.schema import DealerProfileRaw, SessionState
+
+def create_session() -> SessionState:
+    return SessionState(session_id=str(uuid.uuid4()))
 
 
 # ============================================================

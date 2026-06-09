@@ -11,9 +11,12 @@ from app.admin.queue import (
     increment_flag_count,
     trigger_queue_if_needed,
 )
-from app.core.session import create_session
+import uuid
 from app.models.enums import Flag, Priority
-from app.models.schema import DealerProfileRaw
+from app.models.schema import DealerProfileRaw, SessionState
+
+def create_session() -> SessionState:
+    return SessionState(session_id=str(uuid.uuid4()))
 
 
 def _make_store_mock():

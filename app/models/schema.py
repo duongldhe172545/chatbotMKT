@@ -131,7 +131,8 @@ class DealerProfileRaw(BaseModel):
     # SCOPE 2: chatbot auto-derive (parse + LLM gen)
     # ================================================================
     province: Optional[str] = None                             # parse từ address
-    district: Optional[str] = None                             # parse từ address
+    ward: Optional[str] = None                                 # parse từ address (xã/phường)
+    district: Optional[str] = None                             # parse từ address (kept for backward compat)
     main_category: Optional[str] = None                        # enum chuẩn hóa từ main_product (LLM auto-derive Phase 2)
     dealer_type: Optional[str] = None                          # enum dai_ly/chu_xuong/...
 

@@ -28,24 +28,23 @@ class TestLLMParseAddress:
         client.extract_fast.assert_not_called()
 
     def test_valid_province_whitelist(self):
-        client = _client({"province": "Hà Nội", "district": "Cầu Giấy"})
-        prov, dist, ward = llm_parse_address("vùng nào đó Hà Nôi", client)
+        client = _client({"province": "Hà Nội", "ward": "Cát Linh"})
+        prov, _, ward = llm_parse_address("vùng nào đó Hà Nôi", client)
         assert prov == "Hà Nội"
-        assert dist == "Cầu Giấy"
+        assert ward == "Cát Linh"
 
     def test_llm_bia_province_rejected(self):
         """ADVERSARIAL: LLM bịa "Thái Lan" → reject (không trong whitelist)."""
-        client = _client({"province": "Thái Lan", "district": "Bangkok"})
+        client = _client({"province": "Thái Lan", "ward": "Bangkok"})
         prov, _, _ = llm_parse_address("ở Thái Lan ạ", client)
         assert prov is None
 
     def test_fuzzy_substring_match_canonical(self):
-        """LLM trả "TP.HCM" / "Hồ Chí Minh" → match canonical từ whitelist."""
-        client = _client({"province": "Hồ Chí Minh"})
+        """LLM trả "TP.HCM" → match canonical từ whitelist."""
+        client = _client({"province": "TP.HCM"})
         prov, _, _ = llm_parse_address("Sài Gòn quận 1", client)
-        # Whitelist có "TP.HCM" — fuzzy substring match
-        assert prov is not None
-        assert "HCM" in prov or "Hồ Chí Minh" in prov
+        # Whitelist có "TP.HCM"
+        assert prov == "TP.HCM"
 
     def test_llm_fail_returns_none(self):
         client = MagicMock()
@@ -62,10 +61,10 @@ class TestLLMParseAddress:
         prov, dist, ward = llm_parse_address("vùng xa lắm em ơi", client)
         assert prov is None
 
-    def test_district_empty_string_returned_none(self):
-        client = _client({"province": "Hà Nội", "district": ""})
-        _, dist, _ = llm_parse_address("Hà Nội", client)
-        assert dist is None
+    def test_ward_empty_string_returned_none(self):
+        client = _client({"province": "Hà Nội", "ward": ""})
+        _, _, ward = llm_parse_address("Hà Nội", client)
+        assert ward is None
 
 
 class TestMatchWhitelist:
@@ -91,9 +90,9 @@ class TestMatchWhitelist:
 class TestParseAddress3Layer:
     def test_layer_1_only_no_client(self):
         """Không có client → chỉ Layer 1 regex."""
-        prov, dist = parse_address("123 Lê Lợi, Quận 1, TP.HCM")
+        prov, ward = parse_address("123 Lê Lợi, Phường 1, TP.HCM")
         assert prov == "TP.HCM"
-        assert dist == "Quận 1"
+        assert ward == "Phường 1"
 
     def test_layer_2_triggers_when_layer_1_fails(self):
         """Layer 1 fail (text lạ) → Layer 2 LLM được gọi."""

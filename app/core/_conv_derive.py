@@ -80,7 +80,7 @@ def merge_extracted(
     """Merge extracted dict vào profile (chỉ field non-None) + auto-derive Scope 2.
 
     Auto-derive sau khi merge:
-    - address → province + district (Layer 1 regex + Layer 2 LLM fuzzy)
+    - address → province + ward (Layer 1 regex + Layer 2 LLM fuzzy)
     - main_product → main_category (LLM_FAST)
     - dealer_name → brand_short + initials_full + initial_single
     - owner_name → contact_name (default copy)
@@ -106,20 +106,20 @@ def merge_extracted(
                 derived_dealer_type,
             )
 
-    # Province + district sau khi address fill
+    # Province + ward sau khi address fill
     if "address" in extracted and extracted.get("address") and not profile.province:
-        province, district = parse_address(profile.address, client=client)
+        province, ward = parse_address(profile.address, client=client)
         if province:
             profile.province = province
-        if district:
-            profile.district = district
+        if ward:
+            profile.ward = ward
 
     if "address" in extracted and extracted.get("address"):
-        local_province, local_district = derive_known_local_address(profile.address)
+        local_province, local_ward = derive_known_local_address(profile.address)
         if local_province:
             profile.province = local_province
-        if local_district:
-            profile.district = local_district
+        if local_ward:
+            profile.ward = local_ward
 
     # main_category sau khi main_product fill
     if (

@@ -1,4 +1,4 @@
-"""Generate five local SVG logo concepts for a confirmed dealer.
+"""Generate three local SVG logo concepts for a confirmed dealer.
 
 This is the deterministic MVP renderer. It keeps the end-to-end flow usable
 without a second image-model API key. A later image generator can replace this
@@ -6,15 +6,20 @@ module while preserving the API response contract.
 """
 from __future__ import annotations
 
+import logging
 import re
+from base64 import b64encode
 from html import escape
 from pathlib import Path
+from typing import Callable
 from urllib.parse import quote
 
 from pydantic import BaseModel
 
 from app.llm.auto_derive import gen_initials_full
 from app.models.schema import DealerProfileRaw
+
+logger = logging.getLogger(__name__)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -29,7 +34,7 @@ class LogoVariant(BaseModel):
     download_url: str
 
 
-# 5 Premium fallback palettes matching diverse styles
+# Fallback palettes matching diverse styles
 _DEFAULT_PALETTES = [
     ("#1E3A8A", "#475569", "#F8FAFC"),  # Navy Steel
     ("#0F766E", "#134E4A", "#ECFDF5"),  # Teal Mint
@@ -38,7 +43,7 @@ _DEFAULT_PALETTES = [
     ("#BE123C", "#4C0519", "#FFF1F2"),  # Wine Red
 ]
 
-# 5 Dedicated premium palettes per color family to ensure 100% synchronization (Constraint 2)
+# Dedicated premium palettes per color family to ensure color synchronization.
 _COLOR_FAMILY_PALETTES = {
     "xanh_duong": [
         ("#1E3A8A", "#475569", "#F8FAFC"),  # Navy Steel
@@ -105,8 +110,9 @@ def generate_logo_variants(
     *,
     output_root: Path | None = None,
     url_prefix: str = "/static/generated-logos",
+    progress_callback: Callable[[int], None] | None = None,
 ) -> list[LogoVariant]:
-    """Write five distinct SVG concepts and return browser-ready metadata."""
+    """Write three exact-text SVG concepts, optionally backed by AI emblems."""
     if profile.brandkit_consent != "yes":
         return []
 
@@ -120,37 +126,145 @@ def generate_logo_variants(
     palettes = _select_palettes(profile.color_accent)
     style_preference = _display_preference(profile.logo_style)
     specs = [
-        ("monogram-frame", "Khung monogram", "Hình học chắc chắn", _svg_monogram_frame),
-        ("door-line", "Nét cửa hiện đại", "Tối giản hiện đại", _svg_door_line),
-        ("industrial-badge", "Huy hiệu xưởng", "Công nghiệp mạnh mẽ", _svg_industrial_badge),
-        ("wordmark-block", "Wordmark khối", "Chữ khối dễ nhận diện", _svg_wordmark_block),
-        ("premium-mark", "Biểu trưng tinh gọn", "Tinh gọn cao cấp", _svg_premium_mark),
+        (
+            "monogram-frame",
+            "Khung monogram",
+            "a balanced monogram inside a clean framing shape",
+            _svg_monogram_frame,
+        ),
+        (
+            "wordmark-block",
+            "Wordmark khối",
+            "a compact emblem that pairs naturally with a strong wordmark",
+            _svg_wordmark_block,
+        ),
+        (
+            "premium-mark",
+            "Biểu trưng tinh gọn",
+            "a refined standalone emblem with a clear premium silhouette",
+            _svg_premium_mark,
+        ),
     ]
 
+    # Map product category to a compact emblem prompt description.
+    product_str = (profile.main_product or "").strip().lower()
+    if any(k in product_str for k in ["tủ bếp", "tu bep", "bếp", "bep", "nội thất", "cabinet"]):
+        main_product_en = "premium modular kitchen cabinets and high-end wooden kitchen furniture"
+    elif any(k in product_str for k in ["cửa cuốn", "rolling door"]):
+        main_product_en = "high-end automated rolling shutters and security rolling doors"
+    elif any(k in product_str for k in ["cửa thép", "cua thep", "steel door"]):
+        main_product_en = "steel doors and secure architectural entry systems"
+    elif any(k in product_str for k in ["cửa gỗ", "cua go", "wood door"]):
+        main_product_en = "premium wooden doors and crafted wooden entry systems"
+    elif any(k in product_str for k in ["điện mặt trời", "dien mat troi", "solar"]):
+        main_product_en = "solar energy installation and clean energy systems"
+    elif any(k in product_str for k in ["kính", "facade", "glass"]):
+        main_product_en = "premium structural glass facades, partitions, and architectural glass solutions"
+    else:
+        main_product_en = "high-end aluminum glass doors, premium windows, and architectural glass partitions"
+
+    # Get settings to fetch GEMINI_API_KEY
+    from app.core.config_v2 import get_settings
+    settings = get_settings()
+    api_key = settings.gemini_api_key
+    generation_mode = (
+        "local"
+        if output_root is not None
+        else (settings.logo_provider or "local").strip().lower()
+    )
+    image_client = None
+    if api_key and generation_mode == "hybrid":
+        try:
+            from google import genai
+
+            image_client = genai.Client(api_key=api_key)
+        except Exception:
+            logger.exception("Logo image client init failed; using local SVG fallback")
+
     variants: list[LogoVariant] = []
-    for index, (slug, name, style, renderer) in enumerate(specs):
+    for index, (slug, name, composition, renderer) in enumerate(specs):
         primary, secondary, background = palettes[index]
-        svg = renderer(
-            brand_name=brand_name,
-            initials=initials,
-            slogan=slogan,
-            primary=primary,
-            secondary=secondary,
-            background=background,
-            style_preference=style_preference,
-        )
-        filename = f"{index + 1:02d}-{slug}.svg"
-        (folder / filename).write_text(svg, encoding="utf-8")
-        url = f"{url_prefix}/{quote(safe_session_id)}/{quote(filename)}"
+        success = False
+        filename = ""
+        url = ""
+
+        if image_client is not None:
+            try:
+                from google.genai import types
+
+                logger.info(
+                    "Generating emblem option %s using %s",
+                    index + 1,
+                    settings.logo_image_model,
+                )
+                response = image_client.models.generate_images(
+                    model=settings.logo_image_model,
+                    prompt=_build_emblem_prompt(
+                        industry=main_product_en,
+                        concept=composition,
+                        logo_style=style_preference or "clean professional",
+                        primary=primary,
+                        secondary=secondary,
+                    ),
+                    config=types.GenerateImagesConfig(
+                        number_of_images=1,
+                        output_mime_type="image/png",
+                        aspect_ratio="1:1",
+                    )
+                )
+
+                if response.generated_images:
+                    image_bytes = response.generated_images[0].image.image_bytes
+                    if not image_bytes:
+                        raise ValueError("Imagen returned empty image bytes")
+                    emblem_filename = f"{index + 1:02d}-{slug}-emblem.png"
+                    (folder / emblem_filename).write_bytes(image_bytes)
+                    filename = f"{index + 1:02d}-{slug}.svg"
+                    svg = _svg_hybrid_layout(
+                        emblem_bytes=image_bytes,
+                        brand_name=brand_name,
+                        initials=initials,
+                        slogan=slogan,
+                        primary=primary,
+                        secondary=secondary,
+                        background=background,
+                        style_preference=style_preference,
+                    )
+                    (folder / filename).write_text(svg, encoding="utf-8")
+                    url = f"{url_prefix}/{quote(safe_session_id)}/{quote(filename)}"
+                    success = True
+                else:
+                    logger.warning("Imagen returned no emblem for option %s", index + 1)
+            except Exception:
+                logger.exception("Imagen emblem generation failed for option %s", index + 1)
+
+        # Fallback to local SVG generator if Imagen failed or local mode is active.
+        if not success:
+            logger.info("Using local SVG fallback for option %s", index + 1)
+            svg = renderer(
+                brand_name=brand_name,
+                initials=initials,
+                slogan=slogan,
+                primary=primary,
+                secondary=secondary,
+                background=background,
+                style_preference=style_preference,
+            )
+            filename = f"{index + 1:02d}-{slug}.svg"
+            (folder / filename).write_text(svg, encoding="utf-8")
+            url = f"{url_prefix}/{quote(safe_session_id)}/{quote(filename)}"
+
         variants.append(
             LogoVariant(
                 id=f"{safe_session_id}-{index + 1}",
                 name=f"Mẫu {index + 1}: {name}",
-                style=style,
+                style=style_preference or "Phù hợp ngành nghề",
                 url=url,
                 download_url=url,
             )
         )
+        if progress_callback is not None:
+            progress_callback(index + 1)
     return variants
 
 
@@ -207,6 +321,90 @@ def _select_palettes(color_accent: str | None) -> list[tuple[str, str, str]]:
 def _display_preference(style: str | None) -> str:
     value = (style or "").strip()
     return "" if not value or value.casefold() == "auto" else value[:48]
+
+
+def _build_emblem_prompt(
+    *,
+    industry: str,
+    concept: str,
+    logo_style: str,
+    primary: str,
+    secondary: str,
+) -> str:
+    """Ask Imagen for artwork only; exact text is composed locally."""
+    return (
+        f"Create one clean flat vector-style brand emblem for a Vietnamese {industry} dealer. "
+        f"Concept: {concept}. Brand personality: {logo_style}. "
+        f"Palette direction: {_human_palette(primary, secondary)}. "
+        "No letters, no words, no numbers, no typography, no color codes, no watermark, no mockup. "
+        "Centered emblem only, solid white background, 1:1 composition."
+    )
+
+
+def _human_palette(primary: str, secondary: str) -> str:
+    """Keep color codes out of Imagen prompts so they cannot appear in artwork."""
+    names = {
+        "#1E3A8A": "navy blue",
+        "#2563EB": "royal blue",
+        "#06B6D4": "cyan blue",
+        "#38BDF8": "sky blue",
+        "#10B981": "emerald green",
+        "#065F46": "forest green",
+        "#059669": "jade green",
+        "#064E3B": "deep green",
+        "#3F6212": "olive green",
+        "#65A30D": "leaf green",
+        "#D97706": "warm gold",
+        "#B45309": "bronze",
+        "#EA580C": "amber orange",
+        "#F59E0B": "honey gold",
+        "#DC2626": "crimson red",
+        "#991B1B": "wine red",
+        "#E11D48": "rose red",
+        "#BE123C": "ruby red",
+        "#881337": "burgundy",
+        "#0D9488": "teal",
+        "#0F766E": "deep teal",
+        "#14B8A6": "mint teal",
+        "#7E22CE": "violet",
+        "#581C87": "deep plum",
+        "#6366F1": "indigo",
+        "#A855F7": "lavender purple",
+        "#3B0764": "amethyst",
+        "#475569": "slate gray",
+        "#374151": "charcoal gray",
+        "#1F2937": "charcoal",
+        "#0F172A": "near-black slate",
+        "#111827": "near black",
+    }
+    return f"{names.get(primary, 'restrained primary color')} with {names.get(secondary, 'neutral secondary color')}"
+
+
+def _svg_hybrid_layout(
+    *,
+    emblem_bytes: bytes,
+    brand_name: str,
+    initials: str,
+    slogan: str,
+    primary: str,
+    secondary: str,
+    background: str,
+    style_preference: str,
+) -> str:
+    """Compose deterministic text around an AI-generated emblem."""
+    encoded = b64encode(emblem_bytes).decode("ascii")
+    body = f"""
+<image href="data:image/png;base64,{encoded}" x="210" y="24" width="220" height="220" preserveAspectRatio="xMidYMid meet"/>
+<text x="320" y="285" text-anchor="middle" fill="{_text(primary)}" font-family="Arial" font-size="31" font-weight="800">{_text(brand_name)}</text>
+<text x="320" y="325" text-anchor="middle" fill="{_text(secondary)}" font-family="Arial" font-size="17" font-weight="700">{_text(initials)}</text>
+<text x="320" y="362" text-anchor="middle" fill="{_text(secondary)}" font-family="Arial" font-size="14" font-weight="600">{_text(slogan)}</text>
+{_style_note(style_preference)}"""
+    return _base_svg(
+        body,
+        background=background,
+        primary=primary,
+        secondary=secondary,
+    )
 
 
 def _safe_slug(value: str, *, fallback: str) -> str:

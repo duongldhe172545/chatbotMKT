@@ -1,0 +1,104 @@
+# Em Linh MKT — Canned Responses
+# Pre-built replies that bypass LLM for common deterministic situations.
+#
+# trigger_objective: matches suggested_objective.type
+# trigger_field: matches suggested_objective.target_field (optional)
+# trigger_intent: matches detected intent (optional)
+# {af} = address form placeholder (anh/chi)
+
+canned_responses:
+
+  # ============================================================
+  # Greeting & Welcoming
+  # ============================================================
+
+  - id: greeting
+    trigger_objective: greet_user
+    template: "Dạ em chào {af} ạ! 🌷\n\nEm là Linh, chuyên gia hỗ trợ chiến lược kinh doanh trên nền tảng số cho các anh chị làm cửa, nhôm kính, tủ bếp, điện mặt trời trong Cộng Đồng Thợ 4.0.\n\nĐể chào mừng {af} tham gia cộng đồng của bên em, sau cuộc trò chuyện này em xin phép tặng {af} một bộ thương hiệu hoàn toàn miễn phí, bao gồm:\n\n🎁 Logo riêng cho cửa hàng\n🎁 Danh thiếp cá nhân hoá\n🎁 Video giới thiệu thương hiệu\n\nVì món quà này mang màu sắc cá nhân của riêng {af}, em xin phép trao đổi với {af} khoảng 4-5 phút {af} nhé. Bộ thương hiệu và kế hoạch chi tiết về chiến lược phát triển nền tảng số em sẽ gửi {af} qua Zalo trong thời gian sớm nhất sau đó ạ.\n\n{Af} có thể gõ chữ, hoặc bấm mic nói cũng được hết. Mình bắt đầu nhé {af}?"
+    priority: 90
+
+  # ============================================================
+  # Profile collection — deterministic ack + ask
+  # ============================================================
+
+  - id: ask_owner_name
+    trigger_objective: collect_required_field
+    trigger_field: owner_name
+    template: "Dạ em cần biết tên {af} để làm hồ sơ và logo cho chuẩn nhé. {af} tên gì ạ?"
+    priority: 50
+
+  - id: ask_dealer_name
+    trigger_objective: collect_required_field
+    trigger_field: dealer_name
+    template: "Dạ em ghi nhận tên {af} rồi ạ. Cho em hỏi thêm tên xưởng/cửa hàng của mình là gì nhé?"
+    priority: 50
+
+  - id: ask_address
+    trigger_objective: collect_required_field
+    trigger_field: address
+    template: "Dạ em cần địa chỉ hoặc khu vực để đưa lên hồ sơ và logo cho {af} nhé. Minh ở đâu ạ?"
+    priority: 50
+
+  - id: ask_phone
+    trigger_objective: collect_required_field
+    trigger_field: phone_or_zalo
+    template: "Dạ cho em xin số điện thoại hoặc Zalo để đưa lên logo và để tiện liên hệ nhé {af}."
+    priority: 50
+
+  - id: ask_product
+    trigger_objective: collect_required_field
+    trigger_field: main_product
+    template: "Dạ em cần biết sản phẩm chính của mình là gì — cửa nhôm kính, cửa cuốn, tủ bếp hay loại nào {af}?"
+    priority: 50
+
+  - id: ask_business_model
+    trigger_objective: collect_required_field
+    trigger_field: business_model_signal
+    template: "Dạ {af} cho em hỏi thêm là mình là xưởng sản xuất, đại lý phân phối, hay thi công lắp đặt ạ?"
+    priority: 50
+
+  # ============================================================
+  # Workflow transitions
+  # ============================================================
+
+  - id: show_review
+    trigger_objective: show_profile_review
+    template: "Dạ em đã gom đủ thông tin chính rồi ạ. {af} xem lại thẻ hồ sơ này, đúng thì bấm xác nhận giúp em nhé."
+    priority: 60
+
+  - id: show_logo_brief
+    trigger_objective: show_logo_brief
+    template: "Dạ hồ sơ đã xác nhận rồi ạ. Em chuẩn bị brief logo để {af} duyệt tiếp nhé."
+    priority: 60
+
+  # ============================================================
+  # Defensive / edge cases & Pre-turn Guards
+  # ============================================================
+
+  - id: handle_garbage
+    trigger_objective: handle_garbage_input
+    template: "Dạ em chưa rõ ý {af} lắm ạ. {Af} nói rõ hơn hoặc nhập lại giúp em nhé."
+    priority: 85
+
+  - id: handle_abuse
+    trigger_objective: handle_personal_abuse
+    template: "Dạ em xin lỗi nếu làm phiền {af} ạ. Em tiếp tục cuộc trò chuyện nhé."
+    priority: 85
+
+  - id: defensive_reassure
+    trigger_objective: collect_required_field
+    trigger_intent: defensive
+    template: "Dạ {af} yên tâm ạ, thông tin chỉ để làm bộ thương hiệu cho {af} thôi, em không chia sẻ với bất kỳ ai. Team người thật phía sau luôn sẵn sàng hỗ trợ {af} nhé."
+    priority: 80
+
+  - id: blocking_flag_address
+    trigger_objective: resolve_blocking_flag
+    trigger_flag: safety_check_failed
+    template: "Dạ em thấy co thông tin cần kiểm tra an toàn. {af} cho em lại địa chỉ hoặc khu vực gọn hơn nhé."
+    priority: 70
+
+  - id: blocking_flag_phone
+    trigger_objective: resolve_blocking_flag
+    trigger_flag: phone_invalid_after_retry
+    template: "Dạ {af} ơi, số điện thoại {af} cung cấp dường như chưa đúng định dạng hoặc bên em không liên lạc được ạ. {Af} kiểm tra lại giúp em hoặc cho em xin số điện thoại khác nhé. 😊"
+    priority: 70

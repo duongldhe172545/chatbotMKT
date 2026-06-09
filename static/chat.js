@@ -1,5 +1,5 @@
-// Chat client v8 — adapt /api/chat response format.
-// Refer app/api/chat.py: ChatResponse {session_id, reply, stage, current_slot, is_first_turn}
+// Chat client v2 — adapt to REST v2 API under /api/v1.
+// Refer routes_v2.py and ChatService.
 
 const chatEl = document.getElementById("chat");
 const formEl = document.getElementById("form");
@@ -8,18 +8,22 @@ const sendBtn = document.getElementById("sendBtn");
 const micBtn = document.getElementById("micBtn");
 const statusEl = document.getElementById("status");
 
-const SESSION_KEY = "em_linh_session_id_v8";
-let sessionId = localStorage.getItem(SESSION_KEY) || null;
+const SESSION_ID_KEY = "em_linh_session_id_v8";
+const SESSION_TOKEN_KEY = "em_linh_session_token_v8";
+
+let sessionId = localStorage.getItem(SESSION_ID_KEY) || null;
+let sessionToken = localStorage.getItem(SESSION_TOKEN_KEY) || null;
 
 // Chặn double-submit
 let isSending = false;
+let logoPollTimer = null;
 
 
 // ---------- UI helpers ----------
 function appendBubble(role, content) {
   const div = document.createElement("div");
   div.className = `bubble ${role}`;
-  // Multi-line support (greeting có \n + card có ASCII art)
+  // Multi-line support
   div.textContent = content;
   div.style.whiteSpace = "pre-wrap";
   chatEl.appendChild(div);
@@ -37,7 +41,7 @@ function appendLogoGallery(variants) {
 
   const heading = document.createElement("div");
   heading.className = "logo-gallery-heading";
-  heading.textContent = "5 mẫu logo của cửa hàng";
+  heading.textContent = `${variants.length} mẫu logo của cửa hàng`;
   section.appendChild(heading);
 
   const grid = document.createElement("div");
@@ -63,7 +67,7 @@ function appendLogoGallery(variants) {
     const link = document.createElement("a");
     link.href = variant.download_url;
     link.download = "";
-    link.textContent = "Tải SVG";
+    link.textContent = "Tải ảnh";
     card.appendChild(link);
     grid.appendChild(card);
   }
@@ -73,7 +77,48 @@ function appendLogoGallery(variants) {
 }
 
 
-// Phase 6 R+ 2026-05-25: button "Bắt đầu chat mới" khi session DONE.
+function trackLogoJob(job) {
+  if (!job || !["queued", "working"].includes(job.status)) {
+    if (logoPollTimer) clearTimeout(logoPollTimer);
+    logoPollTimer = null;
+    return;
+  }
+  setStatus(`Đang dựng logo ${job.progress || 0}/${job.total || 3}`);
+  if (logoPollTimer) clearTimeout(logoPollTimer);
+  logoPollTimer = setTimeout(pollLogos, 1500);
+}
+
+
+async function pollLogos() {
+  if (!sessionId || !sessionToken) return;
+  try {
+    const res = await fetch(`/api/v1/sessions/${sessionId}/logos`, {
+      headers: {
+        "Authorization": `Bearer ${sessionToken}`
+      }
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const envelope = await res.json();
+    if (!envelope.ok) throw new Error(envelope.error?.message || "Lỗi tải logo");
+    
+    const data = envelope.data;
+    appendLogoGallery(data.logo_variants);
+    if (data.logo_job?.status === "failed") {
+      setStatus("Dựng logo chưa thành công, anh thử lại sau nhé.", true);
+      return;
+    }
+    if (data.logo_job?.status === "completed") {
+      const total = data.logo_job?.total || data.logo_variants?.length || 3;
+      setStatus(`Đã dựng xong ${total} mẫu logo`);
+      return;
+    }
+    trackLogoJob(data.logo_job);
+  } catch (err) {
+    setStatus(`Lỗi tải logo: ${err.message}`, true);
+  }
+}
+
+
 function _addStartNewButton() {
   // Tránh add nhiều lần
   if (document.getElementById("start-new-btn")) return;
@@ -85,7 +130,8 @@ function _addStartNewButton() {
     "background:#4caf50;color:white;border:none;border-radius:6px;" +
     "cursor:pointer;font-size:14px;";
   btn.onclick = () => {
-    localStorage.removeItem(SESSION_KEY);
+    localStorage.removeItem(SESSION_ID_KEY);
+    localStorage.removeItem(SESSION_TOKEN_KEY);
     location.reload();
   };
   chatEl.appendChild(btn);
@@ -147,22 +193,33 @@ function createTypingBubble() {
 }
 
 
-// ---------- API call ----------
-async function postChat(message) {
-  const res = await fetch("/api/chat", {
+// ---------- API calls ----------
+async function startNewSession() {
+  const res = await fetch("/api/v1/sessions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      session_id: sessionId,
-      message: message || "",
-      channel: "web",
-    }),
+      channel: "web_text",
+      client: {
+        user_agent: navigator.userAgent
+      }
+    })
   });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || `HTTP ${res.status}`);
+    const err = await res.json().catch(() => ({ error: { message: res.statusText } }));
+    throw new Error((err.error && err.error.message) || `HTTP ${res.status}`);
   }
-  return res.json();
+  const envelope = await res.json();
+  if (!envelope.ok) {
+    throw new Error(envelope.error?.message || "Lỗi tạo session");
+  }
+  
+  sessionId = envelope.data.session_id;
+  sessionToken = envelope.data.session_token;
+  localStorage.setItem(SESSION_ID_KEY, sessionId);
+  localStorage.setItem(SESSION_TOKEN_KEY, sessionToken);
+  
+  return envelope.data;
 }
 
 
@@ -170,21 +227,63 @@ async function sendMessage(text) {
   if (isSending) return;
   isSending = true;
   setBusy(true);
-  appendBubble("dealer", text);
+
+  if (text) {
+    appendBubble("dealer", text);
+  }
 
   const typing = createTypingBubble();
 
   try {
-    const data = await postChat(text);
-    sessionId = data.session_id;
-    localStorage.setItem(SESSION_KEY, sessionId);
+    const idempotencyKey = crypto.randomUUID ? crypto.randomUUID() : (Math.random().toString(36).substring(2) + Date.now().toString(36));
+    const clientMessageId = "cmsg-" + Date.now() + "-" + Math.random().toString(36).substring(2, 6);
 
+    const res = await fetch(`/api/v1/sessions/${sessionId}/messages`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${sessionToken}`,
+        "Idempotency-Key": idempotencyKey
+      },
+      body: JSON.stringify({
+        message_type: "text",
+        text: text,
+        client_message_id: clientMessageId
+      })
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: { message: res.statusText } }));
+      throw new Error(err.error?.message || `HTTP ${res.status}`);
+    }
+
+    const envelope = await res.json();
+    if (!envelope.ok) {
+      throw new Error(envelope.error?.message || "Lỗi gửi tin nhắn");
+    }
+
+    const data = envelope.data;
     typing.stop();
-    appendBubble("bot", data.reply);
-    appendLogoGallery(data.logo_variants);
 
-    setStatus(`Stage: ${data.stage}${data.current_slot ? ' | Slot: ' + data.current_slot : ''}`);
-    if (data.stage === "DONE") _addStartNewButton();
+    if (Array.isArray(data.events)) {
+      for (const event of data.events) {
+        if (event.event_type === "message") {
+          const role = event.source === "user" ? "dealer" : "bot";
+          appendBubble(role, event.text);
+        }
+      }
+    }
+
+    setStatus(`Stage: ${data.workflow_state}`);
+    
+    // Check if we need to poll logos
+    if (data.workflow_state === "LOGO_PENDING" || data.workflow_state === "LOGO_READY" || data.workflow_state === "CLOSED" || data.workflow_state === "ESCALATED") {
+      pollLogos();
+    }
+    
+    if (data.workflow_state === "CLOSED" || data.workflow_state === "LOGO_READY" || data.workflow_state === "ESCALATED") {
+      _addStartNewButton();
+    }
   } catch (err) {
     typing.stop();
     setStatus(`Lỗi: ${err.message}`, true);
@@ -202,50 +301,59 @@ async function init() {
   setStatus("Đang kết nối...");
   setBusy(true);
   try {
-    if (sessionId) {
-      // Resume session existing — fetch history + restore UI
-      // Phase 6 R+ 2026-05-25 (user feedback): KHÔNG auto-clear khi DONE.
-      // Render lịch sử full, hiển thị thông báo session đã đóng + cho dealer
-      // option bắt đầu mới (reload trang).
+    if (sessionId && sessionToken) {
       try {
-        const histRes = await fetch(`/api/chat/${sessionId}/history`);
-        if (histRes.ok) {
-          const data = await histRes.json();
-          // Render lịch sử full (cả khi DONE để dealer xem lại)
-          chatEl.innerHTML = "";
-          for (const msg of data.messages || []) {
-            appendBubble(msg.role, msg.content);
+        const res = await fetch(`/api/v1/sessions/${sessionId}`, {
+          headers: {
+            "Authorization": `Bearer ${sessionToken}`
           }
-          appendLogoGallery(data.logo_variants);
-          if (data.stage === "DONE") {
-            // Session đã chốt nhưng vẫn cho phép nói chuyện phiếm.
-            appendBubble("bot",
-              "── Hồ sơ đã chốt ──\n\n" +
-              "Anh vẫn có thể nhắn em thêm, hoặc bắt đầu một hồ sơ mới bằng nút bên dưới.");
-            setStatus(`Hồ sơ đã chốt — ${(data.messages || []).length} tin nhắn lưu lại`, false);
-            _addStartNewButton();
+        });
+        if (res.ok) {
+          const envelope = await res.json();
+          if (envelope.ok) {
+            const data = envelope.data;
+            chatEl.innerHTML = "";
+            const events = data.recent_events || [];
+            
+            // Under REST v2, events are sorted oldest to newest (by event_cursor)
+            for (const event of events) {
+              if (event.event_type === "message") {
+                const role = event.source === "user" ? "dealer" : "bot";
+                appendBubble(role, event.text);
+              }
+            }
+            
+            pollLogos();
+            
+            if (data.workflow_state === "CLOSED" || data.workflow_state === "LOGO_READY" || data.workflow_state === "ESCALATED") {
+              appendBubble("bot",
+                "── Hồ sơ đã chốt ──\n\n" +
+                "Anh vẫn có thể nhắn em thêm, hoặc bắt đầu một hồ sơ mới bằng nút bên dưới.");
+              setStatus(`Hồ sơ đã chốt — ${events.length} tin nhắn lưu lại`, false);
+              _addStartNewButton();
+            } else {
+              setStatus(`Resume — Stage: ${data.workflow_state}, ${events.length} tin nhắn`);
+            }
             setBusy(false);
             return;
           }
-          setStatus(`Resume — Stage: ${data.stage}, ${(data.messages || []).length} tin nhắn`);
-          setBusy(false);
-          return;
-        } else {
-          // Session không tồn tại (DB cleared) → clear + new
-          sessionId = null;
-          localStorage.removeItem(SESSION_KEY);
         }
-      } catch (_) {
+        // Session expired or DB cleared -> clear storage and trigger new session
         sessionId = null;
+        sessionToken = null;
+        localStorage.removeItem(SESSION_ID_KEY);
+        localStorage.removeItem(SESSION_TOKEN_KEY);
+      } catch (err) {
+        sessionId = null;
+        sessionToken = null;
+        localStorage.removeItem(SESSION_ID_KEY);
+        localStorage.removeItem(SESSION_TOKEN_KEY);
       }
     }
 
-    // Session mới → POST với session_id=null → backend trả greeting
-    const data = await postChat("");
-    sessionId = data.session_id;
-    localStorage.setItem(SESSION_KEY, sessionId);
-    appendBubble("bot", data.reply);
-    setStatus(`Stage: ${data.stage}`);
+    // New session -> creates session + triggers greeting by sending empty string
+    await startNewSession();
+    await sendMessage("");
   } catch (err) {
     setStatus(`Lỗi: ${err.message}`, true);
     appendBubble("bot", "Em xin lỗi, kết nối có vấn đề. Anh thử reload trang nhé.");

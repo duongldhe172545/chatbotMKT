@@ -32,13 +32,13 @@ _ADDRESS_SCHEMA: dict = {
                 "hoặc null nếu không xác định được."
             ),
         },
+        "ward": {
+            "type": "string",
+            "description": "Phường/xã/thị trấn cấp dưới, null nếu không có.",
+        },
         "district": {
             "type": "string",
             "description": "Quận/huyện/thị xã/TP trực thuộc tỉnh, null nếu không có.",
-        },
-        "ward": {
-            "type": "string",
-            "description": "Phường/xã (optional), null nếu không có.",
         },
     },
     "required": ["province"],
@@ -57,8 +57,8 @@ def _build_task(address_raw: str, province_list: list[str]) -> str:
         f'- Hiểu các viết tắt: "TPHCM"/"HCM"/"Sài Gòn" → "TP.HCM"; "HN" → "Hà Nội".\n'
         f'- Hiểu sai chính tả nhẹ: "Hà Nôi" → "Hà Nội", "Hồ Chí Minh" → "TP.HCM".\n'
         f"- KHÔNG bịa tỉnh ngoài whitelist (vd Thái Lan, Lào, Campuchia → null).\n"
-        f"- district = quận/huyện/thị xã/TP cấp dưới (vd Hoàn Kiếm, Quận 1).\n"
-        f"- ward = phường/xã (optional)."
+        f"- ward = phường/xã/thị trấn (vd Cát Linh, Đại Thịnh, Phường 1).\n"
+        f"- district = quận/huyện/thị xã/TP cấp dưới (optional)."
     )
 
 
@@ -129,24 +129,8 @@ def _norm_for_match(text: str) -> str:
         text.strip().lower()
         .replace(".", "")
         .replace(",", "")
-        .replace("  ", " ")
+        .replace(" ", "")
     )
-
-
-# Alias map cho LLM output thường gặp → canonical trong whitelist
-_LLM_PROVINCE_ALIAS: dict[str, str] = {
-    "ho chi minh": "TP.HCM",
-    "hồ chí minh": "TP.HCM",
-    "thanh pho ho chi minh": "TP.HCM",
-    "thành phố hồ chí minh": "TP.HCM",
-    "tp ho chi minh": "TP.HCM",
-    "tp hồ chí minh": "TP.HCM",
-    "tphcm": "TP.HCM",
-    "tp hcm": "TP.HCM",
-    "hcm": "TP.HCM",
-    "sài gòn": "TP.HCM",
-    "sai gon": "TP.HCM",
-}
 
 
 def _match_whitelist(
@@ -157,14 +141,11 @@ def _match_whitelist(
     if not province or not isinstance(province, str):
         return None
     target_norm = _norm_for_match(province)
-    # 1. Alias map check trước (HCM/Sài Gòn → TP.HCM)
-    if target_norm in _LLM_PROVINCE_ALIAS:
-        return _LLM_PROVINCE_ALIAS[target_norm]
-    # 2. Exact match (after norm)
+    # 1. Exact match (after norm)
     for canonical in province_list:
         if _norm_for_match(canonical) == target_norm:
             return canonical
-    # 3. Fuzzy substring match
+    # 2. Fuzzy substring match
     for canonical in province_list:
         canonical_norm = _norm_for_match(canonical)
         if canonical_norm in target_norm or target_norm in canonical_norm:

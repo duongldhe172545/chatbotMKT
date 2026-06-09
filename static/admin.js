@@ -237,6 +237,49 @@ function renderSessionModal(detail) {
     )
     .join("");
 
+  const turnsHtml = (detail.turns || [])
+    .map(
+      (t, index) => `
+    <div class="turn-trace-card" style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-bottom: 12px; background: #f7fafc; text-align: left;">
+      <div style="display:flex; justify-content:space-between; align-items:center; border-bottom: 1px solid #edf2f7; padding-bottom: 6px; margin-bottom: 8px;">
+        <span style="font-weight:bold; color:#2d3748;">Turn ${index + 1} (${escapeHtml(t.turn_id)})</span>
+        <span style="font-size:11px; color:#a0aec0;">${formatDate(t.created_at)}</span>
+      </div>
+      <div class="kv-grid" style="font-size:13px; row-gap:4px;">
+        <div class="kv-key" style="color:#718096;">Objective</div>
+        <div class="kv-value">
+          <span class="badge stage-${escapeHtml(t.suggested_objective?.type || 'unknown')}">${escapeHtml(t.suggested_objective?.type || '—')}</span>
+          ${t.suggested_objective?.target_field ? `<code style="background:#edf2f7; padding:2px 4px; border-radius:4px; font-family:monospace;">${escapeHtml(t.suggested_objective.target_field)}</code>` : ''}
+        </div>
+        <div class="kv-key" style="color:#718096;">Observations</div>
+        <div class="kv-value">
+          ${Object.entries(t.observations || {})
+            .filter(([_, v]) => v)
+            .map(([k, v]) => `<span style="font-size:11px; background:#e2e8f0; color:#4a5568; padding:1px 6px; border-radius:12px; margin-right:4px; display:inline-block;">${escapeHtml(k)}: ${escapeHtml(JSON.stringify(v))}</span>`)
+            .join("") || "—"}
+        </div>
+        <div class="kv-key" style="color:#718096;">Guidelines</div>
+        <div class="kv-value">
+          ${(t.matched_guideline_ids || []).map(g => `<span class="badge flag" style="background:#ebf8ff; color:#2b6cb0; border:1px solid #bee3f8; margin-right:4px;">${escapeHtml(g)}</span>`).join("") || "—"}
+        </div>
+        <div class="kv-key" style="color:#718096;">Backend Latency</div>
+        <div class="kv-value mono">${t.backend_latency_ms || 0}ms</div>
+        <div class="kv-key" style="color:#718096;">Total Latency</div>
+        <div class="kv-value mono">${t.turn_aggregation_latency_ms || 0}ms</div>
+        <div class="kv-key" style="color:#718096;">Model ID</div>
+        <div class="kv-value mono">${escapeHtml(t.model_id || 'stub')}</div>
+      </div>
+      <div style="margin-top: 8px;">
+        <details>
+          <summary style="cursor:pointer; font-size:12px; color:#4299e1; user-select:none;">Xem chi tiết full JSON trace</summary>
+          <pre style="font-size:11px; background:#1a202c; color:#a0aec0; padding:10px; border-radius:4px; margin-top:6px; overflow-x:auto; font-family:monospace; white-space:pre-wrap;">${escapeHtml(JSON.stringify(t.trace, null, 2))}</pre>
+        </details>
+      </div>
+    </div>
+  `
+    )
+    .join("");
+
   const body = document.getElementById("modal-body");
   body.innerHTML = `
     <h3>Session ${shortId(detail.session_id)}</h3>
@@ -268,6 +311,11 @@ function renderSessionModal(detail) {
 
     <h3>History (${(detail.history || []).length} message)</h3>
     <div class="history">${historyHtml || '<div style="color:#a0aec0;padding:8px">(chưa có history)</div>'}</div>
+
+    <h3>Conversation Turns & Traces (${(detail.turns || []).length} turns)</h3>
+    <div class="turns" style="max-height: 400px; overflow-y: auto; padding-right: 4px; display: flex; flex-direction: column;">
+      ${turnsHtml || '<div style="color:#a0aec0;padding:8px">(chưa có turn trace)</div>'}
+    </div>
   `;
   showModal();
 }

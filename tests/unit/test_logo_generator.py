@@ -4,7 +4,7 @@ from app.core.logo_generator import generate_logo_variants
 from app.models.schema import DealerProfileRaw
 
 
-def test_generate_five_distinct_svg_logo_variants(tmp_path):
+def test_generate_three_distinct_svg_logo_variants_with_selected_style(tmp_path):
     profile = DealerProfileRaw(
         dealer_name="Xưởng Nhôm Dương An",
         main_product="nhôm Xingfa",
@@ -22,10 +22,16 @@ def test_generate_five_distinct_svg_logo_variants(tmp_path):
         url_prefix="/test-logos",
     )
 
-    assert len(variants) == 5
-    assert len({variant.url for variant in variants}) == 5
+    assert len(variants) == 3
+    assert len({variant.url for variant in variants}) == 3
+    assert {variant.style for variant in variants} == {"tối giản hiện đại"}
+    assert [variant.url.split("/")[-1] for variant in variants] == [
+        "01-monogram-frame.svg",
+        "02-wordmark-block.svg",
+        "03-premium-mark.svg",
+    ]
     files = sorted((tmp_path / "session-logo-test").glob("*.svg"))
-    assert len(files) == 5
+    assert len(files) == 3
     assert "XDA" in files[0].read_text(encoding="utf-8")
     assert "Vững nhôm, bền nhà" in files[0].read_text(encoding="utf-8")
 

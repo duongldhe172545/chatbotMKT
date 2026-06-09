@@ -107,6 +107,8 @@ PERSONAL_ABUSE_PATTERNS: list[str] = [
 DEFENSIVE_PATTERNS: list[str] = [
     # lừa đảo / scam / phí gì
     r"\b(lừa\s*đảo|scam|phí\s*gì|tốn\s*tiền|chi\s*phí\s*gì|miễn\s*phí\s*à)\b",
+    # hoài nghi / disbelief / đéo tin
+    r"\b(đéo\s*tin|không\s*tin|tin\s*thế\s*(nào|đéo\s*nào)|nói\s*(phét|xạo)|bốc\s*phét|chém\s*gió|xạo\s*(chó|lờ|lông)|bịa\s*đặt)\b",
     # em là ai / ai làm — defensive về danh tính bot
     r"\b(em\s*là\s*ai|anh\s*là\s*ai|ai\s*đứng\s*sau|công\s*ty\s*nào)\b",
     # "bot à" / "bot phải không" / "là chatbot" — dealer nghi ngờ AI

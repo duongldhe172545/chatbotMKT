@@ -8,6 +8,7 @@ Priority order (F2A.2):
 from __future__ import annotations
 
 import re
+import unicodedata
 from typing import Optional
 
 from app.core.regex_markers import (
@@ -46,6 +47,29 @@ _COMPILED: list[tuple[Intent, list[re.Pattern]]] = [
 ]
 
 
+def remove_vietnamese_diacritics(text: str) -> str:
+    """Helper to remove diacritics/accents from Vietnamese text."""
+    char_map = {
+        'đ': 'd', 'Đ': 'D',
+        'â': 'a', 'Â': 'A',
+        'ă': 'a', 'Ă': 'A',
+        'ê': 'e', 'Ê': 'E',
+        'ô': 'o', 'Ô': 'O',
+        'ơ': 'o', 'Ơ': 'O',
+        'ư': 'u', 'Ư': 'U',
+    }
+    for k, v in char_map.items():
+        text = text.replace(k, v)
+    nfkd_form = unicodedata.normalize('NFKD', text)
+    return "".join([c for c in nfkd_form if not unicodedata.combining(c)])
+
+
+_COMPILED_UNACCENTED: list[tuple[Intent, list[re.Pattern]]] = [
+    (intent, [re.compile(remove_vietnamese_diacritics(p), _RE_FLAGS) for p in patterns])
+    for intent, patterns in _INTENT_PRIORITY
+]
+
+
 def detect_intent_layer1(message: str) -> Optional[Intent]:
     """Layer 1 regex detection.
 
@@ -69,26 +93,69 @@ def detect_intent_layer1(message: str) -> Optional[Intent]:
     word_count = len(msg_lower.split())
     skip_short_intents = word_count > 25
 
+    # 1. Accent-aware matching (original)
     for intent, patterns in _COMPILED:
-        # Bỏ qua KHONG_BIET / REFUSAL cho message dài
         if skip_short_intents and intent in (Intent.KHONG_BIET, Intent.REFUSAL):
             continue
         for pattern in patterns:
             if pattern.search(msg_lower):
                 return intent
+
+    # 2. Unaccented matching fallback
+    msg_unaccented = remove_vietnamese_diacritics(msg_lower)
+    for intent, patterns in _COMPILED_UNACCENTED:
+        if skip_short_intents and intent in (Intent.KHONG_BIET, Intent.REFUSAL):
+            continue
+        for pattern in patterns:
+            if pattern.search(msg_unaccented):
+                return intent
+
     return None
 
 
-def detect_intent(message: str) -> Intent:
-    """Combined Layer 1 + fallback to NORMAL. Phase 1 wrapper.
+from typing import Any
+
+def detect_intent(
+    message: str,
+    llm_client: Optional[Any] = None,
+    stage: Optional[str] = None,
+    current_slot: Optional[str] = None,
+) -> Intent:
+    """Combined Layer 2 LLM classification + Layer 1 Regex fallback.
 
     Args:
         message: text dealer gửi
+        llm_client: Optional LLMClient to call Gemini Layer 2 classification
+        stage: Current stage of conversation
+        current_slot: Slot ID we are waiting for
 
     Returns:
         Intent (luôn có value, không None).
     """
-    return detect_intent_layer1(message) or Intent.NORMAL
+    if not message or not message.strip():
+        return Intent.NORMAL
+
+    # 1. Ưu tiên tuyệt đối dùng LLM nhận diện để có độ chính xác cao nhất (nếu có client)
+    if llm_client:
+        try:
+            from app.llm.intent_classifier import classify_intent_layer2
+            l2_intent, confidence = classify_intent_layer2(
+                message,
+                llm_client,
+                stage=stage,
+                current_slot=current_slot
+            )
+            if l2_intent and confidence in ("MED", "HIGH"):
+                return l2_intent
+        except Exception:
+            pass
+
+    # 2. Dự phòng: chạy qua Regex Layer 1 nếu LLM lỗi/offline/không cấu hình
+    intent = detect_intent_layer1(message)
+    if intent:
+        return intent
+
+    return Intent.NORMAL
 
 
 # Pre-compile TECHNICAL_INQUIRY patterns (module-level perf)

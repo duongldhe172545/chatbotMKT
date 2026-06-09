@@ -22,6 +22,9 @@ data/*
 # Whitelist JSON seed (province_list, province_specialty, main_category_enum) — refer F2C.7
 !data/*.json
 *.db
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
 *.db-wal
 *.db-shm
 *.db-journal
@@ -45,6 +48,9 @@ build/
 dist/
 *.egg-info/
 .pytest_cache/
+.pytest_tmp*/
+*pytest_tmp*/
+*pytest_cache/
 .mypy_cache/
 .ruff_cache/
 

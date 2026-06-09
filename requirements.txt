@@ -1,33 +1,18 @@
-# Em Linh MKT Chatbot v8 — Phase 1 dependencies
-# Refer KE_HOACH_REFACTOR § PHẦN 5 + action 0b
-
 # ============================================================
 # Web framework
 # ============================================================
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
+python-multipart==0.0.30
 
 # ============================================================
-# LLM clients (refer STRATEGY D8 — model-agnostic 2-tier)
+# LLM Client (Gemini Official SDK)
 # ============================================================
-google-genai>=1.75.0             # Pilot primary — Gemini 2.5 Flash + Pro (new official SDK)
-# anthropic==0.40.0              # Fallback — Phase 2+ nếu cần
+google-genai==1.75.0
 
 # ============================================================
-# Data validation / config
+# Data validation & Parsing
 # ============================================================
 pydantic==2.10.4
-pydantic-settings==2.7.1
-python-dotenv==1.0.1
-
-# ============================================================
-# Background scheduler (Phase 4 R1 — refer F2A.1 lazy timeout)
-# ============================================================
-apscheduler>=3.10,<4              # In-process scheduler (timeout sweep)
-
-# ============================================================
-# Testing (refer KE_HOACH § 0.10 test pyramid)
-# ============================================================
-pytest==8.3.4
-pytest-asyncio==0.25.2
-httpx==0.28.1                    # Test client cho FastAPI
+python-dotenv==1.1.1
+pyyaml==6.0.3

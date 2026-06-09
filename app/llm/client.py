@@ -6,8 +6,8 @@ Refer:
 - KE_HOACH § 0.9 — routing table
 - F2B.1 (LUAT_2B_llm) — system prompt builder
 
-Phase 1: full Gemini (LLM_FAST=gemini-2.5-flash, LLM_QUALITY=gemini-2.5-pro).
-Claude adapter giữ trong app/llm/claude.py (Phase 2+ nếu cần fallback).
+Phase 1: full Gemini (LLM_FAST=gemini-3.1-flash-lite, LLM_QUALITY=gemini-3.1-flash-lite).
+# Claude adapter giữ trong app/llm/claude.py (Phase 2+ nếu cần fallback).
 """
 from __future__ import annotations
 
@@ -19,8 +19,8 @@ from app.llm.gemini import GeminiProvider
 
 
 # Default model — refer .env.example
-DEFAULT_LLM_FAST = "gemini-2.5-flash"
-DEFAULT_LLM_QUALITY = "gemini-2.5-pro"
+DEFAULT_LLM_FAST = "gemini-3.1-flash-lite"
+DEFAULT_LLM_QUALITY = "gemini-3.1-flash-lite"
 
 
 class LLMClient:
@@ -51,21 +51,20 @@ class LLMClient:
 
     @staticmethod
     def _build_default_fast() -> LLMProvider:
-        """Build provider từ Pydantic Settings (đã load .env qua pydantic-settings).
+        """Build provider từ Settings.
 
-        Note: dùng get_settings() thay vì os.environ trực tiếp vì pydantic-settings
-        load .env vào Settings model nhưng KHÔNG mutate os.environ.
+        Note: dùng get_settings() thay vì os.environ trực tiếp.
         """
-        from app.config import get_settings
+        from app.core.config_v2 import get_settings
         settings = get_settings()
-        return GeminiProvider(api_key=settings.GEMINI_API_KEY, model=settings.LLM_FAST)
+        return GeminiProvider(api_key=settings.gemini_api_key, model=settings.llm_fast)
 
     @staticmethod
     def _build_default_quality() -> LLMProvider:
-        from app.config import get_settings
+        from app.core.config_v2 import get_settings
         settings = get_settings()
         return GeminiProvider(
-            api_key=settings.GEMINI_API_KEY, model=settings.LLM_QUALITY
+            api_key=settings.gemini_api_key, model=settings.llm_quality
         )
 
     # ============================================================

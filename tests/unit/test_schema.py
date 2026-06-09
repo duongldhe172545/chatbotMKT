@@ -173,17 +173,16 @@ class TestDealerProfileRaw:
         assert raw_signal.issubset(fields), f"Missing RAW SIGNAL: {raw_signal - fields}"
         assert len(required) + len(optional) + len(raw_signal) == 28
 
-    def test_all_11_scope_2_derive_fields_present(self):
-        """11 auto-derive fields. Refactor 2026-05-18: bỏ province_specialty
-        (khoá case — lookup table cứng)."""
+    def test_all_12_scope_2_derive_fields_present(self):
+        """12 auto-derive fields (including ward). Refactor 2026-05-18: bỏ province_specialty."""
         fields = set(DealerProfileRaw.model_fields.keys())
         derive = {
-            "province", "district", "main_category", "dealer_type",
+            "province", "ward", "district", "main_category", "dealer_type",
             "brand_name_short", "initials_full", "initial_single",
             "contact_name", "contact_role", "hotline", "slogan_options",
         }
         assert derive.issubset(fields), f"Missing derive: {derive - fields}"
-        assert len(derive) == 11
+        assert len(derive) == 12
         # province_specialty bị bỏ → KHÔNG được có lại
         assert "province_specialty" not in fields
 

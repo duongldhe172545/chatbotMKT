@@ -14,6 +14,7 @@ import logging
 import os
 import time
 
+import httpx
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
@@ -27,7 +28,9 @@ RETRY_DELAYS = [1.0, 2.0, 4.0]
 RETRYABLE_ERRORS = (
     genai_errors.ServerError,
     genai_errors.APIError,  # bao gồm rate limit
+    httpx.HTTPError,
 )
+
 
 
 def _drop_dead_local_proxy_env() -> None:

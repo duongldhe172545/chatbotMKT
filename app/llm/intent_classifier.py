@@ -246,15 +246,28 @@ def _is_low_entropy_pii_value(field: str, value: str) -> bool:
         return True
     if field == "dealer_name" and len(cleaned) <= 6:
         return True
-    if field == "address" and folded in {
-        "lào cai",
-        "lao cai",
-        "hà nội",
-        "ha noi",
-        "hưng yên",
-        "hung yen",
-        "tp.hcm",
-        "hcm",
-    }:
-        return True
+    if field == "address":
+        if folded in {
+            "lào cai",
+            "lao cai",
+            "hà nội",
+            "ha noi",
+            "hưng yên",
+            "hung yen",
+            "tp.hcm",
+            "hcm",
+            "hải dương",
+            "hai duong",
+            "hải phòng",
+            "hai phong",
+            "quảng ninh",
+            "quang ninh",
+            "thanh hóa",
+            "thanh hoa",
+            "nghệ an",
+            "nghe an",
+            "đà nẵng",
+            "da nang",
+        }:
+            return True
     return False

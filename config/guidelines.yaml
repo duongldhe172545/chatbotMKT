@@ -1,0 +1,36 @@
+# Em Linh MKT — Parlant Guidelines (Simplified)
+# Condition→action rules matched per-turn.
+# Luật tổng đã chuyển sang config/rules.yaml.
+# File này chỉ giữ workflow guidelines cho GuidelineRegistry.
+
+guidelines:
+
+  # ============================================================
+  # WORKFLOW guidelines — context-dependent behavior
+  # ============================================================
+
+  - id: collection_ack_structure
+    condition: "when: objective_type is collect_required_field"
+    action: >
+      Phản hồi theo cấu trúc: ACK cụ thể → giải thích lý do hỏi tiếp → 1 câu hỏi.
+      Tuyệt đối không nhắc lại thông tin cũ.
+    priority: 60
+    category: collection
+
+  - id: workflow_defensive_handle
+    condition: "when: intent is defensive"
+    action: "Trấn an + cam kết bảo mật + quay lại thu thập tự nhiên. KHÔNG hỏi dồn dập."
+    priority: 90
+    category: workflow
+
+  - id: workflow_confusion_explain
+    condition: "when: intent is confusion"
+    action: "Giải thích ngắn gọn mục đích câu hỏi trước đó + hỏi lại nhẹ nhàng."
+    priority: 85
+    category: workflow
+
+  - id: workflow_tam_su_empathize
+    condition: "when: intent is tam_su OR is_emotional is true"
+    action: "Đồng cảm ngắn (1-2 câu) + chuyển ý nhẹ nhàng về thu thập."
+    priority: 75
+    category: workflow

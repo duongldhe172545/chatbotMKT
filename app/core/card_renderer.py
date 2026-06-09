@@ -25,6 +25,9 @@ _CATEGORY_DISPLAY_NAMES: dict[str, str] = {
     "cua_cuon": "cửa cuốn",
     "cua_nhom": "cửa nhôm",
     "cua_go": "cửa gỗ",
+    "cua_thep": "cửa thép",
+    "cua_sat": "cửa sắt",
+    "cua_chong_chay": "cửa chống cháy",
     "vlxd": "VLXD",
     "noi_that": "nội thất",
     "dien_mat_troi": "điện mặt trời",
@@ -126,7 +129,10 @@ def _render_section_3_khach_cu(profile: DealerProfileRaw) -> str:
     if profile.payment_terms_signal:
         lines.append(f"   • Thanh toán cọc / công nợ: {profile.payment_terms_signal}")
     if profile.warranty_responsibility_signal:
-        lines.append(f"   • Trách nhiệm bảo hành: {profile.warranty_responsibility_signal}")
+        lines.append(
+            f"   • Trách nhiệm bảo hành: "
+            f"{_display_warranty(profile.warranty_responsibility_signal)}"
+        )
     if len(lines) == 1:
         lines.append(f"   {_PLACEHOLDER_CATEGORY_EMPTY}")
     return "\n".join(lines)
@@ -135,7 +141,7 @@ def _render_section_3_khach_cu(profile: DealerProfileRaw) -> str:
 def get_default_color_for_profile(profile: DealerProfileRaw) -> str:
     category = (profile.main_category or "").lower()
     product = (profile.main_product or "").lower()
-    
+
     if "bep" in product or "bep" in category:
         return "vàng hoàng kim phối đen"
     elif "dien" in product or "solar" in product or "dien_mat_troi" in category:
@@ -159,23 +165,45 @@ def _render_section_4_brandkit(profile: DealerProfileRaw, af: str = "anh") -> st
         raw_category = profile.main_category or "ngành mình"
         category_name = _CATEGORY_DISPLAY_NAMES.get(raw_category, raw_category)
         lines.append(f"   • Phong cách logo: em chọn theo {category_name}")
-        
+
         # Màu + phong thủy (4.2)
-        if not profile.color_accent:
-            profile.color_accent = get_default_color_for_profile(profile)
-            
-        color_info = profile.color_accent
+        is_color_suggested = False
+        color_info = profile.color_accent or ""
+        if not color_info or color_info.casefold() == "auto":
+            color_info = get_default_color_for_profile(profile)
+            is_color_suggested = True
+
+        if is_color_suggested:
+            color_info += " (Em đề xuất)"
         if profile.feng_shui_signal:
             color_info += f" ({profile.feng_shui_signal})"
         lines.append(f"   • Màu chủ đạo: {color_info}")
+
         if profile.logo_initials:
-            initials = "em tự rút gọn theo tên cửa hàng" if profile.logo_initials == "auto" else profile.logo_initials
+            if profile.logo_initials == "auto":
+                from app.llm.auto_derive import gen_initials_full
+                brand_name = profile.dealer_name or "Cửa hàng"
+                resolved_initials = (profile.initials_full or gen_initials_full(brand_name) or "CH").upper()
+                initials = f"{resolved_initials} (Em rút gọn)"
+            else:
+                initials = profile.logo_initials
             lines.append(f"   • Viết tắt logo: {initials}")
+
         if profile.slogan_preference:
-            slogan = "em chọn phương án phù hợp" if profile.slogan_preference == "auto" else profile.slogan_preference
+            if profile.slogan_preference == "auto":
+                resolved_slogan = "Vững chất lượng, bền niềm tin"
+                if profile.slogan_options:
+                    resolved_slogan = str(profile.slogan_options[0])
+                slogan = f"{resolved_slogan} (Em đề xuất)"
+            else:
+                slogan = profile.slogan_preference
             lines.append(f"   • Slogan: {slogan}")
+
         if profile.logo_style:
-            style = "em chọn phương án phù hợp" if profile.logo_style == "auto" else profile.logo_style
+            if profile.logo_style == "auto":
+                style = "Tối giản hiện đại (Em đề xuất)"
+            else:
+                style = profile.logo_style
             lines.append(f"   • Gu logo: {style}")
     return "\n".join(lines)
 
@@ -203,3 +231,11 @@ def _fmt(value: Optional[str], required: bool = False) -> str:
     if value is None or (isinstance(value, str) and not value.strip()):
         return _PLACEHOLDER_REQUIRED_MISSING if required else "—"
     return str(value)
+
+
+def _display_warranty(value: str) -> str:
+    """Keep raw profile data intact while showing a clean confirmation card."""
+    folded = value.casefold()
+    if "anh lo" in folded or "anh xử lý" in folded or "anh xu ly" in folded:
+        return "chủ cửa hàng trực tiếp xử lý"
+    return value

@@ -1,7 +1,4 @@
-"""System prompt builder cho LLM call. Refer F2B.1 (LUAT_2B_llm v0.1.2).
-
-Phase 1 target: ≤ 600 token. Pilot Gemini 2.5 Flash (LLM_FAST tier).
-"""
+"""System prompt builder for legacy utility LLM calls (address, local hook, extractors)."""
 from __future__ import annotations
 
 from typing import Optional
@@ -102,7 +99,7 @@ Bạn cần tạo ra một phản hồi hoàn chỉnh, tự nhiên và liền m�
 
 2. GIẢI THÍCH LÝ DO HỎI (BUSINESS WHY) & CHUYỂN Ý (BRIDGE):
    - Thay vì hỏi dồn dập như thẩm vấn, hãy giải thích lý do ngắn gọn và hợp lý tại sao bạn cần hỏi thông tin tiếp theo để giúp ích cho bộ thương hiệu của họ.
-   - Kết nối mượt mà từ ý vừa ack sang câu hỏi mới.
+   - Kết nối mượt mượt từ ý vừa ack sang câu hỏi mới.
 
 3. ĐẶT CÂU HỎI TIẾP THEO (ASK):
    - Đưa ra câu hỏi tự nhiên và khéo léo để thu thập thông tin của slot kế tiếp.
@@ -123,49 +120,28 @@ def build_system_prompt(
     task: str = "Sinh 1 câu reply phù hợp tone + slot hiện tại.",
     bridge_avoid_hint: str = "",
 ) -> str:
-    """Build system prompt cho LLM call.
-
-    Refer F2B.1 (LUAT_2B_llm v0.1.2) — ≤ 600 token target.
-
-    Args:
-        dealer_type: Detected dealer type (UNKNOWN default 3 turn đầu)
-        address_form: "anh" / "chị" (refer 1A § 2.1)
-        current_slot: Slot đang hỏi (vd "1.1")
-        history_summary: Tóm tắt 3 turn gần (truncated)
-        task: Nhiệm vụ cụ thể turn này (gen ack / hỏi slot / handler defensive)
-        bridge_avoid_hint: Hint từ bridge_rotation.get_avoid_hint() — bridge
-            recent cần tránh lặp turn này (refer 1A § 2.2).
-
-    Returns:
-        System prompt đầy đủ.
-    """
+    """Build system prompt cho LLM call."""
     dealer_type = dealer_type or DealerType.UNKNOWN
+    # In case the enum value is passed directly as string
+    if isinstance(dealer_type, str):
+        try:
+            dealer_type = DealerType(dealer_type)
+        except ValueError:
+            dealer_type = DealerType.UNKNOWN
+
+    tone_rules = _TONE_RULES.get(dealer_type, _TONE_RULES[DealerType.UNKNOWN])
+
+    # In case AddressForm is string
+    addr_val = address_form.value if hasattr(address_form, "value") else str(address_form)
+
     base = _TEMPLATE.format(
-        address_form=address_form.value,
-        tone_rules=_TONE_RULES[dealer_type],
+        address_form=addr_val,
+        tone_rules=tone_rules,
         current_slot=current_slot or "(chưa start)",
         history_summary=history_summary,
         task=task,
     )
-    # Append universal response rules
-    result = base + "\n" + _UNIVERSAL_RESPONSE_RULES.format(address_form=address_form.value)
+    result = base + "\n" + _UNIVERSAL_RESPONSE_RULES.format(address_form=addr_val)
     if bridge_avoid_hint:
         result = result + "\n" + bridge_avoid_hint
     return result
-
-
-def estimate_token_count(text: str) -> int:
-    """Rough estimate token count.
-
-    Heuristic: 1 token ≈ 3.5-4 char tiếng Việt (tokenizer Gemini/Claude
-    multilingual). Phase 1 dùng để verify ≤ 600 target. Phase 2+ dùng
-    tokenizer thật (`anthropic.count_tokens()` hoặc google count).
-
-    Args:
-        text: Text input
-
-    Returns:
-        Estimated token count.
-    """
-    # Char count / 3.5 = rough token (conservative, slightly overestimate)
-    return int(len(text) / 3.5)

@@ -124,27 +124,20 @@ Engine PHẢI phân biệt **3 lý do** dealer chưa trả lời slot:
 
 **Quan trọng:** Nếu dealer rõ ràng REFUSAL ngay lượt 1 hoặc 2 (intent=`refusal`) → bỏ qua bước 2 consecutive, đi thẳng DEFER (REQUIRED) hoặc SKIP (OPTIONAL).
 
-### 1.5 Quy ước slot multi-field — PARTIAL fill
+### 1.5 Quy ước slot multi-field — hỏi tuần tự theo field
 
-Một số slot hỏi nhiều field trong 1 câu (slot 1.1, 1.2, 2.1, 2.4, 2.5,
-2.6, 3.3). Khi dealer chỉ trả lời 1 trong số đó:
+Một số slot có nhiều field liên quan (slot 1.1, 1.2, 2.1, 2.4, 2.5,
+2.6, 3.3), nhưng bot **không gộp nhiều câu hỏi chính trong cùng một lượt**.
 
-- **KHÔNG count vào retry** (chưa phải full miss)
-- Bot ack phần đã cho + hỏi ngay field còn thiếu trong cùng turn kế
-- Mẫu cụ thể: xem "PARTIAL fill handler" của từng slot trong § 4
-- Engine logic: refer File 2A § F2A.4 step 2.6 (PARTIAL_RETRY action)
+- Session lưu `current_focus_field` để biết chính xác field bot vừa hỏi.
+- Dealer trả lời ngắn như "có em", "không có em", "anh không" phải được hiểu theo `current_focus_field`, không suy sang field cũ trong cùng slot.
+- Nếu dealer tự cung cấp nhiều field trong một câu, extractor ghi nhận hết và bot chỉ hỏi phần thực sự còn thiếu.
+- Field đã có dữ liệu hoặc đã resolve `not_applicable` / `unknown` / `declined` không được hỏi lại.
+- **KHÔNG count vào retry** khi dealer đã trả lời được một phần hợp lệ của chủ đề.
 
-> **Mẫu cho 6 slot còn lại (1.2, 2.1, 2.4, 2.5, 2.6, 3.3):** engine sinh
-> theo pattern chung — `ack field đã cho` + `bridge phrase` + `hỏi field
-> còn thiếu`. Ví dụ ngắn:
->
-> - Slot 1.2 (address + bán kính): dealer cho địa chỉ thiếu bán kính →
->   *"Dạ em note {address}. Khách thường đến cửa hàng từ bao xa anh?"*
-> - Slot 2.4 (supplier + backup + segment): dealer cho hãng thiếu backup
->   → *"Hãng {supplier} ngon. Nếu đứt hàng anh có nguồn backup chưa ạ?"*
->
-> Slot 1.1 có bảng template đầy đủ ở § 4 — coi như "canonical example",
-> 6 slot kia engine cover shape tương tự.
+> Ví dụ slot 2.4: hỏi hãng nhập → hỏi nhóm khách chính → hỏi nguồn dự phòng.
+> Dealer trả lời nguồn dự phòng là "không có em" thì lưu đúng
+> `supplier_negotiation_signal="không có nguồn dự phòng"` và chuyển chủ đề.
 
 ---
 
@@ -257,9 +250,9 @@ tên brand (Xingfa, Việt Pháp, Schüco...).
 
 ### 3.2 Greeting biến thể (3 mẫu — engine rotate theo session_id)
 
-> ⚠️ **Lưu ý chung cho 3 biến thể:** mọi promise quà phải gắn với **Zalo /
-> ứng dụng nhỏ** (không phải "trong chat ngay"). Bot KHÔNG render logo /
-> video / kế hoạch trong chat — refer CORE § A.3.
+> ⚠️ **Lưu ý chung cho 3 biến thể:** job logo mới là ngoại lệ được hiển thị
+> trực tiếp trong chat sau khi dealer xác nhận. Danh thiếp, video và các phần
+> hỗ trợ tiếp theo vẫn gắn với Zalo / ứng dụng nhỏ — refer CORE § A.3.
 
 **Biến thể 1 (chuẩn — Mẫu mặc định):**
 
@@ -721,9 +714,12 @@ Bot:    "Dạ vâng, anh ước chừng thôi cũng được — hoặc bỏ qua
 
 | # | Câu |
 |---|---|
-| 1 | "Đội thợ ổn định lâu là tài sản thật của cửa hàng mình rồi ạ. Em hỏi thêm — hiện tại bên anh đang phát triển hàng của những hãng nào, và nếu một hãng đứt nguồn anh có backup khác không ạ? (Em hỏi để hình dung được phân khúc khách anh đang nhắm — cao, trung, hay phổ thông — để hỗ trợ chiến lược cho chuẩn ạ)" |
-| 2 | "Bên cửa hàng mình đang nhập hàng từ hãng nào là chính? Có backup nguồn không nếu hãng đó đứt?" |
-| 3 | "Em hỏi xíu về nguồn cung — anh nhập từ những hãng nào, và có chủ động chọn được không ạ?" |
+| 1 | "Tên hãng vật tư giúp hồ sơ thương hiệu phản ánh đúng mảng bên mình hay dùng. Anh thường nhập những hãng nào là chính ạ?" |
+| 2 | "Bên cửa hàng mình đang dùng vật tư của hãng nào là chủ lực anh?" |
+| 3 | "Em hỏi xíu về nguồn cung — anh thường nhập hàng từ những hãng nào ạ?" |
+
+**Thứ tự field trong slot:** `supplier_brands` → `customer_segment_signal` →
+`supplier_negotiation_signal`. Mỗi lượt chỉ hỏi một field.
 
 **Ack template per nhóm dealer:**
 
@@ -734,16 +730,16 @@ Bot:    "Dạ vâng, anh ước chừng thôi cũng được — hoặc bỏ qua
 | **Lo** | "Dạ em ghi nhận hãng nhập, em không share ra ngoài đâu ạ." |
 | **Bận** | "Dạ {supplier_brands_list}. Em note." |
 
-**"Không biết / 1 hãng / không nhớ" handler (OPTIONAL — SKIP NGAY):**
+**Handler câu trả lời ngắn:**
 
 ```
 Đại lý: "Anh chỉ nhập Xingfa thôi"
-Bot:    "Dạ vâng, Xingfa — em ghi nhận. Mình tiếp tục."
-        → supplier_brands=["Xingfa"], supplier_negotiation_signal=null
+Bot:    hỏi tiếp nhóm khách chính
+        → supplier_brands=["Xingfa"]
 
-Đại lý: "Không nhớ tên hãng, thường nhập đại lý cấp 1"
-Bot:    "Dạ vâng, em ghi nhận. Mình tiếp tục."
-        → supplier_brands=[], flag `dealer_declined`
+Đại lý: "Không có em" (sau câu hỏi nguồn dự phòng)
+Bot:    chuyển sang slot 2.5, không hỏi lại nguồn dự phòng
+        → supplier_negotiation_signal="không có nguồn dự phòng"
 ```
 
 ---
@@ -751,7 +747,8 @@ Bot:    "Dạ vâng, em ghi nhận. Mình tiếp tục."
 ### Slot 2.5 — Kênh khách liên hệ chính
 
 **Mục đích:**
-- Fill: `primary_contact_channel` (Zalo / FB / điện thoại / mixed), `zalo`
+- Fill chính: `primary_contact_channel` (Zalo / FB / điện thoại / mixed)
+- Chỉ fill `zalo` khi dealer tự cung cấp số khác hoặc nói rõ dùng cùng số chính
 - **OPTIONAL** ⭕
 
 **Vị trí trong flow:**
@@ -780,6 +777,13 @@ Bot:    "Dạ vâng, em ghi nhận. Mình tiếp tục."
 Đại lý: "Tùy thôi, có gì gọi nấy"
 Bot:    "Dạ vâng, em ghi nhận là đa kênh. Mình tiếp tục."
         → primary_contact_channel="mixed"
+
+Đại lý: "Anh có dùng Zalo để tư vấn"
+Bot:    chuyển sang slot 2.6, không hỏi thêm số Zalo
+        → primary_contact_channel="Zalo", zalo=null
+
+Đại lý: "Zalo giống số trên"
+        → zalo=phone_or_zalo
 ```
 
 ---
@@ -799,9 +803,12 @@ Bot:    "Dạ vâng, em ghi nhận là đa kênh. Mình tiếp tục."
 
 | # | Câu |
 |---|---|
-| 1 | "Em thấy nhiều dealer hay đăng ảnh công trình lên Facebook, khách nhìn tin liền. Bên anh có Facebook quảng bá không, và có thợ / đối tác hay giới thiệu khách cho mình không ạ?" |
-| 2 | "Anh có dùng Facebook cho cửa hàng không? Và trong khu vực có nhiều thợ / đối tác hay giới thiệu khách cho anh không?" |
-| 3 | "Em hỏi 2 ý nhỏ — Facebook anh có trang chưa, và mạng lưới thợ / đối tác xung quanh có ai hay giới thiệu khách cho mình không ạ?" |
+| 1 | "Phần kênh online giúp bộ thương hiệu nối đúng chỗ khách đang thấy mình. Cửa hàng mình hiện có Facebook/fanpage chưa anh?" |
+| 2 | "Anh có dùng Facebook riêng cho cửa hàng để giới thiệu sản phẩm hoặc công trình không ạ?" |
+| 3 | "Facebook bên mình hiện có trang cửa hàng chưa anh?" |
+
+**Thứ tự field trong slot:** `facebook` → `fb_marketing_status` →
+`community_network_signal`. Mỗi lượt chỉ hỏi một field.
 
 **Ack:**
 | Nhóm | Ack mẫu |
@@ -811,16 +818,15 @@ Bot:    "Dạ vâng, em ghi nhận là đa kênh. Mình tiếp tục."
 | **Lo** | "Dạ em ghi nhận." |
 | **Bận** | "Dạ em note." |
 
-**"Chưa có Facebook / chưa có network" handler (OPTIONAL — SKIP NGAY):**
+**"Chưa có Facebook / chưa có network" handler:**
 
 ```
 Đại lý: "Anh chưa có Facebook, lười phần đó"
-Bot:    "Dạ vâng, em ghi nhận chưa có. Bộ thương hiệu em tặng anh sẽ
-         có sẵn vài bài đăng mẫu để anh bắt đầu dễ hơn nha. Mình tiếp."
-        → facebook="chưa có", fb_marketing_status="lười, chưa biết bắt đầu"
+Bot:    hỏi mạng lưới thợ/đối tác đúng một lần
+        → facebook="chưa có", fb_marketing_status=not_applicable
 
 Đại lý: "Anh hoạt động đơn lẻ, không có ai giới thiệu"
-Bot:    "Dạ vâng, em ghi nhận. Mình tiếp tục."
+Bot:    chuyển sang slot 3.1, không quay lại hỏi Facebook
         → community_network_signal="hoạt động đơn lẻ"
 ```
 
@@ -1380,60 +1386,57 @@ Anh duyệt OK hay cần chỉnh chỗ nào ạ?
 - Sau dealer từ chối brandkit (slot 4.0 = "no") — closing ngắn, không
   promise bộ thương hiệu
 
-### 7.2 Cấu trúc Closing (3 phần BẮT BUỘC)
+### 7.2 Cấu trúc Closing
 
 ```
-[Phần 1] Cảm ơn + thông báo bộ thương hiệu đang gen (nếu consent=yes)
-[Phần 2] Link ứng dụng nhỏ + promise 3 ngày kế hoạch nền tảng số
-[Phần 3] (TUỲ CHỌN) Hook địa phương — LLM gen tự do từ context tỉnh,
+[Phần 1] (TUỲ CHỌN) Hook địa phương — LLM gen tự do từ context tỉnh,
          KHÔNG khoá case theo lookup table cứng
+[Phần 2] Cảm ơn + thông báo đang dựng 3 mẫu logo (nếu consent=yes)
+[Phần 3] Nói rõ 3 mẫu sẽ hiện bên dưới + hướng hỗ trợ chỉnh sâu qua Zalo
 ```
+
+Job logo mới tạo 3 mẫu: `monogram-frame`, `wordmark-block`, `premium-mark`.
+Cả 3 mẫu phải bám phong cách logo dealer đã chọn.
 
 ### 7.3 Closing biến thể (3 mẫu — engine rotate theo session_id)
 
-**Biến thể 1 (chuẩn — có chỗ chèn hook địa phương LLM gen):**
+**Biến thể 1 (chuẩn — có thể được prepend hook địa phương LLM gen):**
 
 ```
-Em cảm ơn anh đã dành thời gian trò chuyện cùng em hôm nay ạ 🌷.
-
-Bộ thương hiệu (logo + danh thiếp + video giới thiệu) cho cửa hàng
-{dealer_name} em đang gen — em sẽ gửi anh trong ứng dụng nhỏ Zalo
-của em, anh nhận sau ít phút nha.
-
-Trong 3 ngày tới em cũng gửi anh kế hoạch chiến lược phát triển nền
-tảng số đầy đủ qua Zalo — đó là phần em đã hứa từ đầu ạ.
-
 {local_hook}
 
-Chúc anh một ngày làm việc nhiều đơn hàng ạ! Hẹn gặp lại anh.
+Em cảm ơn anh nhiều lắm ạ 🌷. Em bắt đầu dựng 3 mẫu logo trong bộ thương hiệu
+của {dealer_name} rồi đó ạ!
+
+Các mẫu sẽ hiện ngay bên dưới sau ít phút. Nếu anh muốn chỉnh sâu hơn theo gu
+riêng, team designer trong nhóm Zalo Cộng Đồng Thợ 4.0 sẽ hỗ trợ thêm miễn phí
+nhé ạ.
 ```
 
 **Biến thể 2 (gọn hơn):**
 
 ```
-Em cảm ơn anh nhiều ạ 🌷!
-
-Bộ thương hiệu của cửa hàng {dealer_name} em đang làm — em gửi anh
-trong ứng dụng nhỏ Zalo trong ít phút.
-
-Kế hoạch chiến lược nền tảng số đầy đủ em gửi anh trong 3 ngày tới
-qua Zalo nhé.
-
 {local_hook}
+
+Em cảm ơn anh đã tin tưởng và trò chuyện cùng em 🌷. Em đang dựng 3 mẫu logo
+trong bộ thương hiệu riêng cho {dealer_name} ạ.
+
+Các mẫu sẽ hiện ngay bên dưới sau ít phút để anh xem và tải về. Nếu cần chỉnh
+sâu hơn, team designer trong nhóm Zalo Cộng Đồng Thợ 4.0 sẽ hỗ trợ thêm miễn
+phí nhé ạ.
 ```
 
 **Biến thể 3 (thân mật hơn — dealer trẻ / Khoe):**
 
 ```
-Em cảm ơn anh nhiều lắm 🌷. Cuộc trò chuyện này em học được nhiều
-điều thật đó ạ.
-
-Bộ thương hiệu (logo + danh thiếp + video) của {dealer_name} em
-gen ngay — em gửi anh qua ứng dụng nhỏ Zalo trong ít phút.
-
-Kế hoạch chiến lược nền tảng số đầy đủ — em gửi anh trong 3 ngày.
-
 {local_hook}
+
+Dạ em cảm ơn anh nhiều lắm 🌷! Em bắt đầu dựng 3 mẫu logo trong bộ thương hiệu
+dành riêng cho {dealer_name} ạ.
+
+Các mẫu sẽ hiện ngay bên dưới sau ít phút. Nếu muốn chỉnh màu, viết tắt hoặc
+phong cách sâu hơn, team designer trong nhóm Zalo Cộng Đồng Thợ 4.0 sẽ hỗ trợ
+thêm miễn phí nhé.
 ```
 
 ### 7.4 Hook địa phương — LLM gen (KHÔNG khoá case)
@@ -1456,7 +1459,7 @@ Trước đây spec quy định lookup table 50 tỉnh → đặc sản hard-cod
    - province=null
    - LLM fail / timeout
    - LLM trả empty
-   → Khi rỗng: Closing chỉ giữ 2 phần (cảm ơn + promise Zalo)
+   → Khi rỗng: Closing chỉ giữ phần cảm ơn + thông báo 3 logo hiện bên dưới
 4. Phase 1 (chưa có LLM hook): luôn rỗng. Template render bỏ qua dòng
    {local_hook} hoặc thay = chuỗi rỗng.
 ```

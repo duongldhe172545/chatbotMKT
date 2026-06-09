@@ -78,9 +78,9 @@ def render_profile_md(
         lines.append(f"- **Zalo riêng:** {profile.zalo}")
     if profile.province:
         location = profile.province
-        if profile.district:
-            location = f"{profile.district}, {location}"
-        lines.append(f"- **Tỉnh / Huyện:** {location}")
+        if profile.ward:
+            location = f"{profile.ward}, {location}"
+        lines.append(f"- **Tỉnh / Xã:** {location}")
     lines.append("")
 
     # Section 2: Công việc & Kênh

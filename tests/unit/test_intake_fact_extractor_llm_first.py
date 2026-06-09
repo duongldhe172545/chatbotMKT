@@ -47,9 +47,9 @@ def test_extract_intake_facts_validates_structured_output():
     assert [fact.field for fact in facts.facts] == ["owner_name", "dealer_name"]
     call = client.extract_quality.call_args.kwargs
     assert call["tool_name"] == "extract_linh_intake_facts"
-    assert "không hard-code địa danh" in call["system_prompt"].lower()
-    assert "confidence=\"low\"" in call["system_prompt"]
-    assert "hỏi xác nhận" in call["system_prompt"].lower()
+    assert "nguyên tắc chung" in call["system_prompt"].lower()
+    assert "evidence" in call["system_prompt"].lower()
+    assert "placeholder" in call["system_prompt"].lower()
 
 
 def test_extract_intake_facts_invalid_field_raises():
@@ -97,6 +97,7 @@ def test_extract_intake_facts_prompt_resolves_context_references_and_optional_sk
         current_profile=DealerProfileRaw(),
         user_message="anh xài 2 hãng đó",
         current_focus_slot="2.4",
+        current_focus_field="supplier_brands",
         client=client,
     )
 
@@ -105,3 +106,38 @@ def test_extract_intake_facts_prompt_resolves_context_references_and_optional_sk
     call = client.extract_quality.call_args.kwargs
     assert '"2 hãng đó"' in call["system_prompt"]
     assert "Slot đang được ưu tiên hỏi:\n2.4" in call["conversation_text"]
+    assert "Field chính xác bot vừa hỏi:\nsupplier_brands" in call["conversation_text"]
+
+
+def test_extract_intake_facts_supports_field_level_optional_resolution():
+    client = _client(
+        {
+            "facts": [
+                {
+                    "field": "facebook",
+                    "value": "không dùng",
+                    "evidence": "anh không dùng Facebook",
+                    "confidence": "high",
+                    "is_correction": False,
+                }
+            ],
+            "resolved_optional_fields": {
+                "fb_marketing_status": "not_applicable",
+            },
+        }
+    )
+
+    facts = extract_intake_facts(
+        history_text="bot: Anh có dùng Facebook không?",
+        current_profile=DealerProfileRaw(),
+        user_message="anh không dùng Facebook, khách chủ yếu qua Zalo",
+        current_focus_slot="2.6",
+        current_focus_field="facebook",
+        client=client,
+    )
+
+    assert facts.resolved_optional_fields == {
+        "fb_marketing_status": "not_applicable",
+    }
+    call = client.extract_quality.call_args.kwargs
+    assert "`current_focus_field`" in call["system_prompt"]

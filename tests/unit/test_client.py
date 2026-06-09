@@ -101,8 +101,8 @@ class TestRouting:
 class TestDefaultConfig:
     def test_default_models_match_strategy_d8(self):
         """Phase 1 full Gemini — refer STRATEGY D8."""
-        assert DEFAULT_LLM_FAST == "gemini-2.5-flash"
-        assert DEFAULT_LLM_QUALITY == "gemini-2.5-pro"
+        assert DEFAULT_LLM_FAST == "gemini-3.1-flash-lite"
+        assert DEFAULT_LLM_QUALITY == "gemini-3.1-flash-lite"
 
 
 # ============================================================

@@ -16,10 +16,8 @@ from typing import Optional
 # Phone — refer F2A.7 check 2 + F2B.2 strict validation
 # ============================================================
 
-# VN active mobile prefixes: 03/05/07/08/09. Landline starts with 02.
-# Keep 84 country-code variants for the same ranges. Reject old retired 01x
-# prefixes such as 014, which otherwise look valid by length only.
-_PHONE_NUMERIC = re.compile(r"^((?:0(?:[35789]\d{8}|2\d{8,9}))|(?:84(?:[35789]\d{8}|2\d{8,9})))$")
+# VN mobile starts with 0 or 84, length 10-11 digits.
+_PHONE_NUMERIC = re.compile(r"^((?:0\d{9,10})|(?:84\d{9,10}))$")
 
 
 def validate_phone(value: Optional[str]) -> tuple[bool, Optional[str]]:
@@ -45,12 +43,12 @@ def validate_phone(value: Optional[str]) -> tuple[bool, Optional[str]]:
     # Strip whitespace, dash, dot, parens
     cleaned = re.sub(r"[\s\-\.\(\)]+", "", value)
     if _PHONE_NUMERIC.match(cleaned):
+        if cleaned.startswith("84"):
+            cleaned = "0" + cleaned[2:]
         return (True, cleaned)
     return (False, None)
 
 
-# ============================================================
-# Address — refer F2A.7 check 3
 # ============================================================
 
 
@@ -178,6 +176,77 @@ def validate_est_team_size(value) -> tuple[bool, Optional[int]]:
 
 
 # ============================================================
+# Category Stack & Supplier Brands (List fields)
+# ============================================================
+
+def validate_category_stack(value) -> tuple[bool, Optional[list[str]]]:
+    """Validate and clean category_stack to a list of allowed category codes.
+
+    Accepts:
+        - A list of strings
+        - A string (comma-separated or single) containing category names/codes
+    """
+    if value is None:
+        return (False, None)
+        
+    name_to_code = {
+        "cua_cuon": "cua_cuon",
+        "cửa cuốn": "cua_cuon",
+        "cua_nhom_kinh": "cua_nhom_kinh",
+        "cửa nhôm kính": "cua_nhom_kinh",
+        "cửa kính": "cua_nhom_kinh",
+        "nhôm kính": "cua_nhom_kinh",
+        "cua_thep": "cua_thep",
+        "cửa thép": "cua_thep",
+        "tu_bep": "tu_bep",
+        "tủ bếp": "tu_bep",
+        "solar": "solar",
+        "điện mặt trời": "solar",
+        "bao_tri_sua_chua": "bao_tri_sua_chua",
+        "bảo trì": "bao_tri_sua_chua",
+        "sửa chữa": "bao_tri_sua_chua",
+        "vlxd_tong_hop": "vlxd_tong_hop",
+        "vlxd": "vlxd_tong_hop",
+        "vật liệu xây dựng": "vlxd_tong_hop",
+    }
+    
+    raw_items = []
+    if isinstance(value, list):
+        raw_items = [str(x) for x in value]
+    elif isinstance(value, str):
+        raw_items = [x.strip() for x in re.split(r"[,;]+", value) if x.strip()]
+    else:
+        return (False, None)
+        
+    cleaned_codes = []
+    for item in raw_items:
+        item_lower = item.lower().strip()
+        matched_code = None
+        for name, code in name_to_code.items():
+            if name in item_lower or item_lower in name:
+                matched_code = code
+                break
+        if matched_code and matched_code not in cleaned_codes:
+            cleaned_codes.append(matched_code)
+            
+    if cleaned_codes:
+        return (True, cleaned_codes)
+    return (False, None)
+
+
+def validate_supplier_brands(value) -> tuple[bool, Optional[list[str]]]:
+    """Validate and clean supplier_brands to a list of strings."""
+    if value is None:
+        return (False, None)
+    if isinstance(value, list):
+        return (True, [str(x).strip() for x in value if str(x).strip()])
+    if isinstance(value, str):
+        cleaned = [x.strip() for x in re.split(r"[,;]+", value) if x.strip()]
+        return (True, cleaned) if cleaned else (False, None)
+    return (False, None)
+
+
+# ============================================================
 # Master validator dispatch — field name → validator
 # ============================================================
 
@@ -189,6 +258,8 @@ _FIELD_VALIDATORS: dict[str, callable] = {
     "owner_name": validate_name,
     "dealer_name": validate_name,
     "est_team_size": validate_est_team_size,
+    "category_stack": validate_category_stack,
+    "supplier_brands": validate_supplier_brands,
     # RAW signal + free text fields → free_text validator
     "local_dominance_signal": validate_free_text,
     "main_product": validate_free_text,

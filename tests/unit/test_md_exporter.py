@@ -9,9 +9,12 @@ from app.core.md_exporter import (
     render_session_history_md,
     safe_filename,
 )
-from app.core.session import create_session
+import uuid
 from app.models.enums import ConfirmationStatus, DealerType, Flag, Stage
-from app.models.schema import DealerProfileRaw, HistoryMessage
+from app.models.schema import DealerProfileRaw, HistoryMessage, SessionState
+
+def create_session() -> SessionState:
+    return SessionState(session_id=str(uuid.uuid4()))
 
 
 class TestSafeFilename:
