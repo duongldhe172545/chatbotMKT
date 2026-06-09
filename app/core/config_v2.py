@@ -82,7 +82,10 @@ class Settings:
         if not db_url:
             sqlite_path = os.getenv("SQLITE_PATH")
             if sqlite_path:
-                db_url = sqlite_path
+                if sqlite_path.startswith("sqlite:///"):
+                    db_url = sqlite_path
+                else:
+                    db_url = f"sqlite:///{sqlite_path}"
             else:
                 db_url = cls.database_url
 
