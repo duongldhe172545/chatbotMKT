@@ -68,6 +68,7 @@ class Database:
                 # auto-commit on exit
         """
         conn = self.connect()
+        conn.execute("BEGIN IMMEDIATE")
         try:
             yield conn
             conn.commit()
@@ -94,7 +95,7 @@ class Database:
     def _new_connection(self) -> sqlite3.Connection:
         """Create a fresh SQLite connection with pragmas."""
         # check_same_thread=False for :memory: DBs (shared conn across threads)
-        conn = sqlite3.connect(self.path, check_same_thread=False)
+        conn = sqlite3.connect(self.path, check_same_thread=False, timeout=30.0)
         conn.row_factory = sqlite3.Row
         if self.path != ":memory:":
             conn.execute("PRAGMA journal_mode = WAL")
