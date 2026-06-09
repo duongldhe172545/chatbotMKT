@@ -81,13 +81,17 @@ class Settings:
         db_url = os.getenv("DATABASE_URL")
         if not db_url:
             sqlite_path = os.getenv("SQLITE_PATH")
-            if sqlite_path:
-                if sqlite_path.startswith("sqlite:///"):
-                    db_url = sqlite_path
+            if not sqlite_path:
+                # Auto-detect Railway persistent volume mounted at /data
+                if os.path.exists("/data") and os.access("/data", os.W_OK):
+                    sqlite_path = "/data/chatbot_v2.sqlite3"
                 else:
-                    db_url = f"sqlite:///{sqlite_path}"
+                    sqlite_path = "data/chatbot_v2.sqlite3"
+            
+            if sqlite_path.startswith("sqlite:///"):
+                db_url = sqlite_path
             else:
-                db_url = cls.database_url
+                db_url = f"sqlite:///{sqlite_path}"
 
         settings = cls(
             app_env=os.getenv("APP_ENV", cls.app_env),

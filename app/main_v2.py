@@ -86,7 +86,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return FileResponse(STATIC_DIR / "index.html")
 
         @app.get("/admin")
-        def admin_page():
+        @app.get("/admin/{path:path}")
+        def admin_page(path: str = None):
             return FileResponse(STATIC_DIR / "admin.html")
 
     # API v1 routes

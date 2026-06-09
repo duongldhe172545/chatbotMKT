@@ -70,17 +70,53 @@ function dealerTypeLabel(code) {
   return DEALER_TYPE_LABELS[code] || code || "—";
 }
 
+function navigateTo(path) {
+  window.history.pushState({}, "", path);
+  handleRoute();
+}
+
+function switchTab(tabName) {
+  tabs.forEach((b) => b.classList.remove("active"));
+  const btn = document.querySelector(`.nav-btn[data-tab="${tabName}"]`);
+  if (btn) btn.classList.add("active");
+  
+  Object.values(tabContents).forEach((t) => t.classList.remove("active"));
+  if (tabContents[tabName]) {
+    tabContents[tabName].classList.add("active");
+  }
+  
+  if (tabName === "dashboard") loadStats();
+  if (tabName === "sessions") loadSessions();
+  if (tabName === "confirmed") loadConfirmed();
+}
+
+function handleRoute() {
+  const path = window.location.pathname;
+  if (path === "/admin" || path === "/admin/" || path === "/admin/dashboard") {
+    switchTab("dashboard");
+    hideModalDirect();
+  } else if (path === "/admin/sessions" || path === "/admin/sessions/") {
+    switchTab("sessions");
+    hideModalDirect();
+  } else if (path.startsWith("/admin/sessions/")) {
+    const sessionId = path.split("/").pop();
+    switchTab("sessions");
+    if (sessionId) {
+      viewSessionDirect(sessionId);
+    }
+  } else if (path === "/admin/confirmed" || path === "/admin/confirmed/") {
+    switchTab("confirmed");
+    hideModalDirect();
+  } else {
+    switchTab("dashboard");
+    hideModalDirect();
+  }
+}
+
 tabs.forEach((btn) => {
   btn.addEventListener("click", () => {
-    tabs.forEach((b) => b.classList.remove("active"));
-    btn.classList.add("active");
-    Object.values(tabContents).forEach((t) => t.classList.remove("active"));
     const tabName = btn.dataset.tab;
-    tabContents[tabName].classList.add("active");
-    // Auto-reload data
-    if (tabName === "dashboard") loadStats();
-    if (tabName === "sessions") loadSessions();
-    if (tabName === "confirmed") loadConfirmed();
+    navigateTo(`/admin/${tabName}`);
   });
 });
 
@@ -229,6 +265,10 @@ function renderSessionsTable(sessions) {
 }
 
 async function viewSession(sessionId) {
+  navigateTo(`/admin/sessions/${sessionId}`);
+}
+
+async function viewSessionDirect(sessionId) {
   try {
     const detail = await apiGet(`/sessions/${sessionId}`);
     renderSessionModal(detail);
@@ -265,7 +305,7 @@ function renderSessionModal(detail) {
     { label: "C5. Khó khăn & động lực", value: [p.customer_pain, p.motivation_signal ? `(Động lực: ${p.motivation_signal})` : null].filter(Boolean).join(" ") },
     { label: "C6. Bán kính & nhận diện địa bàn", value: p.local_dominance_signal },
     { label: "C7. Cách lưu thông tin khách", value: p.customer_storage_method },
-    { label: "C8. Hãng nhập & đàm phán cung ứng", value: [p.supplier_brands ? p.supplier_brands.join(", ") : null, p.supplier_negotiation_signal ? `(Đàm phán: ${p.supplier_negotiation_signal})` : null].filter(Boolean).join(" — ") },
+    { label: "C8. Hãng nhập & đàm phán cung ứng", value: [p.supplier_brands ? (Array.isArray(p.supplier_brands) ? p.supplier_brands.join(", ") : p.supplier_brands) : null, p.supplier_negotiation_signal ? `(Đàm phán: ${p.supplier_negotiation_signal})` : null].filter(Boolean).join(" — ") },
     { label: "C9. Mạng lưới & sức ảnh hưởng", value: [p.facebook ? `Facebook: ${p.facebook} ${p.fb_marketing_status ? '(' + p.fb_marketing_status + ')' : ''}` : null, p.community_network_signal ? `Mạng lưới: ${p.community_network_signal}` : null].filter(Boolean).join(" — ") }
   ];
   
@@ -502,8 +542,15 @@ const modalClose = document.getElementById("modal-close");
 function showModal() {
   modal.classList.remove("hidden");
 }
+function hideModalDirect() {
+  modal.classList.add("hidden");
+}
 function hideModal() {
   modal.classList.add("hidden");
+  const path = window.location.pathname;
+  if (path.startsWith("/admin/sessions/")) {
+    navigateTo("/admin/sessions");
+  }
 }
 modalClose.addEventListener("click", hideModal);
 modal.addEventListener("click", (e) => {
@@ -524,4 +571,5 @@ document.getElementById("confirmed-check-all").addEventListener("change", (e) =>
 
 
 // ---------- Init ----------
-loadStats();
+window.addEventListener("popstate", handleRoute);
+handleRoute();
