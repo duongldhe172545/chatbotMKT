@@ -28,6 +28,7 @@ BRANDING_PREFERENCE_FIELDS = {
     "logo_initials",
     "slogan_preference",
     "logo_style",
+    "logo_existing_intent",
 }
 INTAKE_ALLOWED_FIELDS: set[str] = {
     field
@@ -182,12 +183,12 @@ def extract_intake_facts(
 
 
 def build_fact_extractor_prompt() -> str:
-    from app.core.rules import get_data_principles, get_rules
+    from app.core.rules import get_extraction_principles, get_rules
 
     fields = ", ".join(sorted(INTAKE_ALLOWED_FIELDS))
 
-    # Load general principles from rules.yaml
-    principles = get_data_principles()
+    # Load extraction-only principles from rules.yaml (reply principles không liên quan)
+    principles = get_extraction_principles()
     principles_text = "\n".join(f"- {p}" for p in principles)
 
     # Load slot-specific rules from rules.yaml
@@ -233,10 +234,10 @@ QUY TẮC KỸ THUẬT EXTRACTION:
 - Nếu người dùng sửa thông tin cũ, đặt is_correction=true.
 - Nếu không chắc, không đoán cứng; bỏ qua fact hoặc ghi uncertainty_notes.
 - Không xuất field derived: province, ward, district, brand_name_short, hotline, slogan_options.
-- `current_focus_field` là field chính xác bot vừa hỏi. Ưu tiên hiểu câu trả lời theo field này.
+- `current_focus_field` là field bot vừa hỏi — DÙNG để HIỂU ngữ cảnh câu trả lời, TUYỆT ĐỐI KHÔNG ép mọi tin nhắn thành value của field đó (xem luật KHỚP NGỮ NGHĨA ở trên).
 - Với field list (category_stack, supplier_brands): trả value dạng text phân tách dấu phẩy.
 - Phải đọc câu bot ngay trước đó để hiểu tham chiếu (vd "2 hãng đó" → quy về tên cụ thể).
-- Không bao giờ xuất placeholder ("cả hai", "như trên") làm value.
+- Không bao giờ xuất placeholder làm value: "cả hai", "như trên", và TUYỆT ĐỐI không xuất token tiếng Anh "none"/"null"/"n/a"/"undefined".
 - Với dữ liệu OPTIONAL, resolve riêng từng field trong resolved_optional_fields.
 
 Field được phép:

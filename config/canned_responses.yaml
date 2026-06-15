@@ -14,7 +14,7 @@ canned_responses:
 
   - id: greeting
     trigger_objective: greet_user
-    template: "Dạ em chào {af} ạ! 🌷\n\nEm là Linh, chuyên gia hỗ trợ chiến lược kinh doanh trên nền tảng số cho các anh chị làm cửa, nhôm kính, tủ bếp, điện mặt trời trong Cộng Đồng Thợ 4.0.\n\nĐể chào mừng {af} tham gia cộng đồng của bên em, sau cuộc trò chuyện này em xin phép tặng {af} một bộ thương hiệu hoàn toàn miễn phí, bao gồm:\n\n🎁 Logo riêng cho cửa hàng\n🎁 Danh thiếp cá nhân hoá\n🎁 Video giới thiệu thương hiệu\n\nVì món quà này mang màu sắc cá nhân của riêng {af}, em xin phép trao đổi với {af} khoảng 4-5 phút {af} nhé. Bộ thương hiệu và kế hoạch chi tiết về chiến lược phát triển nền tảng số em sẽ gửi {af} qua Zalo trong thời gian sớm nhất sau đó ạ.\n\n{Af} có thể gõ chữ, hoặc bấm mic nói cũng được hết. Mình bắt đầu nhé {af}?"
+    template: "Dạ em chào {af} ạ! 🌷\n\nEm là Linh, chuyên gia hỗ trợ chiến lược kinh doanh trên nền tảng số cho các anh chị làm cửa, nhôm kính, tủ bếp, điện mặt trời trong Cộng Đồng Thợ 4.0.\n\nĐể chào mừng {af} tham gia cộng đồng của bên em, sau cuộc trò chuyện này em xin phép tặng {af} một bộ thương hiệu hoàn toàn miễn phí, bao gồm:\n\n🎁 Logo riêng cho cửa hàng\n🎁 Danh thiếp cá nhân hoá\n🎁 Video giới thiệu thương hiệu\n\nVì món quà này mang màu sắc cá nhân của riêng {af}, em xin phép trao đổi với {af} khoảng 4-5 phút {af} nhé. Bộ thương hiệu em sẽ gửi {af} qua Zalo trong thời gian sớm nhất sau đó, {af} cần thêm hồ sơ số hay mẫu báo giá em gửi kèm luôn ạ.\n\n{Af} có thể gõ chữ, hoặc bấm mic nói cũng được hết. Mình bắt đầu nhé {af}?"
     priority: 90
 
   # ============================================================

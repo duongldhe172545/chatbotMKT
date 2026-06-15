@@ -45,6 +45,9 @@ class ContextBuilder:
         # Build missing fields list
         missing = profile_snapshot.get("missing_required_fields", [])
 
+        # Build collection status block (chống LLM tự chốt sớm khi còn slot pending)
+        collection_status = _build_collection_status(profile_snapshot)
+
         # Build guideline instructions
         guideline_instructions = [
             {"id": g["id"], "action": g["action"]}
@@ -64,6 +67,7 @@ class ContextBuilder:
             # Conversation
             "history_summary": history_summary,
             "recent_messages": recent_messages[-30:],  # last 30 messages (15 turns)
+            "collection_status": collection_status,
 
             # Agent hints
             "address_form": address_form,
@@ -74,6 +78,57 @@ class ContextBuilder:
             # Canned responses
             "canned_candidates": canned_candidates or [],
         }
+
+
+def _build_collection_status(profile_snapshot: dict[str, Any]) -> str:
+    """Build bảng trạng thái thu thập cho prompt — LLM phải thấy slot nào còn pending.
+
+    Fix bug "xong logo là ngừng hỏi": LLM không biết còn field chưa thu nên
+    tự chốt + gửi link Zalo sau khi bàn xong màu logo (slot cuối).
+    Dùng chung priority order với WorkflowEngine để 2 bên không lệch nhau.
+    """
+    from app.parlant.workflow_engine import (
+        OPTIONAL_FIELDS_PRIORITY,
+        REQUIRED_FIELDS_PRIORITY,
+        optional_satisfied,
+    )
+
+    all_fields = profile_snapshot.get("all_fields") or {}
+    skipped = profile_snapshot.get("skipped_fields", [])
+    missing_required = profile_snapshot.get("missing_required_fields", [])
+
+    filled = [name for name in all_fields if all_fields.get(name)]
+
+    pending: list[str] = []
+    for field_name, label in REQUIRED_FIELDS_PRIORITY:
+        if field_name in missing_required:
+            pending.append(f"{label} (BẮT BUỘC)")
+    for field_name, label, _hint in OPTIONAL_FIELDS_PRIORITY:
+        if not optional_satisfied(field_name, all_fields, skipped):
+            pending.append(label)
+    if "brandkit_consent" not in all_fields and "brandkit_consent" not in skipped:
+        pending.append("đồng ý nhận bộ thương hiệu (BẮT BUỘC)")
+    consent_val = all_fields.get("brandkit_consent")
+    if consent_val == "yes" or consent_val is True:
+        if all_fields.get("logo_existing_intent") == "unclarified":
+            pending.append("nhu cầu với logo hiện có (nâng cấp / thiết kế lại / làm mới)")
+        if "color_accent" not in all_fields and "color_accent" not in skipped:
+            pending.append("màu chủ đạo phong thủy")
+        if "logo_style" not in all_fields and "logo_style" not in skipped:
+            pending.append("phong cách logo")
+        if "slogan_preference" not in all_fields and "slogan_preference" not in skipped:
+            pending.append("slogan")
+
+    lines = [
+        f"- Đã thu: {', '.join(filled) if filled else '(chưa có)'}",
+        f"- Đã bỏ qua (dealer từ chối/không biết): {', '.join(skipped) if skipped else '(không có)'}",
+    ]
+    if pending:
+        lines.append(f"- Còn phải hỏi (theo thứ tự): {' → '.join(pending)}")
+        lines.append("- Còn mục chưa thu ở trên → tiếp tục hỏi cho hết rồi mới chốt.")
+    else:
+        lines.append("- Đã thu xong toàn bộ thông tin cần hỏi.")
+    return "\n".join(lines)
 
 
 def _build_history_summary(
@@ -106,8 +161,8 @@ def _task_from_objective(
         field = objective.get("target_field", "")
         hint = objective.get("prompt_hint", field)
         return (
-            f"Hoi {address_form} thong tin: {hint}. "
-            f"Ack cu the chi tiet {address_form} vua cho + giai thich ly do hoi + dat 1 cau hoi."
+            f"Hoi {address_form} ve: {hint}. "
+            f"Phan hoi tu nhien dieu {address_form} vua noi (neu ngan ly do hoi neu hop) roi hoi."
         )
 
     if obj_type == "resolve_blocking_flag":
@@ -119,7 +174,9 @@ def _task_from_objective(
 
     if obj_type == "show_profile_review":
         return (
-            f"Du thong tin roi. Moi {address_form} xem lai ho so va bam xac nhan."
+            f"Du thong tin roi. Moi {address_form} xem lai ho so va xac nhan. "
+            "CHỈ mời xem lại + xác nhận — CHƯA gửi link Zalo, CHƯA nói 'đã xong/đủ "
+            f"thông tin', CHƯA chào kết thúc (việc đó để bước bàn giao SAU khi {address_form} đã duyệt)."
         )
 
     if obj_type == "show_logo_brief":
@@ -128,11 +185,24 @@ def _task_from_objective(
     if obj_type == "zalo_handoff":
         from app.core.config_v2 import get_settings
         settings = get_settings()
-        zalo_url = settings.zalo_group_url or "[Link Zalo Cộng Đồng Thợ 4.0]"
+        zalo_url = settings.zalo_group_url
+        if zalo_url:
+            link_part = (
+                f"Mời {address_form} BẤM VÀO ĐÚNG link nhóm Zalo này để gặp đội ngũ "
+                f"và nhận bộ thương hiệu miễn phí: {zalo_url}. "
+                "TUYỆT ĐỐI chỉ dùng link này — KHÔNG dùng số điện thoại của khách, "
+                "KHÔNG bảo khách 'kết bạn theo số', KHÔNG bịa số/link nào khác."
+            )
+        else:
+            link_part = (
+                f"Báo {address_form} rằng đội ngũ sẽ chủ động kết nối lại để gửi bộ "
+                "thương hiệu. TUYỆT ĐỐI KHÔNG bịa số điện thoại hay link Zalo, "
+                "KHÔNG dùng số điện thoại của khách làm Zalo."
+            )
         return (
-            f"Ho so da duoc xac nhan hoan toan. Khong can gen logo/tra logo. "
-            f"Hay cam on va chuc {address_form} kinh doanh phat dat, chot duoc nhieu cong trinh. "
-            f"Huong dan {address_form} bam vao link Zalo sau de gap doi ngu va nhan bo thuong hieu mien phi: {zalo_url}."
+            f"Hồ sơ đã được xác nhận hoàn toàn. Không cần gen logo / trả logo. "
+            f"Hãy cảm ơn và chúc {address_form} kinh doanh phát đạt, chốt được nhiều "
+            f"công trình. " + link_part
         )
 
     return f"Tiep tuc tro chuyen tu nhien voi {address_form}."

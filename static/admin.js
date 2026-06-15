@@ -296,17 +296,17 @@ function renderSessionModal(detail) {
     { label: "Số Zalo phụ", value: p.zalo }
   ];
   
-  // 2. 9 Criteria Fields (C1-C9)
+  // 2. 9 Criteria Fields (C1-C9) — `keys` = field(s) để tra status (SKIPPED = khách không cung cấp)
   const criteriaFields = [
-    { label: "C1. Tỉ lệ khách cũ", value: p.customer_old_percentage },
-    { label: "C2. Quy trình cọc/thanh toán", value: p.payment_terms_signal },
-    { label: "C3. Quy mô & độ ổn định đội thợ", value: p.est_team_size ? `${p.est_team_size} người ${p.team_stability_signal ? ' — ' + p.team_stability_signal : ''}` : p.team_stability_signal },
-    { label: "C4. Trách nhiệm xử lý bảo hành", value: p.warranty_responsibility_signal },
-    { label: "C5. Khó khăn & động lực", value: [p.customer_pain, p.motivation_signal ? `(Động lực: ${p.motivation_signal})` : null].filter(Boolean).join(" ") },
-    { label: "C6. Bán kính & nhận diện địa bàn", value: p.local_dominance_signal },
-    { label: "C7. Cách lưu thông tin khách", value: p.customer_storage_method },
-    { label: "C8. Hãng nhập & đàm phán cung ứng", value: [p.supplier_brands ? (Array.isArray(p.supplier_brands) ? p.supplier_brands.join(", ") : p.supplier_brands) : null, p.supplier_negotiation_signal ? `(Đàm phán: ${p.supplier_negotiation_signal})` : null].filter(Boolean).join(" — ") },
-    { label: "C9. Mạng lưới & sức ảnh hưởng", value: [p.facebook ? `Facebook: ${p.facebook} ${p.fb_marketing_status ? '(' + p.fb_marketing_status + ')' : ''}` : null, p.community_network_signal ? `Mạng lưới: ${p.community_network_signal}` : null].filter(Boolean).join(" — ") }
+    { label: "C1. Tỉ lệ khách cũ", value: p.customer_old_percentage, keys: ["customer_old_percentage"] },
+    { label: "C2. Quy trình cọc/thanh toán + tự chủ vốn", value: p.payment_terms_signal, keys: ["payment_terms_signal"] },
+    { label: "C3. Quy mô & độ ổn định đội thợ", value: p.est_team_size ? `${p.est_team_size} người ${p.team_stability_signal ? ' — ' + p.team_stability_signal : ''}` : p.team_stability_signal, keys: ["est_team_size", "team_stability_signal"] },
+    { label: "C4. Trách nhiệm xử lý bảo hành", value: p.warranty_responsibility_signal, keys: ["warranty_responsibility_signal"] },
+    { label: "C5. Động lực & nút thắt", value: [p.customer_pain, p.motivation_signal ? `(Động lực: ${p.motivation_signal})` : null].filter(Boolean).join(" "), keys: ["motivation_signal", "customer_pain"] },
+    { label: "C6. Độ phủ địa bàn (organic vs ads)", value: p.local_dominance_signal, keys: ["local_dominance_signal"] },
+    { label: "C7. Cách lưu thông tin khách", value: p.customer_storage_method, keys: ["customer_storage_method"] },
+    { label: "C8. Hãng nhập & đàm phán cung ứng", value: [p.supplier_brands ? (Array.isArray(p.supplier_brands) ? p.supplier_brands.join(", ") : p.supplier_brands) : null, p.supplier_negotiation_signal ? `(Đàm phán: ${p.supplier_negotiation_signal})` : null].filter(Boolean).join(" — "), keys: ["supplier_brands", "supplier_negotiation_signal"] },
+    { label: "C9. Mạng lưới & sức ảnh hưởng", value: [p.facebook ? `Facebook: ${p.facebook} ${p.fb_marketing_status ? '(' + p.fb_marketing_status + ')' : ''}` : null, p.community_network_signal ? `Mạng lưới: ${p.community_network_signal}` : null].filter(Boolean).join(" — "), keys: ["community_network_signal", "facebook"] }
   ];
   
   // 3. Logo/Brandkit Details
@@ -332,8 +332,35 @@ function renderSessionModal(detail) {
     `).join("");
   };
 
+  // 9 tiêu chí: LUÔN hiện đủ 9 dòng — rỗng thì nói rõ khách không cung cấp (SKIPPED)
+  // hay hệ thống chưa thu, để admin biết là thiếu data thật hay khách từ chối.
+  const fs = detail.field_status || {};
+  const fr = detail.field_raw || {};
+  const rawOf = (keys) => { for (const k of (keys || [])) { if (fr[k]) return String(fr[k]); } return null; };
+  const renderCriteriaFields = (fields) => fields.map(f => {
+    const hasVal = f.value !== null && f.value !== undefined && f.value !== ""
+      && (!Array.isArray(f.value) || f.value.length > 0);
+    const raw = rawOf(f.keys);
+    let display;
+    if (hasVal) {
+      display = escapeHtml(f.value);
+      // câu gốc của khách nếu khác giá trị đã chuẩn hoá
+      if (raw && raw.trim() && raw.trim() !== String(f.value).trim()) {
+        display += ` <span style="color:#a0aec0">(gốc: "${escapeHtml(raw)}")</span>`;
+      }
+    } else if ((f.keys || []).some(k => fs[k] === "SKIPPED")) {
+      display = '<span style="color:#dd6b20">— khách không cung cấp</span>';
+      if (raw && raw.trim()) {
+        display += ` <span style="color:#a0aec0">(khách nói: "${escapeHtml(raw)}")</span>`;
+      }
+    } else {
+      display = '<span style="color:#a0aec0">— chưa thu (hệ thống chưa hỏi tới)</span>';
+    }
+    return `<div class="kv-key">${escapeHtml(f.label)}</div><div class="kv-value">${display}</div>`;
+  }).join("");
+
   const basicHtml = renderFormFields(basicFields);
-  const criteriaHtml = renderFormFields(criteriaFields);
+  const criteriaHtml = renderCriteriaFields(criteriaFields);
   const brandkitHtml = renderFormFields(brandkitFields);
 
   const historyHtml = (detail.history || [])

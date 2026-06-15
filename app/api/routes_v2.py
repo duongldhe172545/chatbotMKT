@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 from app.core.ids import utc_now_iso
 from app.core.responses import api_json, error_response, success_envelope
 from app.core.security import extract_bearer_token
+from app.guards.rate_limit import check_rate_limit
 from app.services.chat_service import ChatService, canonical_payload_hash
 from app.services.session_service import SessionService
 
@@ -120,6 +121,24 @@ def send_text_message(
     auth = _authorize_request(request, session_id, authorization)
     if isinstance(auth, JSONResponse):
         return auth
+
+    # Rate limit PER SESSION (P3.3). CHÚ Ý: không limit theo IP cho message —
+    # sự kiện offline cả trăm người chung WiFi hội trường = chung 1 IP public,
+    # limit theo IP sẽ tự chặn khách thật. Check SAU auth để kẻ không có token
+    # không đốt được bucket của session người khác.
+    allowed, retry_after = check_rate_limit(
+        f"msg:{session_id}",
+        max_requests=request.app.state.settings.rate_limit_msg_per_minute,
+    )
+    if not allowed:
+        resp = error_response(
+            "rate_limited",
+            "Anh/chị nhắn hơi nhanh, chờ vài giây rồi gửi lại giúp em nhé.",
+            429,
+            request_id=request.headers.get("X-Request-Id"),
+        )
+        resp.headers["Retry-After"] = str(int(retry_after) + 1)
+        return resp
 
     method = "POST"
     path = f"/api/v1/sessions/{session_id}/messages"
@@ -414,10 +433,13 @@ def _maybe_replay_idempotency(
     idempotency_key: str,
     payload: dict[str, Any],
 ) -> JSONResponse | None:
-    """Check if this request was already processed (idempotency replay)."""
+    """Check if this request was already processed (idempotency replay).
+
+    Read-only — không giành write-lock (P3/H4).
+    """
     payload_hash = canonical_payload_hash(payload)
     store = request.app.state.store
-    with store.database.transaction() as conn:
+    with store.database.read_transaction() as conn:
         existing = store.get_idempotency_record(
             conn,
             session_id=session_id,

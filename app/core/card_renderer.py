@@ -18,6 +18,15 @@ _PLACEHOLDER_OPTIONAL_DECLINED = "(em sẽ đề xuất, duyệt sau)"
 _PLACEHOLDER_CATEGORY_EMPTY = "(chưa thu thập phần này)"
 
 
+# Nhu cầu với logo hiện có — enum → display Việt (feedback 2026-06-10)
+_LOGO_EXISTING_INTENT_DISPLAY: dict[str, str] = {
+    "upgrade": "nâng cấp logo hiện có",
+    "redesign": "thiết kế lại bố cục/màu từ logo hiện có",
+    "new": "làm mới hoàn toàn",
+    "unclarified": "(em sẽ hỏi thêm nhu cầu với logo hiện có)",
+}
+
+
 # Fix Lỗi 18: mapping category code → display name tiếng Việt
 _CATEGORY_DISPLAY_NAMES: dict[str, str] = {
     "tu_bep": "tủ bếp",
@@ -36,11 +45,11 @@ _CATEGORY_DISPLAY_NAMES: dict[str, str] = {
 
 
 def render_card(profile: DealerProfileRaw, address_form: str = "anh") -> str:
-    """Render confirmation card 5 phần.
+    """Render confirmation card 4 phần — CHỈ thông tin cơ bản để làm bộ thương hiệu.
 
-    Fix Lỗi 5: nhận address_form param.
-    Fix Lỗi 10: bỏ box drawing border, dùng emoji separator.
-    Fix Lỗi 18: category code → display name.
+    Feedback 2026-06-10: card cũ dump cả dữ liệu phỏng vấn (khách cũ, thanh toán,
+    bảo hành...) nhìn như bảng khảo sát. Dữ liệu đó VẪN lưu DB + xuất đầy đủ qua
+    md_exporter cho admin — chỉ card hiển thị cho dealer là rút gọn.
     """
     af = address_form
     lines: list[str] = []
@@ -51,19 +60,15 @@ def render_card(profile: DealerProfileRaw, address_form: str = "anh") -> str:
     lines.append(_render_section_1_danh_thiep(profile))
     lines.append("")
 
-    # ----- Phần 2: 🛠 Công việc & Kênh -----
+    # ----- Phần 2: 🛠 Công việc chính (rút gọn — chỉ ngành + mô hình) -----
     lines.append(_render_section_2_cong_viec(profile))
     lines.append("")
 
-    # ----- Phần 3: 💛 Khách cũ & Vướng mắc -----
-    lines.append(_render_section_3_khach_cu(profile))
-    lines.append("")
-
-    # ----- Phần 4: 🎁 Bộ thương hiệu sẽ tặng -----
+    # ----- Phần 3: 🎁 Bộ thương hiệu sẽ tặng -----
     lines.append(_render_section_4_brandkit(profile, af))
     lines.append("")
 
-    # ----- Phần 5: ⏰ Trong 3 ngày tới -----
+    # ----- Phần 4: ⏰ Trong 3 ngày tới -----
     lines.append(_render_section_5_trong_3_ngay(profile, af))
     lines.append("")
 
@@ -94,45 +99,19 @@ def _render_section_1_danh_thiep(profile: DealerProfileRaw) -> str:
 
 
 def _render_section_2_cong_viec(profile: DealerProfileRaw) -> str:
-    """Phần 2: Công việc & Kênh (slot 2.1-2.6)."""
-    lines = ["🛠 CÔNG VIỆC & KÊNH"]
+    """Phần 2: Công việc chính — rút gọn còn ngành hàng + mô hình.
+
+    Feedback 2026-06-10: bỏ đội thợ / hãng nhập / kênh liên hệ khỏi card
+    (vẫn lưu DB + md_exporter). Card chỉ giữ info phục vụ làm bộ thương hiệu.
+    """
+    lines = ["🛠 CÔNG VIỆC CHÍNH"]
     if profile.main_product:
         lines.append(f"   • Sản phẩm mạnh nhất: {profile.main_product}")
     if profile.category_stack:
         lines.append(f"   • Danh mục: {', '.join(profile.category_stack)}")
     if profile.business_model_signal:
         lines.append(f"   • Mô hình: {profile.business_model_signal}")
-    if profile.est_team_size is not None:
-        team_info = f"{profile.est_team_size} người"
-        if profile.team_stability_signal:
-            team_info += f" ({profile.team_stability_signal})"
-        lines.append(f"   • Đội thợ: {team_info}")
-    if profile.supplier_brands:
-        lines.append(f"   • Hãng nhập: {', '.join(profile.supplier_brands)}")
-    if profile.primary_contact_channel:
-        lines.append(f"   • Kênh khách liên hệ: {profile.primary_contact_channel}")
     # Section empty (Phase 1: nhiều slot null) → placeholder
-    if len(lines) == 1:
-        lines.append(f"   {_PLACEHOLDER_CATEGORY_EMPTY}")
-    return "\n".join(lines)
-
-
-def _render_section_3_khach_cu(profile: DealerProfileRaw) -> str:
-    """Phần 3: Khách cũ & Vướng mắc (slot 3.1-3.5)."""
-    lines = ["💛 KHÁCH CŨ & VƯỚNG MẮC"]
-    if profile.customer_old_percentage:
-        lines.append(f"   • Tỉ lệ khách cũ giới thiệu: {profile.customer_old_percentage}")
-    if profile.customer_storage_method:
-        lines.append(f"   • Cách lưu danh sách: {profile.customer_storage_method}")
-    if profile.customer_pain:
-        lines.append(f"   • Vướng mắc: {profile.customer_pain}")
-    if profile.payment_terms_signal:
-        lines.append(f"   • Thanh toán cọc / công nợ: {profile.payment_terms_signal}")
-    if profile.warranty_responsibility_signal:
-        lines.append(
-            f"   • Trách nhiệm bảo hành: "
-            f"{_display_warranty(profile.warranty_responsibility_signal)}"
-        )
     if len(lines) == 1:
         lines.append(f"   {_PLACEHOLDER_CATEGORY_EMPTY}")
     return "\n".join(lines)
@@ -161,10 +140,26 @@ def _render_section_4_brandkit(profile: DealerProfileRaw, af: str = "anh") -> st
     lines.append(f"   • Đồng ý nhận: {consent_display}")
 
     if profile.brandkit_consent == "yes":
-        # Phong cách logo (4.1) — bot chọn theo ngành
-        raw_category = profile.main_category or "ngành mình"
-        category_name = _CATEGORY_DISPLAY_NAMES.get(raw_category, raw_category)
-        lines.append(f"   • Phong cách logo: em chọn theo {category_name}")
+        # Nhu cầu với logo hiện có (nếu dealer đã có logo)
+        if profile.logo_existing_intent:
+            intent_display = _LOGO_EXISTING_INTENT_DISPLAY.get(
+                profile.logo_existing_intent, profile.logo_existing_intent
+            )
+            lines.append(f"   • Nhu cầu logo: {intent_display}")
+
+        # Phong cách logo (4.1) — 1 DÒNG duy nhất (7.2: trước đây tách "Phong cách
+        # logo" mặc định + "Gu logo" giá trị thật → 2 dòng trùng, lệch nhau).
+        # Chỉ render khi KHÔNG giữ logo cũ (upgrade/redesign giữ phong cách cũ).
+        if profile.logo_existing_intent not in ("upgrade", "redesign"):
+            if profile.logo_style and profile.logo_style.casefold() != "auto":
+                style_display = profile.logo_style
+            elif profile.logo_style and profile.logo_style.casefold() == "auto":
+                style_display = "Tối giản hiện đại (Em đề xuất)"
+            else:
+                raw_category = profile.main_category or "ngành mình"
+                category_name = _CATEGORY_DISPLAY_NAMES.get(raw_category, raw_category)
+                style_display = f"em chọn theo {category_name}"
+            lines.append(f"   • Phong cách logo: {style_display}")
 
         # Màu + phong thủy (4.2)
         is_color_suggested = False
@@ -175,7 +170,9 @@ def _render_section_4_brandkit(profile: DealerProfileRaw, af: str = "anh") -> st
 
         if is_color_suggested:
             color_info += " (Em đề xuất)"
-        if profile.feng_shui_signal:
+        # Fix 2026-06-10: feng_shui_signal="auto" từng bị append nguyên văn
+        # thành "... (Em đề xuất) (auto)" trên card thật
+        if profile.feng_shui_signal and profile.feng_shui_signal.casefold() != "auto":
             color_info += f" ({profile.feng_shui_signal})"
         lines.append(f"   • Màu chủ đạo: {color_info}")
 
@@ -198,25 +195,23 @@ def _render_section_4_brandkit(profile: DealerProfileRaw, af: str = "anh") -> st
             else:
                 slogan = profile.slogan_preference
             lines.append(f"   • Slogan: {slogan}")
-
-        if profile.logo_style:
-            if profile.logo_style == "auto":
-                style = "Tối giản hiện đại (Em đề xuất)"
-            else:
-                style = profile.logo_style
-            lines.append(f"   • Gu logo: {style}")
+        # (7.2) "Gu logo" gỡ bỏ — phong cách logo đã gộp vào 1 dòng "Phong cách logo" ở trên.
     return "\n".join(lines)
 
 
 def _render_section_5_trong_3_ngay(profile: DealerProfileRaw, af: str = "anh") -> str:
-    """Phần 5: Trong 3 ngày tới (next action). Fix Lỗi 5: dùng af."""
+    """Phần cuối: Trong 3 ngày tới.
+
+    Feedback 2026-06-10: chỉ hứa bộ nhận diện (+ hồ sơ số, mẫu báo giá nếu cần).
+    KHÔNG hứa "kế hoạch chiến lược nền tảng số".
+    """
     lines = ["⏰ TRONG 3 NGÀY TỚI"]
     if profile.brandkit_consent == "yes":
-        lines.append(f"   • Em gửi {af} kế hoạch chiến lược nền tảng số đầy đủ qua Zalo")
-        lines.append(f"   • Bộ thương hiệu (logo + danh thiếp + video) gửi trong ứng dụng nhỏ Zalo")
+        lines.append(f"   • Bộ thương hiệu (logo + danh thiếp + video) gửi {af} trong ứng dụng nhỏ Zalo")
+        lines.append(f"   • Kèm hồ sơ số + mẫu báo giá nếu {af} cần")
         lines.append(f"   • Nhóm Cộng Đồng Thợ 4.0 phù hợp khu vực + ngành mình")
     else:
-        lines.append(f"   • Em gửi {af} kế hoạch chiến lược nền tảng số qua Zalo")
+        lines.append(f"   • Em gửi {af} hồ sơ số + mẫu báo giá qua Zalo nếu {af} cần")
         lines.append(f"   • Nhóm Cộng Đồng Thợ 4.0 phù hợp")
     return "\n".join(lines)
 
@@ -231,11 +226,3 @@ def _fmt(value: Optional[str], required: bool = False) -> str:
     if value is None or (isinstance(value, str) and not value.strip()):
         return _PLACEHOLDER_REQUIRED_MISSING if required else "—"
     return str(value)
-
-
-def _display_warranty(value: str) -> str:
-    """Keep raw profile data intact while showing a clean confirmation card."""
-    folded = value.casefold()
-    if "anh lo" in folded or "anh xử lý" in folded or "anh xu ly" in folded:
-        return "chủ cửa hàng trực tiếp xử lý"
-    return value

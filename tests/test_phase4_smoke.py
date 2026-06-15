@@ -53,7 +53,7 @@ def test_workflow_engine():
     )
     assert obj["type"] == "show_profile_review"
 
-    # Confirmed, no logo -> logo brief
+    # Confirmed -> Zalo handoff (logo auto-trigger disabled; brief step removed)
     obj = engine.compute_objective(
         profile_snapshot={
             "missing_required_fields": [],
@@ -63,7 +63,7 @@ def test_workflow_engine():
         },
         observations={},
     )
-    assert obj["type"] == "show_logo_brief"
+    assert obj["type"] == "zalo_handoff"
 
     # Workflow state
     state = engine.compute_workflow_state({
@@ -115,8 +115,8 @@ def test_workflow_engine():
 
     # 3. All optional fields skipped/filled -> ask brandkit_consent
     all_opts = ["est_team_size", "supplier_brands", "primary_contact_channel", "facebook",
-                "customer_old_percentage", "customer_storage_method", "customer_pain",
-                "payment_terms_signal", "warranty_responsibility_signal"]
+                "customer_old_percentage", "local_dominance_signal", "customer_storage_method",
+                "customer_pain", "payment_terms_signal", "warranty_responsibility_signal"]
     obj_consent = engine.compute_objective(
         profile_snapshot={
             "missing_required_fields": [],

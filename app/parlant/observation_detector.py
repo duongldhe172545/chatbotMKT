@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Optional
 
 
 @dataclass
@@ -60,6 +60,47 @@ class Observations:
         if self.dealer_type != "unknown":
             signals.append(f"dealer_{self.dealer_type}")
         return signals
+
+
+# ============================================================
+# 9.1 — Phát hiện cách xưng hô (anh/chị) từ cách khách TỰ XƯNG
+# ============================================================
+# High-precision: CHỈ đổi sang "chị" khi có dấu hiệu khách tự xưng chị rõ ràng;
+# mặc định "anh". Đây là luật NGÔN NGỮ (đại từ), không khoá case nghiệp vụ.
+_CHI_SELF_REF = [
+    r"\bch[iị]\s+t[eê]n\b",                              # "chị tên ..."
+    r"\b(tôi|toi|mình|minh)\s+l[aà]\s+ch[iị]\b",          # "tôi/mình là chị"
+    r"\bem\s+l[aà]\s+ch[iị]\b",                           # "em là chị" (khách tự xưng)
+    r"\bg[oọ]i\s+(em\s+)?(b[aằ]ng\s+)?(l[aà]\s+)?ch[iị]\b",  # "gọi (em là) chị"
+    r"\bcho\s+ch[iị]\s+(xin|h[oỏ]i|g[uử]i|bi[eế]t)\b",   # "cho chị xin/hỏi"
+    r"\bch[iị]\s+(mu[oố]n|c[âầ]n|đang|l[aà]\s+ch[uủ])\b", # "chị muốn/cần/là chủ"
+]
+_ANH_SELF_REF = [
+    r"\banh\s+t[eê]n\b",
+    r"\b(tôi|toi|mình|minh)\s+l[aà]\s+anh\b",
+    r"\bg[oọ]i\s+(em\s+)?(b[aằ]ng\s+)?(l[aà]\s+)?anh\b",
+    r"\bcho\s+anh\s+(xin|h[oỏ]i|g[uử]i|bi[eế]t)\b",
+    r"\banh\s+(mu[oố]n|c[âầ]n|đang|l[aà]\s+ch[uủ])\b",
+]
+
+
+def detect_address_form(messages: list[dict[str, Any]], default: str = "anh") -> str:
+    """Suy cách GỌI khách ("anh" / "chi") từ cách khách tự xưng trong lịch sử.
+
+    Quét tin nhắn của khách (source="user"). Ưu tiên "chi" nếu có dấu hiệu rõ
+    (vì mặc định đã là "anh"). Sticky tự nhiên: cue nằm trong lịch sử nên tính lại
+    mỗi lượt vẫn ra kết quả ổn định. Trả "anh"/"chi" (khớp guard hậu-lượt).
+    """
+    texts = [
+        (m.get("text") or "").lower()
+        for m in messages
+        if (m.get("source") or "") == "user"
+    ]
+    if any(re.search(p, t) for t in texts for p in _CHI_SELF_REF):
+        return "chi"
+    if any(re.search(p, t) for t in texts for p in _ANH_SELF_REF):
+        return "anh"
+    return default
 
 
 def detect_observations(

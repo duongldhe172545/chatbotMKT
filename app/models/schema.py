@@ -118,6 +118,7 @@ class DealerProfileRaw(BaseModel):
     logo_initials: Optional[str] = None                        # slot 4.3 — dealer chọn hoặc "auto"
     slogan_preference: Optional[str] = None                    # slot 4.4 — dealer chọn hoặc "auto"
     logo_style: Optional[str] = None                           # slot 4.5 — dealer chọn hoặc "auto"
+    logo_existing_intent: Optional[str] = None                 # dealer đã có logo: unclarified/upgrade/redesign/new
 
     # ----- RAW SIGNAL (6) — mining cho Backend Scoring chấm C1-C9 -----
     local_dominance_signal: Optional[str] = None               # C6 (slot 1.2)

@@ -72,7 +72,8 @@ class SessionService:
             return False, "unauthorized", None
 
         token_hash = hash_token(raw_token, self.settings.session_token_secret)
-        with self.store.database.transaction() as conn:
+        # Read-only — chạy MỖI request có auth; không được giành write-lock (P3/H4).
+        with self.store.database.read_transaction() as conn:
             session = self.store.get_session(conn, session_id)
             if session is None:
                 return False, "session_not_found", None

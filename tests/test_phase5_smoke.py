@@ -87,7 +87,7 @@ def test_phase5_pipeline():
         turn = turns[0]
         assert turn["model_id"] in ("stub", "canned")
         assert turn["backend_latency_ms"] == 200
-        assert turn["turn_aggregation_latency_ms"] > 0
+        assert turn["turn_aggregation_latency_ms"] >= 0  # stub turn có thể <1ms → 0
         assert turn["final_reply_hash"] is not None
 
     print("  ✓ ProfileService + persistence OK")

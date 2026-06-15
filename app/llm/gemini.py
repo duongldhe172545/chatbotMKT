@@ -12,6 +12,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import random
+import threading
 import time
 
 import httpx
@@ -24,12 +26,41 @@ from .call_logger import Timer, log_call
 
 logger = logging.getLogger(__name__)
 
-RETRY_DELAYS = [1.0, 2.0, 4.0]
+# P3-event (2026-06-10): retry NGẮN — sleep dài chỉ giam thread khi đông người.
+# 429/RESOURCE_EXHAUSTED không retry (xem _is_rate_limit) — quota đang cạn thì
+# ngồi chờ vô ích, fail nhanh để caller rơi fallback thân thiện.
+RETRY_DELAYS = [0.5, 1.5]
 RETRYABLE_ERRORS = (
     genai_errors.ServerError,
     genai_errors.APIError,  # bao gồm rate limit
     httpx.HTTPError,
 )
+
+# Timeout mỗi call — chống 1 call treo giam thread cả phút (từng thấy hang 2.27h).
+HTTP_TIMEOUT_MS = int(os.getenv("GEMINI_TIMEOUT_MS", "25000"))
+
+# Trần số call Gemini in-flight toàn process — burst 100 người không dội thẳng
+# ~200 request cùng tích tắc lên API thành bão 429. Quá _SLOT_WAIT_S không có
+# slot → GeminiBusyError → fallback, không xếp hàng vô hạn.
+GEMINI_MAX_CONCURRENCY = int(os.getenv("GEMINI_MAX_CONCURRENCY", "50"))
+_SLOT_WAIT_S = float(os.getenv("GEMINI_SLOT_WAIT_S", "20"))
+_gemini_slots = threading.BoundedSemaphore(GEMINI_MAX_CONCURRENCY)
+
+
+class GeminiBusyError(RuntimeError):
+    """Không lấy được slot gọi Gemini trong thời gian chờ — đang quá tải."""
+
+
+def _is_rate_limit(exc: Exception) -> bool:
+    """True nếu lỗi là rate-limit (429 / RESOURCE_EXHAUSTED) — không nên retry."""
+    code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+    if code == 429:
+        return True
+    try:
+        text = str(exc)
+    except Exception:
+        return False
+    return "RESOURCE_EXHAUSTED" in text or "429" in text[:80]
 
 
 
@@ -106,18 +137,26 @@ class GeminiProvider(LLMProvider):
             )
         if self._client is None:
             _drop_dead_local_proxy_env()
-            # Timeout cứng 60s — chống hang khi Gemini API overload
-            # (đã thấy 1 call hang 8133s = 2.27h trong test).
-            # Sau 60s → APIError → retry policy + cuối cùng safe_ack fallback.
+            # Timeout cứng (default 25s, env GEMINI_TIMEOUT_MS) — chống hang khi
+            # Gemini overload (đã thấy 1 call hang 8133s = 2.27h trong test).
+            # Hết timeout → APIError → retry policy + cuối cùng fallback.
             self._client = genai.Client(
                 api_key=self._api_key,
-                http_options=types.HttpOptions(timeout=60_000),
+                http_options=types.HttpOptions(timeout=HTTP_TIMEOUT_MS),
             )
         return self._client
 
     def _call_with_retry(self, fn, method: str):
         last_err: Exception | None = None
         for attempt in range(len(RETRY_DELAYS) + 1):
+            # Slot in-flight: giữ CHỈ trong lúc call mạng; sleep retry nằm ngoài
+            # slot để không chiếm chỗ của người khác trong lúc chờ.
+            if not _gemini_slots.acquire(timeout=_SLOT_WAIT_S):
+                last_err = GeminiBusyError(
+                    f"Gemini kín {GEMINI_MAX_CONCURRENCY} slot sau {_SLOT_WAIT_S:.0f}s chờ"
+                )
+                break
+            retry_delay: float | None = None
             try:
                 with Timer() as t:
                     response = fn()
@@ -135,24 +174,36 @@ class GeminiProvider(LLMProvider):
                 return response
             except RETRYABLE_ERRORS as exc:
                 last_err = exc
+                if _is_rate_limit(exc):
+                    # Quota đang cạn — retry chỉ giam thread vô ích, fail nhanh.
+                    logger.warning("Gemini %s dính rate-limit — fail nhanh, không retry", method)
+                    break
                 if attempt < len(RETRY_DELAYS):
-                    delay = RETRY_DELAYS[attempt]
-                    logger.warning(
-                        "Gemini %s lỗi tạm thời (%s), retry sau %.0fs",
-                        method, type(exc).__name__, delay,
-                    )
-                    time.sleep(delay)
-                    continue
+                    # Jitter ±30% — tránh trăm thread retry cùng nhịp.
+                    retry_delay = RETRY_DELAYS[attempt] * (0.7 + 0.6 * random.random())
             except Exception as exc:
                 last_err = exc
                 break
+            finally:
+                _gemini_slots.release()
+            if retry_delay is None:
+                break
+            logger.warning(
+                "Gemini %s lỗi tạm thời (%s), retry sau %.1fs",
+                method, type(last_err).__name__, retry_delay,
+            )
+            time.sleep(retry_delay)
 
+        try:
+            err_text = str(last_err)
+        except Exception:
+            err_text = type(last_err).__name__
         log_call(
             method=method,
             model=self.model,
             duration_ms=0,
             success=False,
-            error=str(last_err),
+            error=err_text,
             retry_count=len(RETRY_DELAYS) if isinstance(last_err, RETRYABLE_ERRORS) else 0,
         )
         raise last_err  # type: ignore[misc]

@@ -28,6 +28,9 @@ _SYSTEM_PROMPT_TEMPLATE = """\
 NGỮ CẢNH HỘI THOẠI:
 - Thông tin đại lý hiện tại: {profile_summary}
 - Lịch sử chat gần đây: {history_summary}
+
+TRẠNG THÁI THU THẬP:
+{collection_status}
 {style_override}
 NHIỆM VỤ HIỆN TẠI:
 {task}
@@ -73,11 +76,13 @@ class AgentReplyGenerator:
                     role = "user" if msg.get("source") == "user" else "assistant"
                     llm_messages.append({"role": role, "content": msg.get("text", "")})
                 
-                # Call chat_quality for generation
+                # Call chat_quality for generation.
+                # max_tokens 512 (P3/M1): reply chuẩn 25-80 từ tự dừng sớm —
+                # đây là cap chặn output dài bất thường, không phải tăng tốc.
                 reply = client.chat_quality(
                     system_prompt=system_prompt,
                     messages=llm_messages,
-                    max_tokens=2048
+                    max_tokens=512
                 )
                 if reply:
                     reply = self._append_card_if_needed(reply, context)
@@ -133,6 +138,7 @@ class AgentReplyGenerator:
             rules_context=rules_context,
             profile_summary=profile_summary,
             history_summary=context.get("history_summary", "(chua co)"),
+            collection_status=context.get("collection_status", "(chưa có dữ liệu)"),
             style_override=style_override,
             task=context.get("task", "Tiep tuc tro chuyen."),
         )
@@ -217,6 +223,7 @@ _FIELD_LABELS: dict[str, str] = {
     "warranty_responsibility_signal": "trách nhiệm xử lý bảo hành",
     "brandkit_consent": "sự đồng ý nhận bộ thương hiệu miễn phí",
     "color_accent": "màu sắc chủ đạo hoặc phong thủy",
+    "logo_existing_intent": "nhu cầu với logo hiện có — nâng cấp, thiết kế lại bố cục/màu hay làm mới hoàn toàn",
 }
 
 

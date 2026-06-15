@@ -164,6 +164,8 @@ def render_profile_md(
     lines.append(f"- **Đồng ý nhận bộ thương hiệu:** {consent_display}")
     
     if profile.brandkit_consent == "yes":
+        if profile.logo_existing_intent:
+            lines.append(f"- **Nhu cầu với logo hiện có:** {profile.logo_existing_intent}")
         color_info = profile.color_accent or '_(chưa có)_'
         if profile.feng_shui_signal:
             color_info += f" ({profile.feng_shui_signal})"
@@ -185,12 +187,13 @@ def render_profile_md(
     # Section 5: Trong 3 ngày tới
     lines.append("## ⏰ Hành động trong 3 ngày tới")
     lines.append("")
+    # Feedback 2026-06-10: chỉ cam kết bộ nhận diện (+ hồ sơ số, báo giá nếu cần)
     if profile.brandkit_consent == "yes":
-        lines.append("- Gửi kế hoạch chiến lược nền tảng số đầy đủ qua Zalo")
         lines.append("- Gửi bộ thương hiệu (logo + danh thiếp + video) trong ứng dụng nhỏ Zalo")
+        lines.append("- Gửi kèm hồ sơ số + mẫu báo giá nếu đại lý cần")
         lines.append("- Giới thiệu nhóm Cộng Đồng Thợ 4.0 phù hợp khu vực + ngành")
     else:
-        lines.append("- Gửi kế hoạch chiến lược nền tảng số qua Zalo")
+        lines.append("- Gửi hồ sơ số + mẫu báo giá qua Zalo nếu đại lý cần")
         lines.append("- Giới thiệu nhóm Cộng Đồng Thợ 4.0 phù hợp")
     lines.append("")
 

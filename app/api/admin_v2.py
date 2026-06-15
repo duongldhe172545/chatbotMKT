@@ -175,12 +175,20 @@ def get_session(session_id: str, request: Request, admin: str = Depends(require_
 
         pid = session["profile_id"]
 
-        # Fetch profile fields
+        # Fetch profile fields (+ status để admin phân biệt "khách không cung cấp"
+        # [SKIPPED] vs "hệ thống chưa thu" [không có dòng nào]).
         profile_data = {}
+        field_status = {}
+        field_raw = {}
         if pid:
-            fields = conn.execute("SELECT field_name, normalized_value FROM profile_fields WHERE profile_id = ?", (pid,)).fetchall()
+            fields = conn.execute(
+                "SELECT field_name, normalized_value, raw_value, status FROM profile_fields WHERE profile_id = ?",
+                (pid,),
+            ).fetchall()
             for f in fields:
                 profile_data[f["field_name"]] = f["normalized_value"]
+                field_status[f["field_name"]] = f["status"]
+                field_raw[f["field_name"]] = f["raw_value"]
 
         # History
         messages = store.list_messages(conn, session_id=session_id, limit=200)
@@ -241,6 +249,8 @@ def get_session(session_id: str, request: Request, admin: str = Depends(require_
             "channel": session["channel"],
             "ip_address": session["ip_hash"],
             "profile": profile_data,
+            "field_status": field_status,
+            "field_raw": field_raw,
             "history": history,
             "turns": turns_traces,  # Trace logs
         }

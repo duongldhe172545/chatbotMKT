@@ -35,6 +35,40 @@ from app.parlant.workflow_engine import WorkflowEngine
 logger = logging.getLogger(__name__)
 
 
+# Objective đang THU THẬP — chưa được phép chốt hội thoại / gửi link Zalo
+_COLLECTING_OBJECTIVES = {
+    "collect_required_field",
+    "collect_optional_field",
+    "resolve_blocking_flag",
+}
+
+# Marker đóng-sớm — THU GỌN còn lõi (2026-06-12): chỉ giữ dấu hiệu chốt-THẬT
+# gần như không bao giờ bắt nhầm — link Zalo thật / placeholder link / bot tự
+# tuyên bố "đã đủ thông tin". Cái nguy hiểm là bot dán LINK NHÓM ZALO + bảo
+# "xong rồi" giữa chừng → khách bấm link rời đi sớm.
+#
+# ĐÃ BỎ 6 marker "hành vi" (kết bạn zalo / zalo theo số / đội ngũ thiết kế /
+# bắt tay vào làm / gửi…qua zalo / kết nối qua zalo) vì chúng bắt NHẦM câu
+# gửi-mẫu / giới-thiệu tử tế ("em gửi mẫu qua Zalo cho anh xem nhé") → đá AI
+# sang stub cộc lốc (bug "cho anh xem mẫu" 2026-06-12). Workflow vẫn không cho
+# kết thúc thật khi còn field thiếu, nên rủi ro bỏ 6 marker này là rất thấp.
+_PREMATURE_CLOSING_PATTERNS = [
+    r"link\s*zalo",
+    r"zalo\.me/",
+    r"\[link",
+    r"(thu\s*thập|gom|nắm)\s*(đủ|đầy\s*đủ)",
+    r"đã\s*đủ\s*thông\s*tin",
+]
+
+
+def _has_premature_closing(reply: str) -> bool:
+    """True nếu reply chứa marker chốt hội thoại trong khi objective còn thu thập."""
+    if not reply:
+        return False
+    low = reply.lower()
+    return any(re.search(p, low) for p in _PREMATURE_CLOSING_PATTERNS)
+
+
 @dataclass
 class TurnTrace:
     """Full trace of a single turn — stored in conversation_turns.backend_turn_trace_json."""
@@ -204,6 +238,20 @@ class TurnProcessor:
             )
 
         trace.observations = observations.to_dict()
+
+        # ── 3b. (7.1) GUARD BRANDKIT CHOICE — strip TRƯỚC merge + objective ──
+        # Field màu/phong cách/slogan: khách "tùy em / gợi ý đi" (khong_biet) =
+        # NHỜ ĐỀ XUẤT, không phải đưa giá trị. LLM hay tự bịa value (vd slogan="auto").
+        # Nếu nhận → brandkit "đủ" sớm → objective nhảy show_profile_review → CARD
+        # bung ngay trên lượt bot vừa đề xuất (bug "card hiện trước khi chốt slogan").
+        # → strip ở ĐÂY (trước merge dưới + compute_objective) để field ở PENDING,
+        # bot chỉ đề xuất; khách chọn cụ thể lượt sau mới chốt + ra card.
+        _BRANDKIT_CHOICE_FIELDS = {"color_accent", "logo_style", "slogan_preference"}
+        if focus_field in _BRANDKIT_CHOICE_FIELDS and observations.intent == "khong_biet":
+            extracted.pop(focus_field, None)
+            if focus_field == "color_accent":
+                extracted.pop("feng_shui_signal", None)
+
         trace.extracted_fields = extracted
 
         # Merge extracted fields in-memory so workflow engine and agent see updated state
@@ -334,11 +382,42 @@ class TurnProcessor:
             reply_text = agent_result.text
             trace.agent_model_id = agent_result.model_id
 
+        # ── 7b. PREMATURE CLOSING GUARD ─────────────────────────
+        # Objective còn thu thập mà reply chốt/gửi Zalo → retry 1 lần với
+        # chỉ thị nghiêm hơn; vẫn vi phạm → fallback stub reply deterministic.
+        guard_extra_flags: list[str] = []
+        if (
+            not canned
+            and suggested_objective.get("type") in _COLLECTING_OBJECTIVES
+            and _has_premature_closing(reply_text)
+        ):
+            logger.warning(
+                "Premature closing detected (objective=%s) — regenerating",
+                suggested_objective.get("type"),
+            )
+            retry_context = dict(context)
+            retry_context["task"] = context.get("task", "") + (
+                "\n\nCẢNH BÁO — câu trả lời trước đã VI PHẠM: tự chốt hội thoại / "
+                "gửi link Zalo / nói 'đã thu thập đủ' trong khi còn thông tin phải hỏi. "
+                "Viết lại: KHÔNG link, KHÔNG chốt, kết thúc bằng đúng 1 câu hỏi "
+                "cho thông tin đang cần."
+            )
+            retry_result = self.agent.generate(retry_context)
+            if _has_premature_closing(retry_result.text):
+                from app.parlant.agent import _stub_reply
+                reply_text = _stub_reply(suggested_objective, address_form, [])
+                trace.agent_model_id = "guard_fallback"
+                guard_extra_flags.append("premature_closing_fallback")
+            else:
+                reply_text = retry_result.text
+                trace.agent_model_id = retry_result.model_id
+                guard_extra_flags.append("premature_closing_regenerated")
+
         # ── 8. POST-TURN GUARDS ─────────────────────────────────
         reply_text, post_flags = self._post_turn_guards(
             reply_text, message, address_form
         )
-        trace.post_guard_flags = post_flags
+        trace.post_guard_flags = guard_extra_flags + post_flags
         trace.reply_text = reply_text
 
         return TurnResult(
@@ -517,16 +596,16 @@ class TurnProcessor:
         if not reply:
             return reply, flags
 
-        # Emoji limit (max 1)
+        # Emoji limit (7.3: max 2 — cho phép icon sinh động, vẫn chặn spam)
         emoji_count = len(re.findall(r"[\U0001F300-\U0001F9FF]", reply))
-        if emoji_count > 1:
-            # Keep first emoji, remove rest
+        if emoji_count > 2:
+            # Keep first 2 emojis, remove rest
             found = 0
             chars = []
             for ch in reply:
                 if re.match(r"[\U0001F300-\U0001F9FF]", ch):
                     found += 1
-                    if found <= 1:
+                    if found <= 2:
                         chars.append(ch)
                 else:
                     chars.append(ch)
@@ -536,9 +615,12 @@ class TurnProcessor:
         # Collapse multiple spaces
         reply = re.sub(r" {2,}", " ", reply).strip()
 
-        # Address form enforcement
-        if address_form == "chi" and " anh " in reply.lower():
-            reply = re.sub(r"\banh\b", "chị", reply, flags=re.IGNORECASE)
+        # Address form enforcement (9.1) — khách xưng "chị" mà reply lỡ "anh" → sửa.
+        # Bắt mọi "anh" đứng riêng (kể cả "Anh," / "anh." / đầu câu), giữ hoa/thường.
+        if address_form == "chi" and re.search(r"\banh\b", reply, flags=re.IGNORECASE):
+            def _to_chi(m: re.Match) -> str:
+                return "Chị" if m.group(0)[:1].isupper() else "chị"
+            reply = re.sub(r"\banh\b", _to_chi, reply, flags=re.IGNORECASE)
             flags.append("address_form_repaired")
 
         return reply, flags

@@ -42,9 +42,21 @@ def get_persona() -> dict[str, Any]:
     return get_rules().get("persona", {})
 
 
-def get_data_principles() -> list[str]:
+def get_extraction_principles() -> list[str]:
+    """Luật chỉ dành cho bộ TRÍCH XUẤT (extractor prompt)."""
     dc = get_rules().get("data_collection", {})
-    return dc.get("principles", [])
+    return dc.get("principles_extraction", [])
+
+
+def get_reply_principles() -> list[str]:
+    """Luật chỉ dành cho bộ TRẢ LỜI (reply prompt)."""
+    dc = get_rules().get("data_collection", {})
+    return dc.get("principles_reply", [])
+
+
+def get_data_principles() -> list[str]:
+    """Gộp cả 2 nhóm (giữ tương thích ngược cho caller cũ)."""
+    return get_extraction_principles() + get_reply_principles()
 
 
 def get_slot_rules(slot_id: str) -> list[str]:
@@ -77,7 +89,7 @@ def build_rules_context_for_prompt(
     gọn gàng để inject vào system prompt.
     """
     persona = get_persona()
-    principles = get_data_principles()
+    principles = get_reply_principles()
     tone_text = get_tone()
     safety = get_safety_rules()
 

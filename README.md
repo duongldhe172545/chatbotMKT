@@ -15,10 +15,10 @@ Hệ thống được thiết kế theo kiến trúc **Parlant-style** tự phá
   4. *Merge & Derive*: Hợp nhất thông tin vào hồ sơ (profile) + tự động suy diễn địa lý (tỉnh, huyện), tên hotline, vai trò.
   5. *Objective Compute*: Quyết định nhiệm vụ tiếp theo dựa trên trạng thái hồ sơ (Journeys).
   6. *Context Build & Guidelines Match*: Match các guidelines nghiệp vụ dựa trên observations (Bận, Lo, Khoe, Lửa Lò).
-  7. *Agent Reply Generation*: Gọi LLM với ngữ cảnh (context variables) sinh 1 câu trả lời tự nhiên gắn liền canned responses.
-  8. *Post-turn guards*: Chống lặp từ, sửa đổi lỗi dấu câu, loại bỏ PII bảo mật.
+  7. *Agent Reply Generation*: Sinh câu trả lời theo chế độ `CONVERSATION_RUNTIME` (xem mục 3b) — Gemini LLM hoặc câu mẫu deterministic, kết hợp canned responses.
+  8. *Post-turn guards*: Chống chốt hội thoại sớm (premature closing), chống lặp từ, sửa lỗi dấu câu, loại bỏ PII bảo mật.
 * **Trace logs chi tiết**: Mỗi turn được ghi nhận đầy đủ trace thông tin (Objective, Guidelines match, Observations, Latency...) lưu trong DB và hiển thị trên Admin Timeline.
-* **Pipeline logo tự động**: Tự động trigger Imagen tạo logo dưới nền khi hồ sơ được đại lý xác nhận và đồng ý.
+* **Logo generation thủ công**: Logo được dựng qua endpoint `POST /api/v1/sessions/{session_id}/logos/retry` (auto-trigger nền sau khi xác nhận hồ sơ hiện đang TẮT — code comment-out trong `chat_service.py`).
 
 ---
 
@@ -60,6 +60,17 @@ set PORT=8082
 ```
 
 Server sẽ khởi chạy tại địa chỉ: `http://127.0.0.1:8082`.
+
+### 3b. Chế độ sinh câu trả lời (`CONVERSATION_RUNTIME`)
+
+Biến môi trường `CONVERSATION_RUNTIME` quyết định **reply generation** (bước 7 pipeline):
+
+| Giá trị | Reply sinh bởi |
+|---|---|
+| `parlant_local` (mặc định) hoặc `stub` | Câu mẫu cứng deterministic — chạy được không cần API key |
+| `gemini` | Gemini LLM sinh câu tự nhiên (cần `GEMINI_API_KEY`) |
+
+> Lưu ý: **extraction** (trích field + intent) luôn dùng Gemini nếu có API key, bất kể giá trị biến này. Muốn bot trả lời tự nhiên như production, set `CONVERSATION_RUNTIME=gemini` trong `.env`.
 
 ---
 
@@ -149,7 +160,7 @@ static/
 
 Hệ thống test suite chạy trên Transient Database SQLite (trong bộ nhớ hoặc thư mục tạm) độc lập hoàn toàn. Mặc định các paid API calls (Gemini/Imagen) đều bị mock chặn.
 
-**Chạy toàn bộ 808 tests:**
+**Chạy toàn bộ 565 tests:**
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider
 ```

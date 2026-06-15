@@ -12,6 +12,7 @@ Phase 1: full Gemini (LLM_FAST=gemini-3.1-flash-lite, LLM_QUALITY=gemini-3.1-fla
 from __future__ import annotations
 
 import os
+import threading
 from typing import Optional
 
 from app.llm.base import LLMProvider
@@ -164,13 +165,16 @@ class LLMClient:
 
 
 _default_client: Optional[LLMClient] = None
+_client_lock = threading.Lock()
 
 
 def get_default_client() -> LLMClient:
-    """Get singleton LLMClient. Lazy init từ env vars."""
+    """Get singleton LLMClient. Lazy init từ env vars (thread-safe — P3)."""
     global _default_client
     if _default_client is None:
-        _default_client = LLMClient()
+        with _client_lock:
+            if _default_client is None:
+                _default_client = LLMClient()
     return _default_client
 
 

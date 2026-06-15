@@ -10,9 +10,12 @@ from this module.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 import os
 from pathlib import Path
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(PROJECT_ROOT / ".env")
@@ -48,6 +51,15 @@ class Settings:
     # Server
     host: str = "127.0.0.1"
     port: int = 8000
+    # Threadpool AnyIO cho sync endpoint — default framework chỉ 40 thread,
+    # quá nhỏ cho sự kiện ~100 người gửi cùng lúc (mỗi lượt giữ 1 thread
+    # suốt 3-8s chờ Gemini). Công việc I/O-bound nên 150 thread an toàn GIL.
+    threadpool_tokens: int = 150
+    # Số uvicorn worker process. Load test cho thấy 1 process bị GIL chặn ở
+    # ~90ms CPU/lượt → burst 100 người = người cuối chờ ~18s CHỈ riêng CPU.
+    # 2-4 worker chia CPU floor đó. An toàn với SQLite WAL sau P2 (write-lock
+    # chỉ giữ ~ms). Sự kiện: set WEB_WORKERS=4 trên Railway.
+    web_workers: int = 1
 
     # Admin
     admin_username: str = "admin"
@@ -78,6 +90,7 @@ class Settings:
     @classmethod
     def from_env(cls) -> "Settings":
         """Load settings from environment variables with validation."""
+        app_env = os.getenv("APP_ENV", cls.app_env)
         db_url = os.getenv("DATABASE_URL")
         if not db_url:
             sqlite_path = os.getenv("SQLITE_PATH")
@@ -85,13 +98,22 @@ class Settings:
                 # Auto-detect Railway persistent volume mounted at /data
                 if os.path.exists("/data") and os.access("/data", os.W_OK):
                     sqlite_path = "/data/chatbot_v2.sqlite3"
+                elif app_env == "production":
+                    # Refuse to silently use an EPHEMERAL path in production — data on
+                    # the container filesystem is wiped on every restart/deploy.
+                    raise ValueError(
+                        "DB path chưa cấu hình cho production. Set SQLITE_PATH=/data/... "
+                        "(persistent volume) hoặc DATABASE_URL tường minh. Từ chối fallback "
+                        "vào 'data/' ephemeral (mất hết data khi container restart)."
+                    )
                 else:
                     sqlite_path = "data/chatbot_v2.sqlite3"
-            
+
             if sqlite_path.startswith("sqlite:///"):
                 db_url = sqlite_path
             else:
                 db_url = f"sqlite:///{sqlite_path}"
+            logger.info("DB path resolved: %s (app_env=%s)", db_url, app_env)
 
         settings = cls(
             app_env=os.getenv("APP_ENV", cls.app_env),
@@ -108,6 +130,8 @@ class Settings:
             logo_image_model=os.getenv("LOGO_IMAGE_MODEL", cls.logo_image_model),
             host=os.getenv("HOST", cls.host),
             port=int(os.getenv("PORT", str(cls.port))),
+            threadpool_tokens=int(os.getenv("THREADPOOL_TOKENS", str(cls.threadpool_tokens))),
+            web_workers=int(os.getenv("WEB_WORKERS", str(cls.web_workers))),
             admin_username=os.getenv("ADMIN_USERNAME", cls.admin_username),
             admin_password=os.getenv("ADMIN_PASSWORD", cls.admin_password),
             cors_allowed_origins=os.getenv("CORS_ALLOWED_ORIGINS", cls.cors_allowed_origins),

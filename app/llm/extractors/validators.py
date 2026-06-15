@@ -115,6 +115,17 @@ def validate_name(value: Optional[str]) -> tuple[bool, Optional[str]]:
 # ============================================================
 
 
+# Placeholder rác LLM hay xuất khi không có câu trả lời thật (fix 2026-06-11:
+# DB từng lưu customer_pain="none"). Đây là token tiếng Anh, KHÔNG bao giờ là
+# câu trả lời tiếng Việt hợp lệ → chặn cứng ở validator (deterministic, không
+# phụ thuộc LLM). KHÔNG chặn "không biết/không có" (đó là tiếng Việt, có thể là
+# câu trả lời phủ định hợp lệ).
+_JUNK_FREE_TEXT = {
+    "none", "null", "n/a", "na", "n.a", "n.a.", "nil", "undefined",
+    "nan", "-", "--", "n\\a",
+}
+
+
 def validate_free_text(
     value: Optional[str],
     max_len: int = 1000,
@@ -124,6 +135,8 @@ def validate_free_text(
         return (False, None)
     cleaned = value.strip()
     if not cleaned:
+        return (False, None)
+    if cleaned.lower() in _JUNK_FREE_TEXT:
         return (False, None)
     if len(cleaned) > max_len:
         return (False, None)
@@ -234,6 +247,19 @@ def validate_category_stack(value) -> tuple[bool, Optional[list[str]]]:
     return (False, None)
 
 
+_LOGO_EXISTING_INTENT_VALUES = {"unclarified", "upgrade", "redesign", "new"}
+
+
+def validate_logo_existing_intent(value) -> tuple[bool, Optional[str]]:
+    """Validate logo_existing_intent — enum 4 giá trị, khoá luật không khoá case."""
+    if value is None:
+        return (False, None)
+    v = str(value).strip().lower()
+    if v in _LOGO_EXISTING_INTENT_VALUES:
+        return (True, v)
+    return (False, None)
+
+
 def validate_supplier_brands(value) -> tuple[bool, Optional[list[str]]]:
     """Validate and clean supplier_brands to a list of strings."""
     if value is None:
@@ -282,6 +308,7 @@ _FIELD_VALIDATORS: dict[str, callable] = {
     "logo_initials": validate_free_text,
     "slogan_preference": validate_free_text,
     "logo_style": validate_free_text,
+    "logo_existing_intent": validate_logo_existing_intent,
 }
 
 

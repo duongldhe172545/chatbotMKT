@@ -11,15 +11,37 @@ from app.models.schema import DealerProfileRaw
 
 
 class TestCardStructure:
-    def test_has_5_sections(self):
-        """Card phải có 5 phần (CORE § H.2 batch 2 + 1A § 6.3)."""
+    def test_has_4_sections(self):
+        """Card rút gọn 4 phần (feedback 2026-06-10) — bỏ phần KHÁCH CŨ (PV data)."""
         profile = _full_profile()
         text = render_card(profile)
         assert "🏪 DANH THIẾP" in text
         assert "🛠 CÔNG VIỆC" in text
-        assert "💛 KHÁCH CŨ" in text
         assert "🎁 BỘ THƯƠNG HIỆU" in text
         assert "⏰ TRONG 3 NGÀY TỚI" in text
+
+    def test_no_interview_data_on_card(self):
+        """Card KHÔNG hiển thị dữ liệu phỏng vấn — chỉ info làm bộ thương hiệu.
+
+        Dữ liệu PV (khách cũ, thanh toán, bảo hành, đội thợ, hãng nhập) vẫn
+        lưu DB + xuất md_exporter cho admin.
+        """
+        profile = _full_profile()
+        profile.customer_old_percentage = "nhiều"
+        profile.customer_storage_method = "sổ tay"
+        profile.payment_terms_signal = "cọc 50%"
+        profile.warranty_responsibility_signal = "bảo hành 5 năm"
+        profile.est_team_size = 4
+        profile.supplier_brands = ["Xingfa", "Topal"]
+        profile.primary_contact_channel = "zalo"
+        text = render_card(profile)
+        assert "KHÁCH CŨ" not in text
+        assert "sổ tay" not in text
+        assert "cọc 50%" not in text
+        assert "bảo hành 5 năm" not in text
+        assert "Đội thợ" not in text
+        assert "Xingfa" not in text
+        assert "Kênh khách liên hệ" not in text
 
     def test_starts_with_header(self):
         text = render_card(_full_profile())
@@ -109,8 +131,25 @@ class TestSection5:
         profile = _full_profile()
         profile.brandkit_consent = "no"
         text = render_card(profile)
-        # Vẫn có kế hoạch + Zalo
+        # Vẫn có hồ sơ số + Zalo
         assert "Zalo" in text
+
+    def test_no_strategy_plan_promise(self):
+        """Feedback 2026-06-10: KHÔNG hứa 'kế hoạch chiến lược nền tảng số'."""
+        for consent in ("yes", "no"):
+            profile = _full_profile()
+            profile.brandkit_consent = consent
+            text = render_card(profile)
+            assert "kế hoạch chiến lược" not in text
+            assert "chiến lược nền tảng" not in text
+
+    def test_promises_quote_and_digital_profile(self):
+        """Cam kết mới: bộ nhận diện + hồ sơ số + mẫu báo giá."""
+        profile = _full_profile()
+        profile.brandkit_consent = "yes"
+        text = render_card(profile)
+        assert "hồ sơ số" in text
+        assert "báo giá" in text
 
 
 # ============================================================
@@ -188,10 +227,9 @@ class TestNullHandling:
         from app.models.schema import DealerProfileRaw
         empty = DealerProfileRaw()
         text = render_card(empty)
-        # Có 5 phần header
+        # Có 4 phần header (card rút gọn 2026-06-10)
         assert "DANH THIẾP" in text
         assert "CÔNG VIỆC" in text
-        assert "KHÁCH CŨ" in text
         assert "BỘ THƯƠNG HIỆU" in text
         assert "TRONG 3 NGÀY" in text
         # REQUIRED null → placeholder
@@ -211,9 +249,6 @@ class TestNullHandling:
         profile.main_product = None
         profile.category_stack = []
         profile.business_model_signal = None
-        profile.est_team_size = None
-        profile.supplier_brands = []
-        profile.primary_contact_channel = None
         text = render_card(profile)
         assert "chưa thu thập" in text
 
@@ -225,9 +260,68 @@ class TestNullHandling:
         # KHÔNG có dòng Facebook trống
         assert "Facebook:" not in text
 
-    def test_team_size_zero_renders(self):
-        """ADVERSARIAL: est_team_size=0 (số 0 hợp lệ) vẫn render."""
+    def test_team_size_not_on_card(self):
+        """Đội thợ là dữ liệu PV → KHÔNG hiển thị trên card (vẫn ở md_exporter)."""
         profile = _full_profile()
-        profile.est_team_size = 0
+        profile.est_team_size = 4
         text = render_card(profile)
-        assert "0 người" in text
+        assert "Đội thợ" not in text
+
+
+# ============================================================
+# Feedback 2026-06-10 — logo hiện có + màu "(auto)"
+# ============================================================
+
+
+class TestLogoExistingIntent:
+    def test_unclarified_shows_followup_note(self):
+        profile = _full_profile()
+        profile.logo_existing_intent = "unclarified"
+        text = render_card(profile)
+        assert "Nhu cầu logo" in text
+
+    def test_upgrade_hides_bot_style_line(self):
+        """Dealer giữ logo cũ (upgrade/redesign) → bot KHÔNG tự chọn phong cách."""
+        profile = _full_profile()
+        profile.logo_existing_intent = "upgrade"
+        text = render_card(profile)
+        assert "nâng cấp logo hiện có" in text
+        assert "Phong cách logo" not in text
+
+    def test_redesign_shows_display_name(self):
+        profile = _full_profile()
+        profile.logo_existing_intent = "redesign"
+        text = render_card(profile)
+        assert "thiết kế lại bố cục/màu" in text
+
+    def test_new_keeps_bot_style_line(self):
+        profile = _full_profile()
+        profile.logo_existing_intent = "new"
+        text = render_card(profile)
+        assert "làm mới hoàn toàn" in text
+        assert "Phong cách logo" in text
+
+    def test_no_intent_renders_as_before(self):
+        profile = _full_profile()
+        profile.logo_existing_intent = None
+        text = render_card(profile)
+        assert "Nhu cầu logo" not in text
+        assert "Phong cách logo" in text
+
+
+class TestColorAutoSuffix:
+    def test_feng_shui_auto_not_displayed(self):
+        """Fix bug card thật: '... (Em đề xuất) (auto)' — ẩn feng_shui='auto'."""
+        profile = _full_profile()
+        profile.color_accent = "auto"
+        profile.feng_shui_signal = "auto"
+        text = render_card(profile)
+        assert "(auto)" not in text
+        assert "(Em đề xuất)" in text
+
+    def test_real_feng_shui_still_displayed(self):
+        profile = _full_profile()
+        profile.color_accent = "xanh dương"
+        profile.feng_shui_signal = "hợp mệnh Thủy"
+        text = render_card(profile)
+        assert "hợp mệnh Thủy" in text
