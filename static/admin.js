@@ -56,19 +56,8 @@ const tabContents = {
   confirmed: document.getElementById("tab-confirmed"),
 };
 
-// Conversation tone display labels (refer 1B § 2).
-// This is NOT the business dealer type stored on profile.dealer_type.
-const DEALER_TYPE_LABELS = {
-  lua_lo: "🔥 Lửa Lò",
-  khoe: "🏆 Khoe",
-  lo: "😟 Lo",
-  ban: "⚡ Bận",
-  unknown: "❓ Unknown",
-};
-
-function dealerTypeLabel(code) {
-  return DEALER_TYPE_LABELS[code] || code || "—";
-}
+// (10.7) Đã bỏ nhãn tone Lửa Lò/Khoe — phân loại tone không còn dùng ở reply
+// (reply dùng tone chung), nhãn cũ là dead code + lấy nhầm dữ liệu.
 
 function navigateTo(path) {
   window.history.pushState({}, "", path);
@@ -321,15 +310,23 @@ function renderSessionModal(detail) {
     { label: "Slogan gợi ý", value: Array.isArray(p.slogan_options) ? p.slogan_options.map((s, i) => `${i+1}. ${s}`).join("<br>") : p.slogan_options }
   ];
 
-  const renderFormFields = (fields) => {
-    const filtered = fields.filter(f => f.value !== null && f.value !== undefined && f.value !== "" && (!Array.isArray(f.value) || f.value.length > 0));
-    if (filtered.length === 0) {
+  // showEmpty=true: LUÔN hiện đủ field (rỗng → "(chưa có)") — dùng cho trường cơ bản
+  // để admin biết là THIẾU, không phải bị ẩn (10.2).
+  const isEmptyVal = (v) => v === null || v === undefined || v === "" || (Array.isArray(v) && v.length === 0);
+  const renderFormFields = (fields, showEmpty = false) => {
+    const rows = showEmpty ? fields : fields.filter(f => !isEmptyVal(f.value));
+    if (rows.length === 0) {
       return '<div class="kv-value" style="grid-column:span 2;color:#a0aec0;padding:4px 0">(Trống)</div>';
     }
-    return filtered.map(f => `
+    return rows.map(f => {
+      const valHtml = isEmptyVal(f.value)
+        ? '<span style="color:#a0aec0">(chưa có)</span>'
+        : (f.label.includes("Slogan gợi ý") ? f.value : escapeHtml(f.value));
+      return `
       <div class="kv-key">${escapeHtml(f.label)}</div>
-      <div class="kv-value">${f.label.includes("Slogan gợi ý") ? f.value : escapeHtml(f.value)}</div>
-    `).join("");
+      <div class="kv-value">${valHtml}</div>
+    `;
+    }).join("");
   };
 
   // 9 tiêu chí: LUÔN hiện đủ 9 dòng — rỗng thì nói rõ khách không cung cấp (SKIPPED)
@@ -359,7 +356,7 @@ function renderSessionModal(detail) {
     return `<div class="kv-key">${escapeHtml(f.label)}</div><div class="kv-value">${display}</div>`;
   }).join("");
 
-  const basicHtml = renderFormFields(basicFields);
+  const basicHtml = renderFormFields(basicFields, true);
   const criteriaHtml = renderCriteriaFields(criteriaFields);
   const brandkitHtml = renderFormFields(brandkitFields);
 

@@ -8,7 +8,8 @@
 
 ### 🔴 Trước sự kiện
 - [x] ~~PHASE 8 — vá lỗi an toàn nội dung~~ ✅ DONE (thuần luật) — xem §Phase 8.
-- [ ] **PHASE 9 — fix theo feedback team MKT** (xem §Phase 9 + [PHAN_TICH_FEEDBACK_MKT_2026-06-12.md](PHAN_TICH_FEEDBACK_MKT_2026-06-12.md)): Đợt 1 (xưng hô / cắt độ dài / mốc 3 ngày) nên trước sự kiện; Đợt 2 (reorder brandkit-first) cụm lớn, cân nhắc sau.
+- [ ] **PHASE 9 — fix theo feedback team MKT** (xem §Phase 9 + [PHAN_TICH_FEEDBACK_MKT_2026-06-12.md](PHAN_TICH_FEEDBACK_MKT_2026-06-12.md)): Đợt 1 (xưng hô ✅ / cắt độ dài / mốc 3 ngày) nên trước sự kiện; Đợt 2 (reorder brandkit-first) cụm lớn, cân nhắc sau.
+- [ ] **PHASE 10 — lỗi từ test "Cường Nguyễn"** (xem §Phase 10): 🔴 SĐT sai làm kẹt luồng + admin ẩn trường rỗng (gấp); 🟡 từ điển hãng / team-size mơ hồ / chốt sớm khi chửi.
 - [ ] **Sếp test** bản local hiện tại (Phase 6 + 7): giọng tự nhiên, card/slogan đúng lúc, không cộc lốc.
 - [ ] **Commit + push** toàn bộ P0→P7 (sau khi sếp OK). Kèm **dọn script nháp**: xoá `scripts/_smoke_p6.py`, `_live_p6.py`, `_diag.py`, `_verify_extract.py`; **giữ** `load_test.py`, `profile_turn.py`.
 - [ ] **Deploy Railway** + set env: `SQLITE_PATH=/data/chatbot_v2.sqlite3`, `APP_ENV=production`, `CONVERSATION_RUNTIME=gemini`. **KHÔNG set `WEB_WORKERS`** (>1 = thảm hoạ với SQLite).
@@ -144,6 +145,69 @@ Gồm 2 việc nhỏ:
 
 ### Thứ tự đề xuất
 9.1 → 9.2 → 9.3 (Đợt 1, trước sự kiện) → [sự kiện] → 9.4 (Đợt 2, sau). Mỗi mục test xong mới sang mục sau; chưa commit tới khi sếp duyệt từng phần.
+
+---
+
+## PHASE 10 — LỖI TỪ TEST "CƯỜNG NGUYỄN" — đợt 🔴 ✅ DONE 2026-06-12 (CHƯA commit)
+
+**ĐÃ LÀM (677 test pass + live verify):** 10.1 bỏ cờ BLOCKING phone → SĐT sai = WARNING + missing → bot **xin lại rõ ràng** ("9 số / cần 10-11 số", hết "đã ghi nhận" giả) + **van**: sau ~3 lần sai → nhận tạm (unverified) + cờ `phone_unverified` cho admin → luồng thoát (live: 4 lần sai → "tủ bếp" → advance). Task `_task_from_objective` báo rõ "số chưa hợp lệ, xin lại" khi phone invalid. · 10.2 admin trường cơ bản rỗng hiện "(chưa có)" · 10.3 luật chuẩn hoá tên hãng (Austdoor…) vào slot 2.4 · 10.6 gộp `rules:` lặp slot 2.4/2.6 + test dup-key · 10.7 bỏ nhãn tone (dead code) khỏi admin. **CÒN: 10.4 (team-size "vài ba") + 10.5 (chốt sớm khi chửi) — đợt 🟡 sau.** Minor: 2 cờ phone_unverified trùng (vô hại, dedup sau).
+
+<details><summary>plan gốc (tham khảo)</summary>
+
+> Nguồn: transcript test (SĐT sai "023941212" + chửi bậy). Soi DB + trace từng lượt. Đa số là lỗi CŨ chưa từng trong phạm vi P1-P9.
+
+### 10.1 — 🔴 SĐT sai làm KẸT luồng → BỎ cờ chặn, dùng luồng "thiếu field" thường (sếp chốt: gọn)
+**Lỗi ở đâu (gốc = bộ cờ chặn lăng nhằng):**
+- SĐT sai → validator chặn đúng ([validators.py:23](app/llm/extractors/validators.py#L23)) → **dựng cờ chặn `phone_invalid_after_retry` severity=BLOCKING** ([profile_service.py:172](app/services/profile_service.py#L172) + mirror [turn_processor.py:308](app/parlant/turn_processor.py#L308)).
+- Cờ BLOCKING → `compute_objective` cướp luồng sang `resolve_blocking_flag` (task gemini mù mờ [context_builder.py:168](app/parlant/context_builder.py#L168)) → LLM nói "đã ghi nhận" (sai) + lảng sang sản phẩm. Kẹt 17 lượt, không tới card.
+- Câu nhắc-SĐT chuẩn chỉ có trong `_stub_reply` ([agent.py:241](app/parlant/agent.py#L241)) — gemini không dùng.
+
+**Fix (1 luật, bỏ hết cơ chế cờ phone):**
+1. **Bỏ severity BLOCKING cho phone** → SĐT sai = chỉ WARNING (hoặc không cờ), **KHÔNG dựng blocking flag**: sửa [profile_service.py:172](app/services/profile_service.py#L172) (`severity` luôn WARNING) + [turn_processor.py:306-318](app/parlant/turn_processor.py#L306) (không add phone vào `blocking_flags`).
+2. → SĐT sai = **không lưu = vẫn thiếu**. Phone là REQUIRED đứng TRƯỚC sản phẩm/mô hình trong `REQUIRED_FIELDS_PRIORITY` → `compute_objective` tự trả `collect_required_field(phone)` (KHÔNG nhảy sang field sau) → tự enforce "bắt buộc".
+3. **Việc hỏi lại đã có sẵn:** slot 1.3 ([rules.yaml:80-81](config/rules.yaml#L80)) "SĐT 10-11 số…" + "sai format → hỏi lại, gợi ý 10-11 số". LLM đọc lịch sử (thấy số vừa nhập) + luật này → tự nhắc đúng. KHÔNG còn "đã ghi nhận" (vì task là collect, không phải resolve_blocking_flag).
+4. `resolve_blocking_flag` (objective/task/stub phone) trở thành **code chết** → để lại vô hại, hoặc dọn sau.
+**Test:** "023941212"(9 số)/"abc"/"0912" → bot nói chưa đúng + xin lại SĐT (10-11 số), **KHÔNG hỏi sản phẩm**; "0912345678" → lưu, đi tiếp. Từ chối SĐT → vẫn xin lại (required). Đã có SĐT đúng rồi mới nhập số xấu → giữ số cũ.
+
+### 10.2 — 🔴 Admin ẩn trường cơ bản khi rỗng
+**Lỗi ở đâu:** [admin.js:324-325](static/admin.js#L324) `renderFormFields` LỌC bỏ field null/empty. `basicFields` ([admin.js:284-297](static/admin.js#L284)) + `brandkitFields` dùng nó → field rỗng/INVALID (vd phone) bị ẩn → admin không thấy "thiếu". Chỉ `criteriaFields` (C1-C9) hiện rỗng (`renderCriteriaFields`).
+**Fix:** `basicFields` (+ brandkit) LUÔN hiện: rỗng → "(chưa có)"; field INVALID → "(chưa hợp lệ — khách nhập: '...')" dùng `field_raw` đã có trong payload ([admin_v2.py](app/api/admin_v2.py), P4.9). Cách: renderer riêng cho basic không lọc (hoặc cờ `showEmpty`).
+**Test:** profile thiếu phone/sản phẩm → admin vẫn hiện dòng "(chưa có)"; phone "023941212" → "(chưa hợp lệ — khách nhập: 023941212)".
+
+### 10.3 — 🟡 "ốt đo"→"Austdoor": LLM variance, KHÔNG phải thiếu dict (sếp phản biện đúng)
+**Sự thật:** trước CHƯA BAO GIỜ có từ điển hãng — bot "hiểu" là **LLM tự đoán phát âm**, lúc trúng (Xingfa/PMA) lúc trượt (Austdoor). KHÔNG phải regression, cũng KHÔNG phải "mất dict".
+**Quyết định (đúng gu sếp — ít hardcode):**
+- **Mặc định: DROP** — chấp nhận LLM variance (đa số hãng nó đoán ổn; thêm dict cứng cho mọi hãng là bất khả).
+- **Tùy chọn nhẹ (nếu sếp muốn chắc cho hãng QUAN TRỌNG):** thêm 1-2 ví dụ vào prompt extractor như GỢI Ý (không phải lookup cứng), vd "ốt đo/aut door = Austdoor" (Austdoor = công ty mẹ → nên nhận chắc). Đây là LUẬT/ví dụ, không phải bảng tra.
+**→ Ưu tiên thấp nhất; sếp chọn DROP hay thêm ví dụ Austdoor.**
+
+### 10.4 — 🟡 est_team_size "vài ba người" bị loại
+**Lỗi ở đâu:** [validators.py:151](app/llm/extractors/validators.py#L151) `validate_est_team_size` chỉ bắt SỐ/range → "vài ba người" không số → INVALID → mất data (DB: est_team_size INVALID, raw="vài ba người").
+**Fix:** thêm map cụm lượng tiếng Việt → số ước lượng (chuẩn hoá không dấu): "vài/vài ba/dăm ba"→3, "một mình"→1, "chục"→10, "vài chục"→30… Không khớp + không số → KHÔNG raise flag (bỏ qua nhẹ, optional).
+**Test:** "vài ba người"→3, "chục người"→10, "5-6 ông"→5; "đông lắm"→bỏ qua, không flag.
+
+### 10.5 — 🟡 Chốt sớm khi khách chửi
+**Lỗi ở đâu:** [turn_processor.py:47](app/parlant/turn_processor.py#L47) `_PREMATURE_CLOSING_PATTERNS` — 7.6 đã gỡ "gửi…qua zalo" → câu "đã ghi nhận đầy đủ… gửi qua Zalo… chúc anh" lọt; + khi khách chửi ở field cuối, reply "buông" wrap-up.
+**Fix:** (a) thêm marker CHÍNH XÁC bắt lời chào-kết-thúc lúc đang thu thập: `"chúc.*(kinh doanh|buôn may|phát đạt|phát triển)"` (không đụng "gửi mẫu"); (b) luật reply: khách chửi/defensive lúc đang hỏi 1 field → GIỮ câu hỏi đó, KHÔNG kết thúc. Cân bằng tránh bắt nhầm như 7.6.
+**Test:** khách chửi giữa chừng → bot deflect + hỏi lại field đang cần, KHÔNG chào kết thúc.
+
+### 10.6 — 🔴 rules.yaml `rules:` LẶP KEY ở slot 2.4 + 2.6 (MỚI, từ audit toàn dự án)
+**Lỗi ở đâu:** [rules.yaml:102-106](config/rules.yaml#L102) (slot 2.4) + [rules.yaml:117-121](config/rules.yaml#L117) (slot 2.6) — mỗi slot có **`rules:` xuất hiện 2 lần** → YAML lấy list SAU, **list ĐẦU bị nuốt**. Mất đúng luật *"Chỉ hỏi 1 câu: nhập từ hãng nào / có Facebook chưa"* (chính là fix P4.10!) → bot có thể hỏi 2 ý ở 2 slot này.
+**Fix:** gộp 2 `rules:` thành 1 list (mỗi slot). + **mở rộng test** `TestNoMalformedYamlRules` để bắt cả **duplicate-key** (hiện chỉ bắt dict): dùng loader cảnh báo duplicate key, hoặc đếm key trùng khi parse.
+**Test:** load rules.yaml → slot 2.4 có ĐỦ 3 luật (gồm "chỉ hỏi 1 câu"), slot 2.6 đủ 3 luật.
+
+### 10.7 — 🟡 BỎ nhãn tone (Lửa Lò/Khoe…) khỏi admin (sếp đã quyết bỏ phân loại tone)
+**Bối cảnh (đã verify):** reply CHÍNH (Parlant `agent.py`) dùng `tone.general` DUY NHẤT — `get_tone` bỏ qua dealer_type → **tone-theo-type đã TẮT trong hội thoại**. Cái `_TONE_RULES` per-type ([system_prompt.py:132](app/llm/system_prompt.py#L132)) giờ chỉ còn phục vụ local_hook + address (phụ). Nhãn "Lửa Lò/Khoe" ở admin ([admin.js:61](static/admin.js#L61)) vừa **thừa** (phân loại đã bỏ) vừa **lấy nhầm** dữ liệu ([admin_v2.py:156](app/api/admin_v2.py#L156) gán = logo_issued_status).
+**Fix (đúng ý sếp = BỎ):** xoá render `DEALER_TYPE_LABELS`/cột tone ở admin.js + bỏ field `detected_dealer_type` sai ở admin_v2:156. (KHÔNG "sửa cho hiện đúng" — bỏ hẳn.)
+**Tùy chọn dọn sâu (sau):** gỡ luôn `_TONE_RULES` per-type + dealer_type detection trong observation_detector/local_hook nếu chốt bỏ hẳn phân loại tone.
+**Test:** admin không còn nhãn Lửa Lò/Khoe.
+
+### Dọn nhẹ (🔵, gộp khi tiện): injection guard chỉ FLAG chưa chặn (H); dead code `show_logo_brief` + state LOGO_READY/PENDING (I); `_BRANDKIT_CHOICE_FIELDS` định nghĩa 2 nơi (J). Xem [KIEN_TRUC_TONG_QUAN.md](KIEN_TRUC_TONG_QUAN.md) §5.
+
+### Thứ tự đề xuất
+10.1 + 10.2 + **10.6** (🔴 nặng/rẻ, làm trước) → 10.7 → 10.3 → 10.4 → 10.5 → dọn 🔵. **10.1 + 10.6 gấp** (SĐT sai phổ biến + luật bị nuốt âm thầm). Mỗi mục test xong mới sang; chưa commit tới khi sếp duyệt.
+
+</details>
 
 ---
 

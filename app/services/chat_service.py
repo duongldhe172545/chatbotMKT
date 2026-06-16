@@ -76,6 +76,9 @@ _BRANDKIT_CHOICE_FIELDS = {"color_accent", "logo_style", "slogan_preference"}
 # B (fix 2026-06-11): 1 optional bị hỏi lặp ngần này lượt mà chưa thu → auto-skip
 # để workflow tiến, tránh bot hỏi đi hỏi lại + tránh kẹt vĩnh viễn.
 _OPTIONAL_STUCK_LIMIT = 3
+# 10.1 van: SĐT (bắt buộc) gõ sai ngần này lượt liên tiếp → nhận TẠM + cờ admin,
+# để typo không làm kẹt luồng / mất lead ở sự kiện.
+_PHONE_RETRY_LIMIT = 3
 
 
 def _build_turn_processor(runtime: str = "stub") -> TurnProcessor:
@@ -264,7 +267,9 @@ class ChatService:
                         consec += 1
                     else:
                         break
-                if consec >= _OPTIONAL_STUCK_LIMIT:
+                # phone (bắt buộc) KHÔNG auto-skip — để van an toàn 10.1 lo (nhận tạm),
+                # và required dù skip vẫn "missing" nên skip chỉ gây churn vô ích.
+                if consec >= _OPTIONAL_STUCK_LIMIT and prev_field != "phone_or_zalo":
                     skip_fields = (
                         list(SLOT_TO_ALL_FIELDS.get(slot_id, []))
                         if slot_id
@@ -348,6 +353,16 @@ class ChatService:
         ):
             msg_type = "address_form"
 
+        # 10.1 van: SĐT đã bị hỏi lặp >= _PHONE_RETRY_LIMIT lượt liên tiếp mà chưa hợp lệ,
+        # và lượt này khách lại đưa input CÓ chữ số (typo, không phải từ chối) → nhận TẠM.
+        consec_phone = 0
+        for tf in recent_targets:
+            if tf == "phone_or_zalo":
+                consec_phone += 1
+            else:
+                break
+        accept_phone_unverified = consec_phone >= _PHONE_RETRY_LIMIT and any(ch.isdigit() for ch in text)
+
         # ============================================================
         # tx3 (short write): persist fields + conversation turn + bot reply
         # ============================================================
@@ -357,6 +372,7 @@ class ChatService:
                 session_id=session_id,
                 extracted_fields=turn_result.extracted_fields,
                 evidence_message_id=user_message_id,
+                accept_phone_unverified=accept_phone_unverified,
             )
 
             turn = self.store.create_turn(

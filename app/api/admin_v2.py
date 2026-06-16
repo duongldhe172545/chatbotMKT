@@ -153,7 +153,8 @@ def list_sessions(
                 "confirmation_status": r["review_status"] or "PENDING",
                 "review_status": r["review_status"] or "RAW",
                 "flags": flags,
-                "detected_dealer_type": r["logo_issued_status"] or "unknown",
+                # (10.7) bỏ nhãn tone — trước gán nhầm = logo_issued_status (vô nghĩa)
+                "detected_dealer_type": "unknown",
                 "owner_name": owner_name,
                 "dealer_name": dealer_name,
                 "phone_or_zalo": phone,

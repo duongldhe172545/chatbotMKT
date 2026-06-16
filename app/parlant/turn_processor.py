@@ -302,20 +302,14 @@ class TurnProcessor:
                     profile_snapshot["blocking_flags"] = [fd["flag_name"] for fd in details if fd["severity"] == "BLOCKING"]
                     profile_snapshot["open_flags"] = [fd["flag_name"] for fd in details]
                 else:
-                    # If invalid, raise blocking flags or warning flags in-memory immediately!
-                    flag_name = "sanity_check_failed"
-                    if k == "phone_or_zalo":
-                        flag_name = "phone_invalid_after_retry"
-                    
-                    if "blocking_flags" not in profile_snapshot:
-                        profile_snapshot["blocking_flags"] = []
+                    # 10.1: field sai → cờ WARNING (open_flags) in-memory. SĐT sai KHÔNG
+                    # còn là BLOCKING → không cướp luồng sang resolve_blocking_flag; phone
+                    # chưa PROVIDED vẫn nằm missing_required → workflow tự hỏi lại (slot 1.3).
+                    flag_name = "phone_invalid_after_retry" if k == "phone_or_zalo" else "sanity_check_failed"
                     if "open_flags" not in profile_snapshot:
                         profile_snapshot["open_flags"] = []
-                    
                     if flag_name not in profile_snapshot["open_flags"]:
                         profile_snapshot["open_flags"].append(flag_name)
-                    if k == "phone_or_zalo" and flag_name not in profile_snapshot["blocking_flags"]:
-                        profile_snapshot["blocking_flags"].append(flag_name)
 
         # ── 4. WORKFLOW — compute suggested objective ────────────
         if not message.strip():

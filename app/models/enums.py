@@ -98,6 +98,7 @@ class Flag(str, Enum):
     # ----- Data quality (4) — lỗi format / data chưa whitelist -----
     SANITY_CHECK_FAILED = "sanity_check_failed"
     PHONE_INVALID_AFTER_RETRY = "phone_invalid_after_retry"
+    PHONE_UNVERIFIED = "phone_unverified"  # 10.1 van: nhận tạm SĐT sai sau N lần → admin xác minh
     VOICE_QUALITY_POOR = "voice_quality_poor"
     BRAND_NOT_IN_WHITELIST = "brand_not_in_whitelist"
 

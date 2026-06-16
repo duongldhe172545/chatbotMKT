@@ -62,10 +62,11 @@ class TestEnumCounts:
             "lua_lo", "khoe", "lo", "ban", "unknown"
         }
 
-    def test_flag_has_17_values_in_6_groups(self):
-        """17 flag chia 6 nhóm — Phase 3 R4 add ESCALATION, Phase 5 R5 add NUDGE_PENDING.
+    def test_flag_has_18_values_in_6_groups(self):
+        """18 flag — Phase 3 R4 add ESCALATION, Phase 5 R5 add NUDGE_PENDING,
+        Phase 10 add PHONE_UNVERIFIED (van an toàn SĐT).
         Refer STRATEGY D12 + F2A.3 + GLOSSARY § 4 + 1C § 9."""
-        assert len(list(Flag)) == 17
+        assert len(list(Flag)) == 18
         behavior = {
             Flag.DEALER_DECLINED, Flag.REQUIRED_MISSING,
             Flag.CONSENT_UNCLEAR, Flag.MULTIPLE_REFUSAL_IN_ROW,

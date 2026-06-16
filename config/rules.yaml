@@ -101,8 +101,8 @@ data_collection:
       kind: OPTIONAL
       rules:
         - "Chỉ hỏi 1 câu: nhập từ hãng nào là chính. Nếu khách TỰ nhắc có nhiều nguồn / dễ đổi hãng / đàm phán được giá-công nợ → ghi supplier_negotiation_signal (KHÔNG hỏi thêm câu riêng về đàm phán)."
-      rules:
         - "supplier_brands: tên (các) hãng/nhà cung cấp dealer nhập, dạng list."
+        - "Tên hãng đọc theo PHÁT ÂM tiếng Việt mà em NHẬN RA thương hiệu → ghi tên CHUẨN (vd 'ốt đo'/'aut door' → Austdoor; 'sinh pha' → Xingfa; 'pê mờ a' → PMA; 'sô cô'/'schuco' → Schüco). KHÔNG chắc đó là hãng gì → GIỮ NGUYÊN cách khách viết, TUYỆT ĐỐI KHÔNG bịa tên."
         - "C8 (chủ động nguồn): nếu dealer nhắc có nhiều nguồn / dễ đổi hãng khi hãng trễ-tăng giá / thương lượng được giá hoặc công nợ / có phương án backup → ghi supplier_negotiation_signal. Nếu bị 1 hãng chỉ định/khoá → cũng ghi (nguyên văn)."
 
     - id: "2.5"
@@ -116,7 +116,6 @@ data_collection:
       kind: OPTIONAL
       rules:
         - "Chỉ hỏi 1 câu: cửa hàng có Facebook/Fanpage chưa. Nếu khách TỰ nhắc có thợ/đối tác giới thiệu khách / tham gia nhóm nghề → ghi community_network_signal (KHÔNG hỏi thêm câu riêng về mạng lưới)."
-      rules:
         - "facebook: link/tên fanpage hoặc 'không có' nếu dealer nói chưa dùng."
         - "C9 (mạng lưới nghề): nếu dealer nhắc có thợ/đối tác hay giới thiệu khách cho mình, tham gia nhóm/hội nghề khu vực, được nhờ tư vấn-chia nguồn, hay được nhắc tới như điểm uy tín → ghi community_network_signal (nguyên văn)."
 

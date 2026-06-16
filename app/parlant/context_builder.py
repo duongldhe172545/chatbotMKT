@@ -54,8 +54,9 @@ class ContextBuilder:
             for g in matched_guidelines
         ]
 
-        # Determine current task
-        task = _task_from_objective(suggested_objective, address_form)
+        # Determine current task — báo cho task biết SĐT vừa nhập không hợp lệ (10.1)
+        phone_invalid = "phone_invalid_after_retry" in profile_snapshot.get("open_flags", [])
+        task = _task_from_objective(suggested_objective, address_form, phone_invalid=phone_invalid)
 
         return {
             # Core
@@ -152,7 +153,7 @@ def _build_history_summary(
 
 
 def _task_from_objective(
-    objective: dict[str, Any], address_form: str
+    objective: dict[str, Any], address_form: str, phone_invalid: bool = False
 ) -> str:
     """Convert suggested objective to a task instruction for the agent."""
     obj_type = objective.get("type", "continue_conversation")
@@ -160,6 +161,14 @@ def _task_from_objective(
     if obj_type in ("collect_required_field", "collect_optional_field"):
         field = objective.get("target_field", "")
         hint = objective.get("prompt_hint", field)
+        # 10.1: SĐT khách vừa đưa KHÔNG hợp lệ → báo rõ cho LLM xin lại, cấm "đã ghi nhận"
+        # (nếu không LLM tưởng số hợp lệ → nói "đã ghi nhận" rồi lảng sang việc khác).
+        if field == "phone_or_zalo" and phone_invalid:
+            return (
+                f"SĐT {address_form} vừa đưa CHƯA hợp lệ (cần 10-11 chữ số, bắt đầu bằng 0). "
+                f"Báo nhẹ là số chưa đúng rồi xin lại đúng SĐT/Zalo. "
+                "TUYỆT ĐỐI KHÔNG nói 'đã ghi nhận/đã lưu số', KHÔNG hỏi sang việc khác."
+            )
         return (
             f"Hoi {address_form} ve: {hint}. "
             f"Phan hoi tu nhien dieu {address_form} vua noi (neu ngan ly do hoi neu hop) roi hoi."

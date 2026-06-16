@@ -105,6 +105,7 @@ class ProfileService:
         session_id: str,
         extracted_fields: dict[str, Any],
         evidence_message_id: str,
+        accept_phone_unverified: bool = False,
     ) -> dict[str, Any]:
         """Validate, upsert, and run auto-derivatives for extracted facts."""
         profile = self.store.get_or_create_profile(conn, session_id)
@@ -144,6 +145,36 @@ class ProfileService:
                     if f["field_name"] == field_name or (field_name in ("phone_or_zalo", "phone_secondary") and f["flag_name"] == "phone_invalid_after_retry"):
                         self.store.resolve_flag(conn, f["id"])
             else:
+                # 10.1 VAN AN TOÀN: SĐT bắt buộc gõ sai nhiều lần liên tiếp (chat_service
+                # báo qua accept_phone_unverified) → NHẬN TẠM (giữ chữ số khách gõ) +
+                # cờ phone_unverified cho admin xác minh → KHÔNG kẹt luồng / mất lead.
+                if field_name == "phone_or_zalo" and accept_phone_unverified:
+                    digits = "".join(ch for ch in str(raw_value or "") if ch.isdigit()) or str(raw_value or "")
+                    self.store.upsert_profile_field(
+                        conn,
+                        profile_id=profile_id,
+                        field_name="phone_or_zalo",
+                        raw_value=raw_value,
+                        normalized_value=digits,
+                        status="PROVIDED",
+                        source_type="unverified",
+                        confidence=0.5,
+                        evidence_message_ids=[evidence_message_id],
+                    )
+                    self.store.insert_flag(
+                        conn,
+                        session_id=session_id,
+                        profile_id=profile_id,
+                        message_id=evidence_message_id,
+                        field_name="phone_or_zalo",
+                        flag_name="phone_unverified",
+                        severity="WARNING",
+                    )
+                    for f in self.store.get_active_flags(conn, profile_id=profile_id):
+                        if f["flag_name"] == "phone_invalid_after_retry":
+                            self.store.resolve_flag(conn, f["id"])
+                    continue
+
                 # Save field as INVALID
                 self.store.upsert_profile_field(
                     conn,
@@ -157,11 +188,10 @@ class ProfileService:
                     evidence_message_ids=[evidence_message_id],
                     validation_errors=["Validation failed"],
                 )
-                # Raise flag
-                flag_name = "sanity_check_failed"
-                # If specific to phone
-                if field_name == "phone_or_zalo":
-                    flag_name = "phone_invalid_after_retry"
+                # 10.1: SĐT sai KHÔNG còn là cờ BLOCKING — chỉ WARNING. Phone chưa PROVIDED
+                # nên vẫn nằm trong missing_required → workflow tự hỏi lại (collect_required
+                # + luật slot 1.3), KHÔNG cướp luồng sang resolve_blocking_flag mù mờ.
+                flag_name = "phone_invalid_after_retry" if field_name == "phone_or_zalo" else "sanity_check_failed"
                 self.store.insert_flag(
                     conn,
                     session_id=session_id,
@@ -169,7 +199,7 @@ class ProfileService:
                     message_id=evidence_message_id,
                     field_name=field_name,
                     flag_name=flag_name,
-                    severity="WARNING" if field_name != "phone_or_zalo" else "BLOCKING",
+                    severity="WARNING",
                 )
 
         return self.get_profile_snapshot(conn, session_id)
