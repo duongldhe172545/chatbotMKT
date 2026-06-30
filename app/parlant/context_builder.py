@@ -179,11 +179,13 @@ def _task_from_objective(
     if obj_type == "show_profile_review":
         # FIX_GAP 2026-06-30: chốt NGAY sau brandkit. Báo đội thiết kế sẽ GỬI MẪU + bộ
         # hoàn chỉnh qua Zalo trong 3 ngày (thay cho việc show ảnh tại chỗ), rồi mời duyệt.
+        # THẺ HỒ SƠ do hệ thống TỰ ĐÍNH bên dưới → LLM KHÔNG được liệt kê lại (tránh lặp).
         return (
-            f"Đã chốt xong phần bộ thương hiệu. Nói NGẮN: đội thiết kế bên em sẽ gửi "
-            f"{address_form} vài MẪU tham khảo + bộ hoàn chỉnh (logo/danh thiếp/video) "
-            f"qua Zalo TRONG 3 NGÀY tới. Rồi mời {address_form} xem lại hồ sơ bên dưới + "
-            "xác nhận. CHỈ mời xem lại + xác nhận — CHƯA gửi link Zalo, CHƯA chào kết thúc."
+            f"Đã chốt xong phần bộ thương hiệu. Nói NGẮN (1-2 câu): đội thiết kế bên em sẽ "
+            f"gửi {address_form} vài MẪU tham khảo + bộ hoàn chỉnh (logo/danh thiếp/video) qua "
+            f"Zalo TRONG 3 NGÀY tới, rồi mời {address_form} xem THẺ HỒ SƠ bên dưới + xác nhận. "
+            "TUYỆT ĐỐI KHÔNG tự liệt kê lại từng thông tin (tên / địa chỉ / sản phẩm / mô hình) "
+            "trong câu trả lời — THẺ đã tự hiện bên dưới rồi. CHƯA gửi link Zalo, CHƯA chào kết thúc."
         )
 
     if obj_type == "show_brandkit_preview":

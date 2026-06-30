@@ -196,6 +196,7 @@ def _render_section_5_trong_3_ngay(profile: DealerProfileRaw, af: str = "anh") -
     else:
         lines.append(f"   • Em gửi {af} hồ sơ số + mẫu báo giá qua Zalo nếu {af} cần")
         lines.append(f"   • Nhóm Cộng Đồng Thợ 4.0 phù hợp")
+    lines.append(f"   • Nhân viên trong nhóm Zalo sẽ tư vấn, hỗ trợ thêm cho {af}")
     return "\n".join(lines)
 
 
