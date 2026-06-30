@@ -76,7 +76,7 @@ SLOT_TO_REQUIRED_FIELDS: dict[str, list[str]] = {
     "1.1": ["owner_name", "dealer_name"],          # 2 field cùng REQUIRED
     "1.2": ["address"],                            # bán kính là OPTIONAL
     "1.3": ["phone_or_zalo"],
-    "2.1": ["main_product"],                       # category_stack là OPTIONAL (user Q4)
+    "2.1": ["main_product"],                       # nhiều sản phẩm gom chung 1 trường
     "2.2": ["business_model_signal"],
     "4.0": ["brandkit_consent"],
 }
@@ -91,12 +91,12 @@ SLOT_TO_REQUIRED_FIELDS: dict[str, list[str]] = {
 SLOT_TO_ALL_FIELDS: dict[str, list[str]] = {
     "1.1": ["owner_name", "dealer_name"],
     "1.2": ["address", "local_dominance_signal"],
-    "1.3": ["phone_or_zalo", "phone_secondary"],  # FIX M2: support 2 SĐT
-    "2.1": ["main_product", "category_stack"],
+    "1.3": ["phone_or_zalo"],                      # nhiều số → gom vào phone_or_zalo
+    "2.1": ["main_product"],                       # nhiều sản phẩm → gom vào main_product
     "2.2": ["business_model_signal", "dealer_type"],
     "2.3": ["est_team_size", "team_stability_signal"],
-    "2.4": ["supplier_brands", "customer_segment_signal", "supplier_negotiation_signal"],
-    "2.5": ["primary_contact_channel", "zalo"],
+    "2.4": ["supplier_brands", "supplier_negotiation_signal"],
+    "2.5": ["primary_contact_channel"],
     "2.6": ["facebook", "fb_marketing_status", "community_network_signal"],
     "3.1": ["customer_old_percentage"],
     "3.2": ["customer_storage_method"],

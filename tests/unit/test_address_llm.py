@@ -1,7 +1,7 @@
 """Test Address parser Layer 2 LLM fuzzy — F2B.6.
 
 Refer:
-- F2B.6 — algorithm 3 layer (regex → LLM → district)
+- F2B.6 — algorithm 2 layer (regex → LLM fuzzy)
 - feedback_no_case_lock — LLM province PHẢI match whitelist, reject bịa.
 """
 from __future__ import annotations
@@ -23,47 +23,47 @@ def _client(extract_return: dict | None = None) -> MagicMock:
 class TestLLMParseAddress:
     def test_empty_returns_none(self):
         client = _client()
-        assert llm_parse_address("", client) == (None, None, None)
-        assert llm_parse_address(None, client) == (None, None, None)
+        assert llm_parse_address("", client) == (None, None)
+        assert llm_parse_address(None, client) == (None, None)
         client.extract_fast.assert_not_called()
 
     def test_valid_province_whitelist(self):
         client = _client({"province": "Hà Nội", "ward": "Cát Linh"})
-        prov, _, ward = llm_parse_address("vùng nào đó Hà Nôi", client)
+        prov, ward = llm_parse_address("vùng nào đó Hà Nôi", client)
         assert prov == "Hà Nội"
         assert ward == "Cát Linh"
 
     def test_llm_bia_province_rejected(self):
         """ADVERSARIAL: LLM bịa "Thái Lan" → reject (không trong whitelist)."""
         client = _client({"province": "Thái Lan", "ward": "Bangkok"})
-        prov, _, _ = llm_parse_address("ở Thái Lan ạ", client)
+        prov, _ = llm_parse_address("ở Thái Lan ạ", client)
         assert prov is None
 
     def test_fuzzy_substring_match_canonical(self):
         """LLM trả "TP.HCM" → match canonical từ whitelist."""
         client = _client({"province": "TP.HCM"})
-        prov, _, _ = llm_parse_address("Sài Gòn quận 1", client)
+        prov, _ = llm_parse_address("Sài Gòn quận 1", client)
         # Whitelist có "TP.HCM"
         assert prov == "TP.HCM"
 
     def test_llm_fail_returns_none(self):
         client = MagicMock()
         client.extract_fast = MagicMock(side_effect=Exception("API timeout"))
-        assert llm_parse_address("Hà Nội", client) == (None, None, None)
+        assert llm_parse_address("Hà Nội", client) == (None, None)
 
     def test_non_dict_response(self):
         client = MagicMock()
         client.extract_fast = MagicMock(return_value="not a dict")
-        assert llm_parse_address("HN", client) == (None, None, None)
+        assert llm_parse_address("HN", client) == (None, None)
 
     def test_null_province_returned(self):
         client = _client({"province": None})
-        prov, dist, ward = llm_parse_address("vùng xa lắm em ơi", client)
+        prov, ward = llm_parse_address("vùng xa lắm em ơi", client)
         assert prov is None
 
     def test_ward_empty_string_returned_none(self):
         client = _client({"province": "Hà Nội", "ward": ""})
-        _, _, ward = llm_parse_address("Hà Nội", client)
+        _, ward = llm_parse_address("Hà Nội", client)
         assert ward is None
 
 

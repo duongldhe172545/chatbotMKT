@@ -13,19 +13,13 @@ from app.slots.definitions import OPTIONAL_SLOTS, SLOT_TO_ALL_FIELDS
 DERIVED_FIELDS = {
     "province",
     "ward",
-    "district",
     "main_category",
     "dealer_type",
-    "brand_name_short",
-    "initials_full",
-    "initial_single",
     "contact_name",
     "contact_role",
     "hotline",
-    "slogan_options",
 }
 BRANDING_PREFERENCE_FIELDS = {
-    "logo_initials",
     "slogan_preference",
     "logo_style",
     "logo_existing_intent",
@@ -233,9 +227,11 @@ QUY TẮC KỸ THUẬT EXTRACTION:
 - Trích xuất TẤT CẢ thông tin đại lý có evidence rõ, kể cả ngoài thứ tự câu hỏi.
 - Nếu người dùng sửa thông tin cũ, đặt is_correction=true.
 - Nếu không chắc, không đoán cứng; bỏ qua fact hoặc ghi uncertainty_notes.
-- Không xuất field derived: province, ward, district, brand_name_short, hotline, slogan_options.
+- Không xuất field derived: province, ward, main_category, hotline.
 - `current_focus_field` là field bot vừa hỏi — DÙNG để HIỂU ngữ cảnh câu trả lời, TUYỆT ĐỐI KHÔNG ép mọi tin nhắn thành value của field đó (xem luật KHỚP NGỮ NGHĨA ở trên).
-- Với field list (category_stack, supplier_brands): trả value dạng text phân tách dấu phẩy.
+- Với field list (supplier_brands): trả value dạng text phân tách dấu phẩy.
+- Dealer cho NHIỀU sản phẩm → gom hết vào main_product (phân cách dấu phẩy).
+- phone_or_zalo: lấy số khách đưa GIỮ NGUYÊN chữ số — TUYỆT ĐỐI KHÔNG tự cắt/thêm/sửa số cho "đủ 10-11 số", KHÔNG bịa. Nhiều số → lấy 1 số đầu. Hệ thống tự kiểm hợp lệ.
 - Phải đọc câu bot ngay trước đó để hiểu tham chiếu (vd "2 hãng đó" → quy về tên cụ thể).
 - Không bao giờ xuất placeholder làm value: "cả hai", "như trên", và TUYỆT ĐỐI không xuất token tiếng Anh "none"/"null"/"n/a"/"undefined".
 - Với dữ liệu OPTIONAL, resolve riêng từng field trong resolved_optional_fields.

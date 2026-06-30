@@ -127,6 +127,7 @@ class TestCollectionStatus:
             "warranty_responsibility_signal": "5 năm",
             "brandkit_consent": "yes", "color_accent": "xanh",
             "logo_style": "auto", "slogan_preference": "auto",  # P4.4 brandkit đủ
+            "brandkit_preview_shown": "yes",  # 9.4b: đã show mẫu → hết bước thu thập
         }
         snap["all_fields"] = all_fields
         snap["missing_required_fields"] = []

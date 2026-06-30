@@ -1,9 +1,9 @@
-"""Unit tests for flag resolution and phone fallback copying.
+"""Unit tests for phone_invalid_after_retry flag resolution.
 
 Verifies:
-1. ProfileService.save_extracted_fields resolves database flags.
-2. ProfileService._run_auto_derives copies phone_secondary to phone_or_zalo.
-3. TurnProcessor.process performs in-memory flag resolution and phone copying.
+1. ProfileService.save_extracted_fields resolves database flags khi phone_or_zalo hợp lệ.
+2. TurnProcessor.process performs in-memory flag resolution.
+(phone_secondary copy đã bỏ 2026-06-22 — field rác.)
 """
 from __future__ import annotations
 
@@ -100,11 +100,11 @@ def test_db_flag_resolution(test_db, store, profile_service):
         assert len(active) == 1
         assert active[0]["flag_name"] == "phone_invalid_after_retry"
 
-        # 2. Save a valid secondary phone number
+        # 2. Save a valid phone_or_zalo → flag phải resolve
         profile_service.save_extracted_fields(
             conn,
             session_id=session_id,
-            extracted_fields={"phone_secondary": "0912781373"},
+            extracted_fields={"phone_or_zalo": "0912781373"},
             evidence_message_id=msg_id,
         )
 
@@ -112,18 +112,14 @@ def test_db_flag_resolution(test_db, store, profile_service):
         active_after = store.get_active_flags(conn, profile_id=profile_id)
         assert len(active_after) == 0
 
-        # Verify phone_secondary is saved and auto-copied to phone_or_zalo
+        # Verify phone_or_zalo lưu hợp lệ
         fields = store.get_profile_fields(conn, profile_id)
         primary = next(f for f in fields if f["field_name"] == "phone_or_zalo")
-        secondary = next(f for f in fields if f["field_name"] == "phone_secondary")
-        
         assert primary["status"] == "PROVIDED"
         assert primary["normalized_value"] == "0912781373"
-        assert secondary["status"] == "PROVIDED"
-        assert secondary["normalized_value"] == "0912781373"
 
 
-def test_turn_processor_in_memory_resolution_and_copy():
+def test_turn_processor_in_memory_resolution():
     config_dir = Path(__file__).resolve().parents[2] / "config"
 
     processor = TurnProcessor(
@@ -170,39 +166,4 @@ def test_turn_processor_in_memory_resolution_and_copy():
     assert result_a.suggested_objective["type"] == "collect_required_field"
     assert result_a.suggested_objective["target_field"] == "business_model_signal"
 
-    # Scenario B: LLM extracts it as phone_secondary, triggers copy and resolution
-    profile_snapshot_b = {
-        "missing_required_fields": ["phone_or_zalo", "business_model_signal"],
-        "blocking_flags": ["phone_invalid_after_retry"],
-        "open_flags": ["phone_invalid_after_retry"],
-        "all_fields": {
-            "phone_or_zalo": "123",
-        },
-        "active_flag_details": [
-            {
-                "id": "flg_1",
-                "flag_name": "phone_invalid_after_retry",
-                "field_name": "phone_or_zalo",
-                "severity": "BLOCKING",
-            }
-        ]
-    }
-
-    # Mock _extract_fields to return phone_secondary
-    processor._extract_fields = MagicMock(return_value={"phone_secondary": "0912781373"})
-
-    result_b = processor.process(
-        message="0912781373",
-        profile_snapshot=profile_snapshot_b,
-        recent_messages=[],
-        address_form="anh",
-    )
-
-    # 1. both phone_secondary and phone_or_zalo are updated in memory
-    assert result_b.profile_snapshot["all_fields"]["phone_secondary"] == "0912781373"
-    assert result_b.profile_snapshot["all_fields"]["phone_or_zalo"] == "0912781373"
-    # 2. phone_or_zalo is removed from missing required fields
-    assert "phone_or_zalo" not in result_b.profile_snapshot["missing_required_fields"]
-    # 3. blocking flags are cleared in memory
-    assert "phone_invalid_after_retry" not in result_b.profile_snapshot["blocking_flags"]
-    assert "phone_invalid_after_retry" not in result_b.profile_snapshot["open_flags"]
+    # (Scenario B "copy phone_secondary→phone_or_zalo" đã bỏ 2026-06-22 — field rác)

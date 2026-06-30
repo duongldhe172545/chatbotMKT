@@ -74,16 +74,18 @@ data_collection:
 
     - id: "1.3"
       label: "Số điện thoại / Zalo"
-      fields: [phone_or_zalo, phone_secondary]
+      fields: [phone_or_zalo]
       kind: REQUIRED
       rules:
-        - "SĐT Việt Nam: 10-11 chữ số, bắt đầu bằng 0 hoặc 84."
-        - Nếu SĐT sai format → hỏi lại, gợi ý "10-11 chữ số bắt đầu bằng 0".
+        - "SĐT Việt Nam 10-11 chữ số. Lấy NGUYÊN số khách gõ (KHÔNG tự cắt/sửa cho đủ); nhiều số → lấy 1 số đầu."
+        - Nếu SĐT sai (không phải 10-11 số) → hỏi lại, KHÔNG nhận số sai.
 
     - id: "2.1"
-      label: "Sản phẩm chính + danh mục"
-      fields: [main_product, category_stack]
+      label: "Sản phẩm chính"
+      fields: [main_product]
       kind: REQUIRED
+      rules:
+        - "Dealer bán nhiều mặt hàng → ghi hết vào main_product, phân cách dấu phẩy."
 
     - id: "2.2"
       label: "Mô hình kinh doanh"
@@ -97,7 +99,7 @@ data_collection:
 
     - id: "2.4"
       label: "Nhà cung cấp chính"
-      fields: [supplier_brands, customer_segment_signal, supplier_negotiation_signal]
+      fields: [supplier_brands, supplier_negotiation_signal]
       kind: OPTIONAL
       rules:
         - "Chỉ hỏi 1 câu: nhập từ hãng nào là chính. Nếu khách TỰ nhắc có nhiều nguồn / dễ đổi hãng / đàm phán được giá-công nợ → ghi supplier_negotiation_signal (KHÔNG hỏi thêm câu riêng về đàm phán)."
@@ -107,7 +109,7 @@ data_collection:
 
     - id: "2.5"
       label: "Kênh liên hệ khách hàng"
-      fields: [primary_contact_channel, zalo]
+      fields: [primary_contact_channel]
       kind: OPTIONAL
 
     - id: "2.6"

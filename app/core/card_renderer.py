@@ -90,9 +90,6 @@ def _render_section_1_danh_thiep(profile: DealerProfileRaw) -> str:
     lines.append(f"   • Tên cửa hàng: {_fmt(profile.dealer_name, required=True)}")
     lines.append(f"   • Địa chỉ: {_fmt(profile.address, required=True)}")
     lines.append(f"   • SĐT (Zalo): {_fmt(profile.phone_or_zalo, required=True)}")  # FIX M3
-    # FIX M2: hiển thị SĐT phụ nếu dealer cho 2 số
-    if profile.phone_secondary:
-        lines.append(f"   • SĐT phụ: {profile.phone_secondary}")
     if profile.facebook:
         lines.append(f"   • Facebook: {profile.facebook}")
     return "\n".join(lines)
@@ -107,8 +104,6 @@ def _render_section_2_cong_viec(profile: DealerProfileRaw) -> str:
     lines = ["🛠 CÔNG VIỆC CHÍNH"]
     if profile.main_product:
         lines.append(f"   • Sản phẩm mạnh nhất: {profile.main_product}")
-    if profile.category_stack:
-        lines.append(f"   • Danh mục: {', '.join(profile.category_stack)}")
     if profile.business_model_signal:
         lines.append(f"   • Mô hình: {profile.business_model_signal}")
     # Section empty (Phase 1: nhiều slot null) → placeholder
@@ -176,26 +171,14 @@ def _render_section_4_brandkit(profile: DealerProfileRaw, af: str = "anh") -> st
             color_info += f" ({profile.feng_shui_signal})"
         lines.append(f"   • Màu chủ đạo: {color_info}")
 
-        if profile.logo_initials:
-            if profile.logo_initials == "auto":
-                from app.llm.auto_derive import gen_initials_full
-                brand_name = profile.dealer_name or "Cửa hàng"
-                resolved_initials = (profile.initials_full or gen_initials_full(brand_name) or "CH").upper()
-                initials = f"{resolved_initials} (Em rút gọn)"
-            else:
-                initials = profile.logo_initials
-            lines.append(f"   • Viết tắt logo: {initials}")
-
         if profile.slogan_preference:
             if profile.slogan_preference == "auto":
-                resolved_slogan = "Vững chất lượng, bền niềm tin"
-                if profile.slogan_options:
-                    resolved_slogan = str(profile.slogan_options[0])
-                slogan = f"{resolved_slogan} (Em đề xuất)"
+                slogan = "Vững chất lượng, bền niềm tin (Em đề xuất)"
             else:
                 slogan = profile.slogan_preference
             lines.append(f"   • Slogan: {slogan}")
-        # (7.2) "Gu logo" gỡ bỏ — phong cách logo đã gộp vào 1 dòng "Phong cách logo" ở trên.
+        # (7.2) "Gu logo" gỡ bỏ — phong cách logo đã gộp vào 1 dòng ở trên.
+        # (2026-06-24) bỏ "Viết tắt logo" — tàn dư luồng tự-gen-logo cũ.
     return "\n".join(lines)
 
 

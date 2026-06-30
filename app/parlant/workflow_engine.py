@@ -17,6 +17,7 @@ Objectives:
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -36,6 +37,10 @@ REQUIRED_FIELDS_PRIORITY = [
 # prompt_hint (phần tử 3) được bơm vào câu hỏi LLM — đã chỉnh để gặng ĐÚNG
 # tín hiệu rubric C1-C9 (P4 audit 2026-06-10). Mỗi hint = 1 câu hỏi tự nhiên
 # (1 ý chính + 1 vế phụ cùng chủ đề), KHÔNG phải 2 field rời.
+#
+# PHÂN LOẠI (9.4 — 2026-06-17): danh sách = 9 TIÊU CHÍ C1-C9 (mỗi field có nhãn # Cx)
+# + 1 FIELD PHỤ `primary_contact_channel` (KHÔNG có nhãn C — không thuộc bộ chấm
+# điểm, chỉ là tín hiệu vận hành). Đừng gộp field phụ vào "rubric C1-C9".
 OPTIONAL_FIELDS_PRIORITY = [
     # Fix 2026-06-11: MỖI hint = ĐÚNG 1 câu hỏi (trước gộp 2 vế "X — và Y" gây
     # khó chịu). Tín hiệu phụ (đàm phán C8, mạng lưới C9, ổn định C3...) vẫn bắt
@@ -44,7 +49,7 @@ OPTIONAL_FIELDS_PRIORITY = [
      "đội thợ mình hiện có khoảng mấy người ạ"),  # C3
     ("supplier_brands", "nhà cung cấp chính",
      "anh nhập hàng (nhôm / phụ kiện) chủ yếu từ hãng nào ạ"),  # C8
-    ("primary_contact_channel", "kênh liên hệ chính",
+    ("primary_contact_channel", "kênh liên hệ chính",  # FIELD PHỤ (không phải tiêu chí C)
      "khách hay liên hệ với mình qua kênh nào nhất ạ (Zalo / gọi điện / Facebook)"),
     ("facebook", "Facebook",
      "cửa hàng mình đã có trang Facebook / Fanpage riêng chưa ạ"),  # C9
@@ -85,6 +90,148 @@ def optional_satisfied(field: str, all_fields: dict[str, Any], skipped: list[str
     return any(sib in all_fields for sib in _OPTIONAL_SIBLINGS.get(field, []))
 
 
+@dataclass
+class PendingStep:
+    """1 bước còn phải thu thập. Nguồn dữ liệu chung cho compute_objective /
+    compute_workflow_state / _build_collection_status (tránh sync tay 3 nơi)."""
+
+    objective_type: str           # collect_required_field | collect_optional_field
+    target_field: str
+    label: str                    # target_field_label
+    prompt_hint: str
+    is_required: bool = False
+    display_label: str | None = None  # override cho list "Còn phải hỏi" (nếu khác label)
+
+    def to_objective(self) -> dict[str, Any]:
+        return {
+            "type": self.objective_type,
+            "target_field": self.target_field,
+            "target_field_label": self.label,
+            "prompt_hint": self.prompt_hint,
+        }
+
+    def status_label(self) -> str:
+        """Nhãn hiển thị trong TRẠNG THÁI THU THẬP (prompt LLM)."""
+        if self.display_label is not None:
+            return self.display_label
+        return f"{self.label} (BẮT BUỘC)" if self.is_required else self.label
+
+
+def iter_pending_steps(profile_snapshot: dict[str, Any]) -> list[PendingStep]:
+    """NGUỒN DUY NHẤT cho thứ tự thu thập. KHÔNG gồm blocking flag (xử lý riêng,
+    ưu tiên cao hơn).
+
+    Thứ tự (9.4 reorder 2026-06-17 — brandkit-first):
+      1. required (6 field cơ bản)
+      2. BRANDKIT: brandkit_consent → (nếu yes) logo_existing_intent / màu / phong cách / slogan
+      3. TƯ VẤN (bonus, sau brandkit): 9 tiêu chí C1-C9 + 1 field PHỤ primary_contact_channel
+    consent=no/skip → khối brandkit không sinh step phụ → rơi thẳng xuống tư vấn (C1-C9).
+    Khách đổi ý (consent no→yes) → khối brandkit tự hiện lại (tính mỗi lượt từ snapshot)."""
+    steps: list[PendingStep] = []
+
+    # 1. Required fields (theo priority)
+    missing = profile_snapshot.get("missing_required_fields", [])
+    for field_name, label in REQUIRED_FIELDS_PRIORITY:
+        if field_name in missing:
+            steps.append(PendingStep("collect_required_field", field_name, label, label, is_required=True))
+    known_required = {f for f, _ in REQUIRED_FIELDS_PRIORITY}
+    for field_name in missing:  # an toàn: missing lạ ngoài priority (thực tế không xảy ra)
+        if field_name not in known_required:
+            steps.append(PendingStep("collect_required_field", field_name, field_name, field_name, is_required=True))
+
+    all_fields = profile_snapshot.get("all_fields")
+    skipped = profile_snapshot.get("skipped_fields", [])
+    if all_fields is None:
+        return steps
+
+    # 2. BRANDKIT (đảo LÊN TRƯỚC tư vấn) — brandkit_consent (Slot 4.0)
+    if "brandkit_consent" not in all_fields and "brandkit_consent" not in skipped:
+        steps.append(PendingStep(
+            "collect_required_field", "brandkit_consent",
+            "đồng ý nhận bộ thương hiệu", "đồng ý nhận bộ thương hiệu", is_required=True,
+        ))
+
+    consent_val = all_fields.get("brandkit_consent")
+    if consent_val == "yes" or consent_val is True:
+        brandkit_sub: list[PendingStep] = []
+        # Dealer đã có logo nhưng chưa rõ nhu cầu → hỏi ngược TRƯỚC màu
+        if (
+            all_fields.get("logo_existing_intent") == "unclarified"
+            and "logo_existing_intent" not in skipped
+        ):
+            brandkit_sub.append(PendingStep(
+                "collect_optional_field", "logo_existing_intent", "nhu cầu với logo hiện có",
+                (
+                    "dealer đã có logo — hỏi nhu cầu thật với 3 lựa chọn: "
+                    "nâng cấp/tinh chỉnh logo cũ, thiết kế lại bố cục/màu, "
+                    "hay làm mới hoàn toàn"
+                ),
+                display_label="nhu cầu với logo hiện có (nâng cấp / thiết kế lại / làm mới)",
+            ))
+        if "color_accent" not in all_fields and "color_accent" not in skipped:
+            brandkit_sub.append(PendingStep(
+                "collect_optional_field", "color_accent",
+                "màu chủ đạo phong thủy", "màu chủ đạo phong thủy",
+            ))
+        if "logo_style" not in all_fields and "logo_style" not in skipped:
+            brandkit_sub.append(PendingStep(
+                "collect_optional_field", "logo_style", "phong cách logo",
+                (
+                    "phong cách logo anh thích (hiện đại / mạnh mẽ / tối giản / "
+                    "sang trọng...) — nếu chưa rõ thì để em chọn theo ngành cho hợp"
+                ),
+            ))
+        if "slogan_preference" not in all_fields and "slogan_preference" not in skipped:
+            brandkit_sub.append(PendingStep(
+                "collect_optional_field", "slogan_preference", "slogan",
+                (
+                    "anh có sẵn slogan hay câu tâm đắc cho thương hiệu không, "
+                    "hay để em đề xuất vài câu rồi anh chọn"
+                ),
+            ))
+        steps.extend(brandkit_sub)
+
+        # 9.4b — Sau khi xong màu/phong cách/slogan → SHOW MẪU THAM KHẢO (1 lần).
+        # Gate bằng marker brandkit_preview_shown (set sau khi đã show).
+        if not brandkit_sub and not (
+            "brandkit_preview_shown" in all_fields or "brandkit_preview_shown" in skipped
+        ):
+            steps.append(PendingStep(
+                "show_brandkit_preview", "brandkit_preview", "xem mẫu tham khảo",
+                "trình vài mẫu logo + danh thiếp tham khảo khớp phong cách/màu",
+                display_label="xem mẫu tham khảo",
+            ))
+
+    # 3. TƯ VẤN bonus (SAU brandkit): 9 tiêu chí C1-C9 + 1 field phụ — slot-level satisfied (A fix)
+    for field_name, label, hint in OPTIONAL_FIELDS_PRIORITY:
+        if not optional_satisfied(field_name, all_fields, skipped):
+            steps.append(PendingStep("collect_optional_field", field_name, label, hint))
+
+    return steps
+
+
+# Field thuộc giai đoạn TƯ VẤN bonus (C1-C9 + phụ) — KHÔNG gồm required/brandkit.
+_CONSULTATION_FIELDS = {f for f, _l, _h in OPTIONAL_FIELDS_PRIORITY}
+
+
+def pending_consultation_fields(profile_snapshot: dict[str, Any]) -> list[str]:
+    """Các field tư vấn (C1-C9 + phụ) còn PENDING — để bỏ qua nốt khi khách 'đủ rồi'."""
+    return [
+        s.target_field
+        for s in iter_pending_steps(profile_snapshot)
+        if s.target_field in _CONSULTATION_FIELDS
+    ]
+
+
+def is_consultation_phase(profile_snapshot: dict[str, Any]) -> bool:
+    """True nếu đã xong required + brandkit, chỉ còn các bước TƯ VẤN bonus pending.
+
+    Dùng để GATE tín hiệu 'đủ rồi': chỉ cho wrap-up khi thật sự đang tư vấn
+    (không phải lúc còn thiếu field cơ bản / brandkit)."""
+    steps = iter_pending_steps(profile_snapshot)
+    return bool(steps) and all(s.target_field in _CONSULTATION_FIELDS for s in steps)
+
+
 class WorkflowEngine:
     """Compute the next suggested objective for a conversation turn."""
 
@@ -106,7 +253,7 @@ class WorkflowEngine:
         6. Zalo handoff
         7. Continue conversation
         """
-        # 1. Check blocking flags
+        # 1. Check blocking flags (ưu tiên cao nhất — KHÔNG nằm trong iter_pending_steps)
         blocking = profile_snapshot.get("blocking_flags", [])
         if blocking:
             flag = blocking[0]
@@ -117,100 +264,10 @@ class WorkflowEngine:
                 "prompt_hint": f"Flag: {flag}",
             }
 
-        # 2. Check missing required fields
-        missing = profile_snapshot.get("missing_required_fields", [])
-        if missing:
-            # Find first missing field in priority order
-            for field_name, label in REQUIRED_FIELDS_PRIORITY:
-                if field_name in missing:
-                    return {
-                        "type": "collect_required_field",
-                        "target_field": field_name,
-                        "target_field_label": label,
-                        "prompt_hint": label,
-                    }
-            # Fallback: first missing field
-            field = missing[0]
-            return {
-                "type": "collect_required_field",
-                "target_field": field,
-                "target_field_label": field,
-                "prompt_hint": field,
-            }
-
-        # 3. Check optional and design fields if all_fields is in snapshot
-        all_fields = profile_snapshot.get("all_fields")
-        skipped = profile_snapshot.get("skipped_fields", [])
-        if all_fields is not None:
-            # Check optional fields (up to 3.5) — slot coi như xong nếu field
-            # chính HOẶC field anh em (signal) đã có (A fix).
-            for field_name, label, hint in OPTIONAL_FIELDS_PRIORITY:
-                if not optional_satisfied(field_name, all_fields, skipped):
-                    return {
-                        "type": "collect_optional_field",
-                        "target_field": field_name,
-                        "target_field_label": label,
-                        "prompt_hint": hint,
-                    }
-
-            # Check brandkit_consent (Slot 4.0)
-            if "brandkit_consent" not in all_fields and "brandkit_consent" not in skipped:
-                return {
-                    "type": "collect_required_field",
-                    "target_field": "brandkit_consent",
-                    "target_field_label": "đồng ý nhận bộ thương hiệu",
-                    "prompt_hint": "đồng ý nhận bộ thương hiệu",
-                }
-
-            consent_val = all_fields.get("brandkit_consent")
-            if consent_val == "yes" or consent_val is True:
-                # Dealer đã có logo nhưng chưa rõ nhu cầu → hỏi ngược TRƯỚC màu
-                # (feedback 2026-06-10: không tự kết luận thay dealer)
-                if (
-                    all_fields.get("logo_existing_intent") == "unclarified"
-                    and "logo_existing_intent" not in skipped
-                ):
-                    return {
-                        "type": "collect_optional_field",
-                        "target_field": "logo_existing_intent",
-                        "target_field_label": "nhu cầu với logo hiện có",
-                        "prompt_hint": (
-                            "dealer đã có logo — hỏi nhu cầu thật với 3 lựa chọn: "
-                            "nâng cấp/tinh chỉnh logo cũ, thiết kế lại bố cục/màu, "
-                            "hay làm mới hoàn toàn"
-                        ),
-                    }
-
-                # Check color_accent (Slot 4.2)
-                if "color_accent" not in all_fields and "color_accent" not in skipped:
-                    return {
-                        "type": "collect_optional_field",
-                        "target_field": "color_accent",
-                        "target_field_label": "màu chủ đạo phong thủy",
-                        "prompt_hint": "màu chủ đạo phong thủy",
-                    }
-
-                # P4.4 — brandkit thu thêm phong cách + slogan (OPTIONAL, như màu).
-                if "logo_style" not in all_fields and "logo_style" not in skipped:
-                    return {
-                        "type": "collect_optional_field",
-                        "target_field": "logo_style",
-                        "target_field_label": "phong cách logo",
-                        "prompt_hint": (
-                            "phong cách logo anh thích (hiện đại / mạnh mẽ / tối giản / "
-                            "sang trọng...) — nếu chưa rõ thì để em chọn theo ngành cho hợp"
-                        ),
-                    }
-                if "slogan_preference" not in all_fields and "slogan_preference" not in skipped:
-                    return {
-                        "type": "collect_optional_field",
-                        "target_field": "slogan_preference",
-                        "target_field_label": "slogan",
-                        "prompt_hint": (
-                            "anh có sẵn slogan hay câu tâm đắc cho thương hiệu không, "
-                            "hay để em đề xuất vài câu rồi anh chọn"
-                        ),
-                    }
+        # 2-3. Required → optional C1-C9 → brandkit (nguồn DUY NHẤT)
+        steps = iter_pending_steps(profile_snapshot)
+        if steps:
+            return steps[0].to_objective()
 
         # 4. Check if profile needs review
         review_status = profile_snapshot.get("review_status", "DRAFT")
@@ -247,50 +304,11 @@ class WorkflowEngine:
         if logo_status == "BLOCKED_DUPLICATE":
             return "ESCALATED"
 
+        # Còn blocking flag HOẶC còn bước thu thập (required/optional/brandkit) → WAITING.
+        # Dùng chung iter_pending_steps với compute_objective để 2 bên không lệch.
         blocking = profile_snapshot.get("blocking_flags", [])
-        
-        # Check if we are still asking fields (required or optional)
-        all_fields = profile_snapshot.get("all_fields")
-        if all_fields is not None:
-            missing = profile_snapshot.get("missing_required_fields", [])
-            skipped = profile_snapshot.get("skipped_fields", [])
-            
-            # Check optional fields (up to 3.5) — slot-level satisfied (A fix)
-            has_missing_optional = False
-            for f_name, _, _ in OPTIONAL_FIELDS_PRIORITY:
-                if not optional_satisfied(f_name, all_fields, skipped):
-                    has_missing_optional = True
-                    break
-            
-            # Check brandkit_consent (Slot 4.0)
-            has_missing_consent = "brandkit_consent" not in all_fields and "brandkit_consent" not in skipped
-            
-            # Check color_accent (Slot 4.2) + logo_existing_intent chưa rõ
-            # + brandkit phụ (phong cách / slogan — P4.4)
-            has_missing_color = False
-            has_unclarified_logo = False
-            has_missing_brandkit_extra = False
-            if all_fields.get("brandkit_consent") == "yes" or all_fields.get("brandkit_consent") is True:
-                if "color_accent" not in all_fields and "color_accent" not in skipped:
-                    has_missing_color = True
-                if (
-                    all_fields.get("logo_existing_intent") == "unclarified"
-                    and "logo_existing_intent" not in skipped
-                ):
-                    has_unclarified_logo = True
-                for _bk in ("logo_style", "slogan_preference"):
-                    if _bk not in all_fields and _bk not in skipped:
-                        has_missing_brandkit_extra = True
-
-            if (
-                blocking or missing or has_missing_optional or has_missing_consent
-                or has_missing_color or has_unclarified_logo or has_missing_brandkit_extra
-            ):
-                return "WAITING_REQUIRED_FIELD"
-        else:
-            missing = profile_snapshot.get("missing_required_fields", [])
-            if blocking or missing:
-                return "WAITING_REQUIRED_FIELD"
+        if blocking or iter_pending_steps(profile_snapshot):
+            return "WAITING_REQUIRED_FIELD"
 
         review_status = profile_snapshot.get("review_status", "DRAFT")
         if review_status == "DRAFT":

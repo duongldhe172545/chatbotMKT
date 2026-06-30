@@ -15,6 +15,7 @@ Observations detected:
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -82,6 +83,41 @@ _ANH_SELF_REF = [
     r"\bcho\s+anh\s+(xin|h[oỏ]i|g[uử]i|bi[eế]t)\b",
     r"\banh\s+(mu[oố]n|c[âầ]n|đang|l[aà]\s+ch[uủ])\b",
 ]
+
+
+# ============================================================
+# 9.4 — Tín hiệu "đủ rồi / chốt" lúc đang TƯ VẤN (C1-C9 bonus)
+# ============================================================
+# High-precision: chỉ bắt câu KẾT THÚC tư vấn rõ ràng. Dùng để bỏ qua nốt các câu
+# tư vấn còn lại → ra thẳng thẻ hồ sơ (review). CHỈ áp dụng khi đang ở giai đoạn
+# tư vấn (gate ở chat_service), nên "đủ rồi" lỡ là câu trả lời cũng ít hại.
+# Match trên text ĐÃ BỎ DẤU (tránh địa ngục tổ hợp dấu tiếng Việt).
+_WRAPUP_PATTERNS = [
+    r"\bdu\s*(roi|nhe|thoi|day)\b",                  # "đủ rồi / đủ nhé / đủ thôi / đủ đây"
+    r"\b(the|vay)\s*thoi\b",                          # "thế thôi / vậy thôi"
+    r"\bchot\s*(luon|di|nhe|thoi|nha)\b",            # "chốt luôn/đi/nhé/thôi/nha"
+    r"\bxong\s*(roi|nhe)\b",                          # "xong rồi"
+    r"\bkhong\s*(can|muon)\s*(hoi\s*)?(them|nua)\b",  # "không cần/muốn hỏi thêm/nữa"
+    r"\bdung\s*(lai|o\s*day)\b",                      # "dừng lại / dừng ở đây"
+    r"\btam\s*du\b",                                  # "tạm đủ"
+    r"\bbay\s*nhieu\s*(la\s*)?(du|duoc)\b",           # "bấy nhiêu là đủ/được"
+]
+
+
+def _strip_accents(text: str) -> str:
+    """Bỏ dấu tiếng Việt + đ→d, về ASCII thường (cho match high-precision)."""
+    text = text.replace("đ", "d").replace("Đ", "D")
+    nfkd = unicodedata.normalize("NFD", text)
+    return "".join(c for c in nfkd if not unicodedata.combining(c)).lower()
+
+
+def detect_wrapup(text: str) -> bool:
+    """True nếu khách phát tín hiệu KẾT THÚC tư vấn ("đủ rồi / chốt / thế thôi…").
+
+    Luật ngôn ngữ high-precision (không khoá case nghiệp vụ). Gọi có GATE ở
+    chat_service: chỉ khi đang hỏi 1 field tư vấn C1-C9 (bonus)."""
+    norm = _strip_accents(text or "")
+    return any(re.search(p, norm) for p in _WRAPUP_PATTERNS)
 
 
 def detect_address_form(messages: list[dict[str, Any]], default: str = "anh") -> str:

@@ -118,5 +118,6 @@ class TestWorkflowProbe:
         snap = _snapshot_required_done(
             logo_existing_intent="new", color_accent="auto",
             logo_style="auto", slogan_preference="auto",
+            brandkit_preview_shown="yes",  # 9.4b: đã show mẫu → mới tới review
         )
         assert engine.compute_workflow_state(snap) == "READY_FOR_REVIEW"

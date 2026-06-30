@@ -91,7 +91,8 @@ class TestNoStuckOnPain:
     def test_workflow_ready_despite_empty_pain(self):
         af = self._all_optional_via_signal()
         af.update({"brandkit_consent": "yes", "color_accent": "auto",
-                   "logo_style": "auto", "slogan_preference": "auto"})
+                   "logo_style": "auto", "slogan_preference": "auto",
+                   "brandkit_preview_shown": "yes"})  # 9.4b: đã show mẫu
         snap = _snapshot(**af)
         assert self.engine.compute_workflow_state(snap) == "READY_FOR_REVIEW"
 

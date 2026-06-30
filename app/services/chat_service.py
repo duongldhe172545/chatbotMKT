@@ -288,10 +288,26 @@ class ChatService:
             )
             do_confirm = obs.intent == "affirmative"
 
+        # 9.4 — Tín hiệu "đủ rồi / chốt" lúc đang TƯ VẤN (C1-C9 bonus) → bỏ qua nốt
+        # các câu tư vấn còn lại → ra thẳng thẻ hồ sơ. Gate is_consultation_phase ở tx2.
+        from app.parlant.observation_detector import detect_wrapup
+        wants_wrapup = detect_wrapup(text)
+
         # ============================================================
         # tx2 (short write): apply skip/confirm, then read profile snapshot
         # ============================================================
         with self.store.database.transaction() as conn:
+            if wants_wrapup and not do_confirm:
+                from app.parlant.workflow_engine import (
+                    is_consultation_phase,
+                    pending_consultation_fields,
+                )
+
+                pre_snap = profile_service.get_profile_snapshot(conn, session_id)
+                if is_consultation_phase(pre_snap):
+                    for f in pending_consultation_fields(pre_snap):
+                        if f not in skip_fields:
+                            skip_fields.append(f)
             if skip_fields or do_confirm:
                 profile_row = self.store.get_or_create_profile(conn, session_id)
                 for f_name in skip_fields:
@@ -347,11 +363,21 @@ class ChatService:
         backend_latency_ms = 200  # Stub latency (e.g. 200ms) or from agent if LLM
         reply_hash = hashlib.md5(turn_result.reply_text.encode("utf-8")).hexdigest()
         msg_type = "text"
-        if (
-            turn_result.suggested_objective
-            and turn_result.suggested_objective.get("target_field") == "address"
-        ):
+        _objective = turn_result.suggested_objective or {}
+        if _objective.get("target_field") == "address":
             msg_type = "address_form"
+
+        # 9.4b — objective preview: gắn message_type + chọn MẪU THAM KHẢO cho FE render.
+        preview_samples = None
+        if _objective.get("type") == "show_brandkit_preview":
+            msg_type = "brandkit_preview"
+            from app.services.brandkit_samples import pick_samples
+            _af = profile_snapshot.get("all_fields", {})
+            preview_samples = pick_samples(
+                color=_af.get("color_accent"),
+                style=_af.get("logo_style"),
+                industry=_af.get("main_product"),
+            )
 
         # 10.1 van: SĐT đã bị hỏi lặp >= _PHONE_RETRY_LIMIT lượt liên tiếp mà chưa hợp lệ,
         # và lượt này khách lại đưa input CÓ chữ số (typo, không phải từ chối) → nhận TẠM.
@@ -397,6 +423,13 @@ class ChatService:
                 conn, message_id=user_message_id, turn_id=turn["id"]
             )
 
+            _raw_payload = {
+                "runtime": self.settings.conversation_runtime,
+                "agent_model": turn_result.trace.agent_model_id,
+                "canned_id": turn_result.trace.canned_response_id,
+            }
+            if preview_samples is not None:
+                _raw_payload["samples"] = preview_samples
             linh_messages = [
                 self.store.insert_message(
                     conn,
@@ -405,13 +438,22 @@ class ChatService:
                     source="linh_mkt",
                     message_type=msg_type,
                     text=turn_result.reply_text,
-                    raw_payload={
-                        "runtime": self.settings.conversation_runtime,
-                        "agent_model": turn_result.trace.agent_model_id,
-                        "canned_id": turn_result.trace.canned_response_id,
-                    },
+                    raw_payload=_raw_payload,
                 )
             ]
+            # 9.4b — đánh dấu đã show mẫu (1 lần) → lượt sau chuyển sang tư vấn C1-C9.
+            if preview_samples is not None and updated_snapshot.get("profile_id"):
+                self.store.upsert_profile_field(
+                    conn,
+                    profile_id=updated_snapshot["profile_id"],
+                    field_name="brandkit_preview_shown",
+                    raw_value="shown",
+                    normalized_value="yes",
+                    status="PROVIDED",
+                    source_type="system",
+                    confidence=1.0,
+                    evidence_message_ids=[user_message_id],
+                )
 
             self.store.update_turn_event_count(
                 conn, turn_id=turn["id"], count=len(linh_messages)

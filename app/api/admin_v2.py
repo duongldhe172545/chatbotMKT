@@ -201,6 +201,12 @@ def get_session(session_id: str, request: Request, admin: str = Depends(require_
                 "created_at": m["created_at"],
             })
 
+        # Cách xưng hô thật (suy từ tin nhắn khách) — hết hard-code "anh"
+        from app.parlant.observation_detector import detect_address_form
+        address_form = detect_address_form(
+            [{"source": m["source"], "text": m["text"]} for m in messages]
+        )
+
         # Active flags
         active_flags = conn.execute("SELECT flag_name FROM flags WHERE session_id = ? AND status = 'ACTIVE'", (session_id,)).fetchall()
         flags = [f["flag_name"] for f in active_flags]
@@ -243,7 +249,7 @@ def get_session(session_id: str, request: Request, admin: str = Depends(require_
             "flags": flags,
             "skipped_slots": [],
             "detected_dealer_type": logo_issued_status,
-            "address_form": "anh",
+            "address_form": address_form,
             "created_at": session["started_at"],
             "updated_at": session["last_message_at"] or session["started_at"],
             "closed_at": session["closed_at"],

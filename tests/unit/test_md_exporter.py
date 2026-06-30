@@ -64,21 +64,18 @@ class TestRenderProfileMd:
             phone_or_zalo="0912345678",
             main_product="cửa nhôm kính",
             brandkit_consent="yes",
-            category_stack=["cua_nhom_kinh", "tu_bep"],
+            main_category="cua_nhom_kinh",
             est_team_size=5,
             supplier_brands=["Xingfa"],
             province="TP.HCM",
-            slogan_options=["A", "B", "C"],
         )
         md = render_profile_md(session, profile)
         assert "Nhôm Kính Thanh Tùng" in md
         assert "0912345678" in md
-        assert "cua_nhom_kinh, tu_bep" in md
+        assert "cua_nhom_kinh" in md
         assert "Xingfa" in md
         assert "5 người" in md
         assert "TP.HCM" in md
-        # Slogan list
-        assert "1. A" in md
 
 
     def test_no_forbidden_vocab(self):

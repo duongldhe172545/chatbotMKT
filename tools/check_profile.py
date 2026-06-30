@@ -21,8 +21,8 @@ row = con.execute("SELECT * FROM dealer_profile_raw LIMIT 1").fetchone()
 d = dict(row)
 print("\n=== Profile ===")
 fields = [
-    "owner_name", "dealer_name", "address", "province", "district",
-    "phone_or_zalo", "main_product", "main_category", "category_stack",
+    "owner_name", "dealer_name", "address", "province", "ward",
+    "phone_or_zalo", "main_product", "main_category",
     "business_model_signal", "est_team_size", "supplier_brands",
     "primary_contact_channel", "facebook",
     "customer_old_percentage", "customer_storage_method",
@@ -34,7 +34,7 @@ fields = [
 ]
 for k in fields:
     v = d.get(k)
-    if k in ("category_stack", "supplier_brands", "slogan_options") and isinstance(v, str):
+    if k in ("supplier_brands", "slogan_options") and isinstance(v, str):
         v = json.loads(v) if v else []
     print(f"  {k}: {v!r}")
 

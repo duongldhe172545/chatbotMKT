@@ -34,13 +34,6 @@ class ProfileService:
         profile = self.store.get_or_create_profile(conn, session_id)
         profile_id = profile["id"]
 
-        # Sync logo job status with database
-        from app.core.logo_jobs import get_logo_job
-        job = get_logo_job(session_id)
-        if job and job.get("status") == "completed" and profile["logo_issued_status"] != "ISSUED":
-            self.store.update_profile_status(conn, profile_id=profile_id, review_status=profile["review_status"], logo_issued_status="ISSUED")
-            # Reload profile row
-            profile = self.store.get_or_create_profile(conn, session_id)
         fields = self.store.get_profile_fields(conn, profile_id)
 
         # Get active flags for this session or profile
@@ -142,7 +135,7 @@ class ProfileService:
                 # Resolve active flags for this field when a valid value is provided
                 active_flags = self.store.get_active_flags(conn, profile_id=profile_id)
                 for f in active_flags:
-                    if f["field_name"] == field_name or (field_name in ("phone_or_zalo", "phone_secondary") and f["flag_name"] == "phone_invalid_after_retry"):
+                    if f["field_name"] == field_name or (field_name == "phone_or_zalo" and f["flag_name"] == "phone_invalid_after_retry"):
                         self.store.resolve_flag(conn, f["id"])
             else:
                 # 10.1 VAN AN TOÀN: SĐT bắt buộc gõ sai nhiều lần liên tiếp (chat_service
@@ -314,19 +307,3 @@ class ProfileService:
                     evidence_message_ids=[evidence_message_id],
                 )
 
-        # phone_or_zalo fallback from phone_secondary
-        if field_name == "phone_secondary" and value:
-            fields = self.store.get_profile_fields(conn, profile_id)
-            has_valid_primary = any(f["field_name"] == "phone_or_zalo" and f["status"] == "PROVIDED" for f in fields)
-            if not has_valid_primary:
-                self.store.upsert_profile_field(
-                    conn,
-                    profile_id=profile_id,
-                    field_name="phone_or_zalo",
-                    raw_value=value,
-                    normalized_value=value,
-                    status="PROVIDED",
-                    source_type="auto_derive",
-                    confidence=1.0,
-                    evidence_message_ids=[evidence_message_id],
-                )

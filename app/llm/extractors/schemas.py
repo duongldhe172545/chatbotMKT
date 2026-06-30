@@ -157,17 +157,15 @@ TOOL_SLOT_1_3: dict = {
 
 
 # ============================================================
-# Slot 2.1 — Sản phẩm chủ lực + danh mục
+# Slot 2.1 — Sản phẩm chủ lực
 # ============================================================
 
 TOOL_SLOT_2_1: dict = {
     "name": "extract_slot_2_1",
     "description": (
-        "Extract sản phẩm mạnh nhất (main_product) + danh mục đang làm "
-        "(category_stack list). Dealer có thể kể nhiều mảng — bot trích "
-        "raw text 'main_product' (vd 'cửa nhôm kính hệ Xingfa'), và "
-        "category_stack là list các code chuẩn (LLM tự suy từ context, "
-        "KHÔNG substring match)."
+        "Extract sản phẩm dealer làm (main_product). Dealer có thể kể NHIỀU "
+        "mặt hàng — gom HẾT vào main_product, phân cách dấu phẩy "
+        "(vd 'cửa nhôm kính, cửa cuốn, tủ bếp')."
     ),
     "input_schema": {
         "type": "object",
@@ -175,22 +173,11 @@ TOOL_SLOT_2_1: dict = {
             "main_product": {
                 "type": ["string", "null"],
                 "description": (
-                    "Sản phẩm mạnh nhất, raw text. Vd 'cửa nhôm kính hệ "
-                    "Xingfa', 'cửa cuốn motor', 'tủ bếp acrylic'. Null "
-                    "nếu dealer chưa cho hoặc nói chung chung."
+                    "Sản phẩm dealer làm, raw text. Nếu NHIỀU mặt hàng → liệt "
+                    "kê hết, phân cách dấu phẩy (vd 'cửa nhôm kính hệ Xingfa, "
+                    "cửa cuốn motor, tủ bếp acrylic'). Null nếu chưa cho."
                 ),
                 "maxLength": 300,
-            },
-            "category_stack": {
-                "type": ["array", "null"],
-                "description": (
-                    "List code danh mục dealer đang làm. Chọn từ 7 code: "
-                    "cua_cuon, cua_nhom_kinh, cua_thep, tu_bep, solar, "
-                    "bao_tri_sua_chua, vlxd_tong_hop. Suy từ context, "
-                    "không substring match."
-                ),
-                "items": {"type": "string"},
-                "maxItems": 7,
             },
         },
         "required": [],
@@ -318,14 +305,6 @@ TOOL_SLOT_2_4: dict = {
                 ),
                 "maxLength": 500,
             },
-            "customer_segment_signal": {
-                "type": ["string", "null"],
-                "description": (
-                    "Nhóm khách chính raw. Vd 'nhà dân', 'dự án thầu', "
-                    "'chủ yếu chung cư', 'công trình dân dụng'."
-                ),
-                "maxLength": 500,
-            },
         },
         "required": [],
         "additionalProperties": False,
@@ -341,8 +320,7 @@ TOOL_SLOT_2_5: dict = {
     "name": "extract_slot_2_5",
     "description": (
         "Extract kênh khách liên hệ chính (primary_contact_channel). "
-        "Vd 'Zalo', 'điện thoại', 'Facebook', 'khách cũ giới thiệu', "
-        "'mixed'. Cũng extract Zalo number nếu dealer cho."
+        "Vd 'Zalo', 'điện thoại', 'Facebook', 'khách cũ giới thiệu', 'mixed'."
     ),
     "input_schema": {
         "type": "object",
@@ -354,13 +332,6 @@ TOOL_SLOT_2_5: dict = {
                     "'mixed' (đa kênh)."
                 ),
                 "maxLength": 100,
-            },
-            "zalo": {
-                "type": ["string", "null"],
-                "description": (
-                    "Số Zalo riêng nếu khác phone chính. Vd '0912345678'."
-                ),
-                "maxLength": 30,
             },
         },
         "required": [],

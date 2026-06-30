@@ -105,6 +105,8 @@ class TestBrandkitFlow:
         # đã thu hết optional 2.3-3.5 để flow chạm tới brandkit
         for f, _l, _h in OPTIONAL_FIELDS_PRIORITY:
             snap["all_fields"].setdefault(f, "x")
+        # 9.4b: coi như đã show mẫu tham khảo → các test review/ready bỏ qua bước preview
+        snap["all_fields"].setdefault("brandkit_preview_shown", "yes")
         return snap
 
     def test_asks_logo_style_after_color(self):

@@ -88,37 +88,16 @@ def _build_collection_status(profile_snapshot: dict[str, Any]) -> str:
     tự chốt + gửi link Zalo sau khi bàn xong màu logo (slot cuối).
     Dùng chung priority order với WorkflowEngine để 2 bên không lệch nhau.
     """
-    from app.parlant.workflow_engine import (
-        OPTIONAL_FIELDS_PRIORITY,
-        REQUIRED_FIELDS_PRIORITY,
-        optional_satisfied,
-    )
+    from app.parlant.workflow_engine import iter_pending_steps
 
     all_fields = profile_snapshot.get("all_fields") or {}
     skipped = profile_snapshot.get("skipped_fields", [])
-    missing_required = profile_snapshot.get("missing_required_fields", [])
 
-    filled = [name for name in all_fields if all_fields.get(name)]
+    _HIDDEN = {"brandkit_preview_shown"}  # field hệ thống (marker), không hiện cho LLM
+    filled = [name for name in all_fields if all_fields.get(name) and name not in _HIDDEN]
 
-    pending: list[str] = []
-    for field_name, label in REQUIRED_FIELDS_PRIORITY:
-        if field_name in missing_required:
-            pending.append(f"{label} (BẮT BUỘC)")
-    for field_name, label, _hint in OPTIONAL_FIELDS_PRIORITY:
-        if not optional_satisfied(field_name, all_fields, skipped):
-            pending.append(label)
-    if "brandkit_consent" not in all_fields and "brandkit_consent" not in skipped:
-        pending.append("đồng ý nhận bộ thương hiệu (BẮT BUỘC)")
-    consent_val = all_fields.get("brandkit_consent")
-    if consent_val == "yes" or consent_val is True:
-        if all_fields.get("logo_existing_intent") == "unclarified":
-            pending.append("nhu cầu với logo hiện có (nâng cấp / thiết kế lại / làm mới)")
-        if "color_accent" not in all_fields and "color_accent" not in skipped:
-            pending.append("màu chủ đạo phong thủy")
-        if "logo_style" not in all_fields and "logo_style" not in skipped:
-            pending.append("phong cách logo")
-        if "slogan_preference" not in all_fields and "slogan_preference" not in skipped:
-            pending.append("slogan")
+    # Dùng chung NGUỒN với WorkflowEngine (iter_pending_steps) — 1 nơi quyết thứ tự.
+    pending: list[str] = [step.status_label() for step in iter_pending_steps(profile_snapshot)]
 
     lines = [
         f"- Đã thu: {', '.join(filled) if filled else '(chưa có)'}",
@@ -169,6 +148,22 @@ def _task_from_objective(
                 f"Báo nhẹ là số chưa đúng rồi xin lại đúng SĐT/Zalo. "
                 "TUYỆT ĐỐI KHÔNG nói 'đã ghi nhận/đã lưu số', KHÔNG hỏi sang việc khác."
             )
+        # 9.4c — Field tư vấn (C1-C9 + phụ) đứng SAU brandkit: đổi khung "tư vấn/đồng
+        # hành", nhẹ nhàng, KHÔNG ép. Khách "đủ rồi" thì dừng (hệ thống tự ra thẻ).
+        from app.parlant.workflow_engine import _CONSULTATION_FIELDS
+
+        if obj_type == "collect_optional_field" and field in _CONSULTATION_FIELDS:
+            # 11.2 — khung tư vấn/trò chuyện. KHÔNG giả định "đã xong brandkit"
+            # (vì nhánh consent=no cũng vào đây). KHÔNG chào kết — giữ cuộc trò
+            # chuyện MỞ + tạo hứng để khách nói tiếp. (Lý do chi tiết: 11.1 sau.)
+            return (
+                f"Chuyển sang TRÒ CHUYỆN / TƯ VẤN đồng hành cùng {address_form} — "
+                f"hỏi {address_form} về: {hint}. Giọng thân tình, gần gũi; cho "
+                f"{address_form} tâm sự chuyện nghề; KHÔNG ép trả lời. "
+                "TUYỆT ĐỐI KHÔNG chào kết thúc / chúc-kết-thúc — giữ cuộc trò chuyện "
+                f"MỞ, gợi cho {address_form} hứng nói tiếp. Khách muốn dừng / 'đủ rồi' "
+                "→ tôn trọng, mời quay lại sau. Đáp tự nhiên điều vừa nói rồi hỏi nhẹ."
+            )
         return (
             f"Hoi {address_form} ve: {hint}. "
             f"Phan hoi tu nhien dieu {address_form} vua noi (neu ngan ly do hoi neu hop) roi hoi."
@@ -186,6 +181,17 @@ def _task_from_objective(
             f"Du thong tin roi. Moi {address_form} xem lai ho so va xac nhan. "
             "CHỈ mời xem lại + xác nhận — CHƯA gửi link Zalo, CHƯA nói 'đã xong/đủ "
             f"thông tin', CHƯA chào kết thúc (việc đó để bước bàn giao SAU khi {address_form} đã duyệt)."
+        )
+
+    if obj_type == "show_brandkit_preview":
+        # 9.4b — trình mẫu THAM KHẢO (FE TỰ hiện ảnh từ component.samples). LLM chỉ dẫn lời.
+        return (
+            f"Đã chốt màu/phong cách. Hệ thống ĐÃ tự đính kèm vài mẫu logo + danh thiếp "
+            f"tham khảo cho {address_form} xem (KHÔNG tự viết link/ảnh/'[Link ảnh]' trong "
+            "câu trả lời — ảnh hiện sẵn bên dưới). Chỉ cần DẪN LỜI ngắn gọn mời "
+            f"{address_form} xem mấy mẫu này. NÓI RÕ đây là MẪU THAM KHẢO PHONG CÁCH "
+            "(không phải logo cuối) — bộ riêng đội thiết kế gửi qua Zalo TRONG 3 NGÀY. "
+            f"Hỏi {address_form} cảm nhận. KHÔNG chào kết thúc, CHƯA gửi link Zalo."
         )
 
     if obj_type == "show_logo_brief":

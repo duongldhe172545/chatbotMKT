@@ -209,7 +209,6 @@ def _full_profile() -> DealerProfileRaw:
         phone_or_zalo="0912345678",
         main_product="cửa nhôm kính",
         brandkit_consent="yes",
-        category_stack=["cua_nhom_kinh"],
         province="TP.HCM",
         main_category="cua_nhom_kinh",
     )
@@ -247,7 +246,6 @@ class TestNullHandling:
         profile = _full_profile()
         # Clear all section 2 fields
         profile.main_product = None
-        profile.category_stack = []
         profile.business_model_signal = None
         text = render_card(profile)
         assert "chưa thu thập" in text

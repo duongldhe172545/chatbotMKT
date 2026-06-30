@@ -218,11 +218,6 @@ class TestValidateField:
         )
         assert ok is True
 
-    def test_dispatch_category_stack(self):
-        ok, cleaned = validate_field("category_stack", "tủ bếp, nhôm kính")
-        assert ok is True
-        assert cleaned == ["tu_bep", "cua_nhom_kinh"]
-
     def test_dispatch_supplier_brands(self):
         ok, cleaned = validate_field("supplier_brands", "Xingfa, PMA")
         assert ok is True
@@ -232,27 +227,6 @@ class TestValidateField:
 # ============================================================
 # List Validators
 # ============================================================
-
-class TestValidateCategoryStack:
-    def test_valid_list(self):
-        from app.llm.extractors.validators import validate_category_stack
-        ok, cleaned = validate_category_stack(["tu_bep", "cua_nhom_kinh"])
-        assert ok is True
-        assert cleaned == ["tu_bep", "cua_nhom_kinh"]
-
-    def test_valid_string_comma_separated(self):
-        from app.llm.extractors.validators import validate_category_stack
-        ok, cleaned = validate_category_stack("tủ bếp, cửa cuốn, nhôm kính")
-        assert ok is True
-        assert cleaned == ["tu_bep", "cua_cuon", "cua_nhom_kinh"]
-
-    def test_invalid_values(self):
-        from app.llm.extractors.validators import validate_category_stack
-        ok, cleaned = validate_category_stack(None)
-        assert ok is False
-        ok, cleaned = validate_category_stack("không liên quan")
-        assert ok is False
-
 
 class TestValidateSupplierBrands:
     def test_valid_list(self):

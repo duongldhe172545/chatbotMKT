@@ -277,25 +277,11 @@ class TurnProcessor:
                     elif k in DESIGN_PROFILE_FIELDS:
                         profile_snapshot["design_fields"][k] = cleaned_value
 
-                    # If we just validated a valid phone_secondary, and phone_or_zalo is missing/invalid, copy it!
-                    if k == "phone_secondary":
-                        primary_val = profile_snapshot.get("all_fields", {}).get("phone_or_zalo")
-                        is_primary_valid = False
-                        if primary_val:
-                            is_primary_valid, _ = validate_field("phone_or_zalo", primary_val)
-                        if not is_primary_valid:
-                            profile_snapshot["all_fields"]["phone_or_zalo"] = cleaned_value
-                            if "required_fields" not in profile_snapshot:
-                                profile_snapshot["required_fields"] = {}
-                            profile_snapshot["required_fields"]["phone_or_zalo"] = cleaned_value
-                            if "phone_or_zalo" in profile_snapshot.get("missing_required_fields", []):
-                                profile_snapshot["missing_required_fields"].remove("phone_or_zalo")
-
                     # In-memory flag resolution
                     details = profile_snapshot.get("active_flag_details", [])
                     to_remove = []
                     for fd in details:
-                        if fd["field_name"] == k or (k in ("phone_or_zalo", "phone_secondary") and fd["flag_name"] == "phone_invalid_after_retry"):
+                        if fd["field_name"] == k or (k == "phone_or_zalo" and fd["flag_name"] == "phone_invalid_after_retry"):
                             to_remove.append(fd)
                     for fd in to_remove:
                         details.remove(fd)

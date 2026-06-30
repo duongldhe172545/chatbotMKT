@@ -124,17 +124,7 @@ def test_phase5_pipeline():
     
     print("  ✓ Admin stats endpoint OK")
 
-    # 7. Test Logo endpoint
-    logo_res = client.get(
-        f"/api/v1/sessions/{session_id}/logos",
-        headers=headers,
-    )
-    assert logo_res.status_code == 200
-    logo_data = logo_res.json()["data"]
-    assert logo_data["session_id"] == session_id
-    assert "logo_job" in logo_data
-    assert "logo_variants" in logo_data
-    print("  ✓ Logo endpoints OK")
+    # 7. (Bỏ test Logo endpoint — cụm tự-gen-logo đã gỡ 2026-06-24)
 
     # 8. Test Export endpoints
     export_res = client.get(
@@ -172,8 +162,14 @@ def test_phase5_pipeline():
                 source_type="test",
                 confidence=1.0,
             )
+        # 9.4 brandkit-first: consent=no để luồng tụt xuống tư vấn C1-C9 (test skip optional)
+        store.upsert_profile_field(
+            conn, profile_id=pid, field_name="brandkit_consent",
+            raw_value="no", normalized_value="no", status="PROVIDED",
+            source_type="test", confidence=1.0,
+        )
 
-    # Sending a message now should trigger optional field ask (est_team_size)
+    # required + consent=no đã set → message bất kỳ → objective est_team_size (C1-C9)
     headers["Idempotency-Key"] = "idem-key-opt-ask-1"
     opt_res = client.post(
         f"/api/v1/sessions/{session_id}/messages",
@@ -185,8 +181,8 @@ def test_phase5_pipeline():
         },
     )
     assert opt_res.status_code == 200
-    
-    # Verify via DB
+
+    # Verify via DB — sau khi từ chối brandkit, objective = est_team_size (C1-C9)
     with store.database.transaction() as conn:
         turns = conn.execute("SELECT suggested_objective_json FROM conversation_turns WHERE session_id = ? ORDER BY created_at DESC", (session_id,)).fetchall()
         assert len(turns) >= 2

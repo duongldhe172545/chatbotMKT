@@ -66,8 +66,6 @@ def render_profile_md(
     lines.append(f"- **Chủ cửa hàng:** {profile.owner_name or '_(chưa có)_'}")
     lines.append(f"- **Tên cửa hàng:** {profile.dealer_name or '_(chưa có)_'}")
     lines.append(f"- **SĐT / Zalo:** {profile.phone_or_zalo or '_(chưa có)_'}")
-    if profile.phone_secondary:
-        lines.append(f"- **SĐT phụ:** {profile.phone_secondary}")
     lines.append(f"- **Địa chỉ:** {profile.address or '_(chưa có)_'}")
     location = ""
     if profile.province:
@@ -76,19 +74,16 @@ def render_profile_md(
             location = f"{profile.ward}, {location}"
     if location:
         lines.append(f"- **Tỉnh / Xã chuẩn hóa:** {location}")
-    if profile.district:
-        lines.append(f"- **Quận / Huyện:** {profile.district}")
+    # (bỏ "Quận / Huyện": district vestigial sau refactor địa chỉ → ward/province, không bao giờ được ghi)
     if profile.business_model_signal or profile.dealer_type:
         model_str = profile.business_model_signal or profile.dealer_type
         lines.append(f"- **Mô hình kinh doanh:** {model_str}")
     if profile.main_product:
         lines.append(f"- **Sản phẩm chính:** {profile.main_product}")
-    if profile.category_stack:
-        lines.append(f"- **Danh mục sản phẩm:** {', '.join(profile.category_stack)}")
+    if profile.main_category:
+        lines.append(f"- **Danh mục (ngành) suy ra:** {profile.main_category}")
     if profile.primary_contact_channel:
         lines.append(f"- **Kênh liên hệ chính:** {profile.primary_contact_channel}")
-    if profile.zalo:
-        lines.append(f"- **Số Zalo phụ:** {profile.zalo}")
     lines.append("")
 
     # 2. 9 Tiêu chí đánh giá
@@ -170,17 +165,8 @@ def render_profile_md(
         if profile.feng_shui_signal:
             color_info += f" ({profile.feng_shui_signal})"
         lines.append(f"- **Màu chủ đạo:** {color_info}")
-        lines.append(f"- **Viết tắt logo:** {profile.logo_initials or '_(chưa có)_'}")
-        if profile.brand_name_short:
-            lines.append(f"- **Tên rút gọn:** {profile.brand_name_short}")
-        if profile.initials_full:
-            lines.append(f"- **Viết tắt đầy đủ:** {profile.initials_full}")
         if profile.slogan_preference:
-            lines.append(f"- **Gu slogan / slogan lựa chọn:** {profile.slogan_preference}")
-        if profile.slogan_options:
-            lines.append("- **Slogan gợi ý:**")
-            for i, s in enumerate(profile.slogan_options, 1):
-                lines.append(f"  {i}. {s}")
+            lines.append(f"- **Slogan:** {profile.slogan_preference}")
         lines.append(f"- **Gu logo / phong cách:** {profile.logo_style or '_(chưa có)_'}")
     lines.append("")
 

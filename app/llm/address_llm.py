@@ -1,9 +1,9 @@
 """Address parser Layer 2 — LLM fuzzy fallback khi regex Layer 1 fail.
 
 Refer:
-- F2B.6 (LUAT_2B_llm) — algorithm 3 layer (regex → LLM → district extract)
+- F2B.6 (LUAT_2B_llm) — algorithm 2 layer (regex → LLM fuzzy)
 - D8 STRATEGY — LLM_FAST tier (cheap, deterministic 0.0 temp)
-- F2A.3 Scope 2 — province/district auto-derive
+- F2A.3 Scope 2 — province/ward auto-derive
 
 Khi dealer gõ sai chính tả ("Hà Nôi" thiếu dấu) hoặc viết lạ ("vùng cao
 xa lắm"), regex match whitelist 63 tỉnh KHÔNG cover. Layer 2 LLM fuzzy
@@ -36,10 +36,6 @@ _ADDRESS_SCHEMA: dict = {
             "type": "string",
             "description": "Phường/xã/thị trấn cấp dưới, null nếu không có.",
         },
-        "district": {
-            "type": "string",
-            "description": "Quận/huyện/thị xã/TP trực thuộc tỉnh, null nếu không có.",
-        },
     },
     "required": ["province"],
 }
@@ -57,27 +53,26 @@ def _build_task(address_raw: str, province_list: list[str]) -> str:
         f'- Hiểu các viết tắt: "TPHCM"/"HCM"/"Sài Gòn" → "TP.HCM"; "HN" → "Hà Nội".\n'
         f'- Hiểu sai chính tả nhẹ: "Hà Nôi" → "Hà Nội", "Hồ Chí Minh" → "TP.HCM".\n'
         f"- KHÔNG bịa tỉnh ngoài whitelist (vd Thái Lan, Lào, Campuchia → null).\n"
-        f"- ward = phường/xã/thị trấn (vd Cát Linh, Đại Thịnh, Phường 1).\n"
-        f"- district = quận/huyện/thị xã/TP cấp dưới (optional)."
+        f"- ward = phường/xã/thị trấn (vd Cát Linh, Đại Thịnh, Phường 1)."
     )
 
 
 def llm_parse_address(
     address_raw: str,
     client: LLMClient,
-) -> tuple[Optional[str], Optional[str], Optional[str]]:
-    """LLM Layer 2 fuzzy parse address → (province, district, ward).
+) -> tuple[Optional[str], Optional[str]]:
+    """LLM Layer 2 fuzzy parse address → (province, ward).
 
     Args:
         address_raw: Địa chỉ thô từ dealer
         client: LLMClient
 
     Returns:
-        (province_or_None, district_or_None, ward_or_None).
+        (province_or_None, ward_or_None).
         Province luôn match whitelist 63 tỉnh hoặc None (reject bịa).
     """
     if not address_raw or not isinstance(address_raw, str):
-        return (None, None, None)
+        return (None, None)
 
     province_list = get_province_list()
     task = _build_task(address_raw, province_list)
@@ -92,18 +87,17 @@ def llm_parse_address(
             system_prompt=system,
             conversation_text=f"Địa chỉ dealer: {address_raw}",
             tool_name="parse_vn_address",
-            tool_description="Parse địa chỉ VN → province + district + ward.",
+            tool_description="Parse địa chỉ VN → province + ward.",
             input_schema=_ADDRESS_SCHEMA,
         )
     except Exception as e:
         logger.exception("LLM address parse fail: %s", e)
-        return (None, None, None)
+        return (None, None)
 
     if not isinstance(result, dict):
-        return (None, None, None)
+        return (None, None)
 
     province = result.get("province")
-    district = result.get("district")
     ward = result.get("ward")
 
     # Validate province PHẢI match whitelist (chống bịa)
@@ -117,10 +111,9 @@ def llm_parse_address(
         else:
             province = province_normalized
 
-    district = district if district and isinstance(district, str) else None
     ward = ward if ward and isinstance(ward, str) else None
 
-    return (province, district, ward)
+    return (province, ward)
 
 
 def _norm_for_match(text: str) -> str:

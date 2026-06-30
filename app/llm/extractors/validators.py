@@ -189,62 +189,8 @@ def validate_est_team_size(value) -> tuple[bool, Optional[int]]:
 
 
 # ============================================================
-# Category Stack & Supplier Brands (List fields)
+# Supplier Brands (List field)
 # ============================================================
-
-def validate_category_stack(value) -> tuple[bool, Optional[list[str]]]:
-    """Validate and clean category_stack to a list of allowed category codes.
-
-    Accepts:
-        - A list of strings
-        - A string (comma-separated or single) containing category names/codes
-    """
-    if value is None:
-        return (False, None)
-        
-    name_to_code = {
-        "cua_cuon": "cua_cuon",
-        "cửa cuốn": "cua_cuon",
-        "cua_nhom_kinh": "cua_nhom_kinh",
-        "cửa nhôm kính": "cua_nhom_kinh",
-        "cửa kính": "cua_nhom_kinh",
-        "nhôm kính": "cua_nhom_kinh",
-        "cua_thep": "cua_thep",
-        "cửa thép": "cua_thep",
-        "tu_bep": "tu_bep",
-        "tủ bếp": "tu_bep",
-        "solar": "solar",
-        "điện mặt trời": "solar",
-        "bao_tri_sua_chua": "bao_tri_sua_chua",
-        "bảo trì": "bao_tri_sua_chua",
-        "sửa chữa": "bao_tri_sua_chua",
-        "vlxd_tong_hop": "vlxd_tong_hop",
-        "vlxd": "vlxd_tong_hop",
-        "vật liệu xây dựng": "vlxd_tong_hop",
-    }
-    
-    raw_items = []
-    if isinstance(value, list):
-        raw_items = [str(x) for x in value]
-    elif isinstance(value, str):
-        raw_items = [x.strip() for x in re.split(r"[,;]+", value) if x.strip()]
-    else:
-        return (False, None)
-        
-    cleaned_codes = []
-    for item in raw_items:
-        item_lower = item.lower().strip()
-        matched_code = None
-        for name, code in name_to_code.items():
-            if name in item_lower or item_lower in name:
-                matched_code = code
-                break
-        if matched_code and matched_code not in cleaned_codes:
-            cleaned_codes.append(matched_code)
-            
-    if cleaned_codes:
-        return (True, cleaned_codes)
-    return (False, None)
 
 
 _LOGO_EXISTING_INTENT_VALUES = {"unclarified", "upgrade", "redesign", "new"}
@@ -278,13 +224,11 @@ def validate_supplier_brands(value) -> tuple[bool, Optional[list[str]]]:
 
 _FIELD_VALIDATORS: dict[str, callable] = {
     "phone_or_zalo": validate_phone,
-    "zalo": validate_phone,
     "address": validate_address,
     "brandkit_consent": validate_brandkit_consent,
     "owner_name": validate_name,
     "dealer_name": validate_name,
     "est_team_size": validate_est_team_size,
-    "category_stack": validate_category_stack,
     "supplier_brands": validate_supplier_brands,
     # RAW signal + free text fields → free_text validator
     "local_dominance_signal": validate_free_text,
@@ -305,7 +249,6 @@ _FIELD_VALIDATORS: dict[str, callable] = {
     "payment_terms_signal": validate_free_text,
     "color_accent": validate_free_text,
     "feng_shui_signal": validate_free_text,
-    "logo_initials": validate_free_text,
     "slogan_preference": validate_free_text,
     "logo_style": validate_free_text,
     "logo_existing_intent": validate_logo_existing_intent,
@@ -323,9 +266,8 @@ def validate_field(field_name: str, value):
         (True, cleaned) nếu valid.
         (False, None) nếu invalid.
 
-    Note: với field không có validator dedicated (vd category_stack list,
-    supplier_brands list), passthrough giữ NGUYÊN
-    type — Pydantic JSON schema đã enforce type ở LLM call.
+    Note: với field không có validator dedicated (vd supplier_brands list),
+    passthrough giữ NGUYÊN type — Pydantic JSON schema đã enforce type ở LLM call.
     """
     validator = _FIELD_VALIDATORS.get(field_name)
     if validator is None:

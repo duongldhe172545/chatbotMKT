@@ -79,14 +79,11 @@ class TestSlotMappings:
         """Slot 1.1 multi-field — 2 field bắt buộc owner + dealer."""
         assert SLOT_TO_REQUIRED_FIELDS["1.1"] == ["owner_name", "dealer_name"]
 
-    def test_slot_2_1_only_main_product_required(self):
-        """Slot 2.1: main_product REQUIRED, category_stack OPTIONAL (user Q4 decision).
-
-        Refer batch 4 user feedback: giữ 6 REQUIRED (không 7).
-        """
+    def test_slot_2_1_only_main_product(self):
+        """Slot 2.1: chỉ main_product (category_stack đã xoá — field rác 2026-06-22)."""
         assert SLOT_TO_REQUIRED_FIELDS["2.1"] == ["main_product"]
-        # category_stack vẫn trong all_fields
-        assert "category_stack" in SLOT_TO_ALL_FIELDS["2.1"]
+        assert SLOT_TO_ALL_FIELDS["2.1"] == ["main_product"]
+        assert "category_stack" not in SLOT_TO_ALL_FIELDS["2.1"]
 
     def test_all_17_slots_have_all_fields_mapping(self):
         assert set(SLOT_TO_ALL_FIELDS.keys()) == set(SLOT_PRIORITY_ORDER)

@@ -24,9 +24,7 @@ REQUIRED_PROFILE_FIELDS = [
 
 DESIGN_PROFILE_FIELDS = [
     "brandkit_consent",
-    "logo_initials",
-    "slogan_preference",   # FIX P4.3: field "slogan" không tồn tại trong schema
-    "slogan_options",      # slogan LLM gen sẵn (hiển thị/dùng cho logo)
+    "slogan_preference",
     "color_accent",
     "logo_style",
     "logo_existing_intent",
@@ -34,8 +32,7 @@ DESIGN_PROFILE_FIELDS = [
 
 LOGO_VISIBLE_FIELDS = [
     "dealer_name",
-    "logo_initials",
-    "slogan_preference",   # FIX P4.3 (was "slogan" — không tồn tại)
+    "slogan_preference",
     "phone_or_zalo",
 ]
 

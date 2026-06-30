@@ -112,9 +112,7 @@ class TestDealerProfileRaw:
         assert p.address is None
         assert p.brandkit_consent is None
         # Default factory
-        assert p.category_stack == []
         assert p.supplier_brands == []
-        assert p.slogan_options == []
         # Default fixed
         assert p.contact_role == "Chủ cửa hàng"
 
@@ -126,14 +124,11 @@ class TestDealerProfileRaw:
             phone_or_zalo="0912345678",
             main_product="cửa nhôm kính",
             brandkit_consent="yes",
-            category_stack=["cua_nhom_kinh", "tu_bep"],
             est_team_size=5,
             province="TP.HCM",
-            brand_name_short="Thanh Tùng",
-            slogan_options=["A", "B", "C", "D", "E"],
         )
         assert p.dealer_name == "Nhôm Kính Thanh Tùng"
-        assert len(p.slogan_options) == 5
+        assert p.province == "TP.HCM"
 
     def test_no_scope_4_fields_in_schema(self):
         """Drift guard: Scope 4 field KHÔNG được trong DealerProfileRaw.
@@ -150,17 +145,20 @@ class TestDealerProfileRaw:
             assert field not in profile_fields, \
                 f"Scope 4 field {field} KHÔNG được trong DealerProfileRaw"
 
-    def test_all_28_scope_1_fields_present(self):
-        """6 REQUIRED + 16 OPTIONAL + 6 RAW SIGNAL = 28 Scope 1 fields."""
+    def test_all_25_scope_1_fields_present(self):
+        """6 REQUIRED + 13 OPTIONAL + 6 RAW SIGNAL = 25 Scope 1 fields.
+
+        Bỏ field rác (2026-06-22): category_stack, customer_segment_signal, zalo.
+        """
         fields = set(DealerProfileRaw.model_fields.keys())
         required = {
             "dealer_name", "owner_name", "address",
             "phone_or_zalo", "main_product", "brandkit_consent",
         }
         optional = {
-            "category_stack", "business_model_signal", "est_team_size",
-            "team_stability_signal", "supplier_brands", "customer_segment_signal",
-            "zalo", "facebook", "primary_contact_channel", "fb_marketing_status",
+            "business_model_signal", "est_team_size",
+            "team_stability_signal", "supplier_brands",
+            "facebook", "primary_contact_channel", "fb_marketing_status",
             "customer_old_percentage", "customer_storage_method", "customer_pain",
             "payment_terms_signal", "color_accent", "feng_shui_signal",
         }
@@ -172,20 +170,24 @@ class TestDealerProfileRaw:
         assert required.issubset(fields), f"Missing REQUIRED: {required - fields}"
         assert optional.issubset(fields), f"Missing OPTIONAL: {optional - fields}"
         assert raw_signal.issubset(fields), f"Missing RAW SIGNAL: {raw_signal - fields}"
-        assert len(required) + len(optional) + len(raw_signal) == 28
+        # field rác đã xoá KHÔNG được có lại
+        for junk in ("category_stack", "customer_segment_signal", "zalo", "phone_secondary", "district"):
+            assert junk not in fields, f"Junk field {junk} vẫn còn!"
+        assert len(required) + len(optional) + len(raw_signal) == 25
 
-    def test_all_12_scope_2_derive_fields_present(self):
-        """12 auto-derive fields (including ward). Refactor 2026-05-18: bỏ province_specialty."""
+    def test_all_7_scope_2_derive_fields_present(self):
+        """7 auto-derive fields. Bỏ: province_specialty, district, + cụm tự-gen-logo
+        (brand_name_short, initials_full, initial_single, slogan_options — 2026-06-24)."""
         fields = set(DealerProfileRaw.model_fields.keys())
         derive = {
-            "province", "ward", "district", "main_category", "dealer_type",
-            "brand_name_short", "initials_full", "initial_single",
-            "contact_name", "contact_role", "hotline", "slogan_options",
+            "province", "ward", "main_category", "dealer_type",
+            "contact_name", "contact_role", "hotline",
         }
         assert derive.issubset(fields), f"Missing derive: {derive - fields}"
-        assert len(derive) == 12
-        # province_specialty bị bỏ → KHÔNG được có lại
-        assert "province_specialty" not in fields
+        assert len(derive) == 7
+        for gone in ("province_specialty", "district", "brand_name_short",
+                     "initials_full", "initial_single", "slogan_options", "logo_initials"):
+            assert gone not in fields, f"{gone} vẫn còn!"
 
 
 # ============================================================

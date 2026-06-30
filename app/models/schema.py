@@ -93,19 +93,15 @@ class DealerProfileRaw(BaseModel):
     dealer_name: Optional[str] = None              # slot 1.1
     owner_name: Optional[str] = None               # slot 1.1
     address: Optional[str] = None                  # slot 1.2
-    phone_or_zalo: Optional[str] = None            # slot 1.3 (digits-only, len 9-11)
-    phone_secondary: Optional[str] = None           # FIX M2: slot 1.3 — SĐT phụ khi dealer cho 2 số
-    main_product: Optional[str] = None             # slot 2.1
+    phone_or_zalo: Optional[str] = None            # slot 1.3 (nhiều số → phân cách phẩy)
+    main_product: Optional[str] = None             # slot 2.1 (nhiều sản phẩm → phân cách phẩy)
     brandkit_consent: Optional[str] = None         # slot 4.0 — "yes" / "no"
 
-    # ----- OPTIONAL (16) — "không biết" → null + flag dealer_declined -----
-    category_stack: list[str] = Field(default_factory=list)    # slot 2.1
+    # ----- OPTIONAL (12) — "không biết" → null + flag dealer_declined -----
     business_model_signal: Optional[str] = None                # slot 2.2
     est_team_size: Optional[int] = None                        # slot 2.3
     team_stability_signal: Optional[str] = None                # slot 2.3
     supplier_brands: list[str] = Field(default_factory=list)   # slot 2.4
-    customer_segment_signal: Optional[str] = None              # slot 2.4
-    zalo: Optional[str] = None                                 # slot 2.5
     facebook: Optional[str] = None                             # slot 2.6
     primary_contact_channel: Optional[str] = None              # slot 2.5
     fb_marketing_status: Optional[str] = None                  # slot 2.6
@@ -115,7 +111,6 @@ class DealerProfileRaw(BaseModel):
     payment_terms_signal: Optional[str] = None                 # slot 3.4
     color_accent: Optional[str] = None                         # slot 4.2
     feng_shui_signal: Optional[str] = None                     # slot 4.2
-    logo_initials: Optional[str] = None                        # slot 4.3 — dealer chọn hoặc "auto"
     slogan_preference: Optional[str] = None                    # slot 4.4 — dealer chọn hoặc "auto"
     logo_style: Optional[str] = None                           # slot 4.5 — dealer chọn hoặc "auto"
     logo_existing_intent: Optional[str] = None                 # dealer đã có logo: unclarified/upgrade/redesign/new
@@ -133,17 +128,12 @@ class DealerProfileRaw(BaseModel):
     # ================================================================
     province: Optional[str] = None                             # parse từ address
     ward: Optional[str] = None                                 # parse từ address (xã/phường)
-    district: Optional[str] = None                             # parse từ address (kept for backward compat)
     main_category: Optional[str] = None                        # enum chuẩn hóa từ main_product (LLM auto-derive Phase 2)
     dealer_type: Optional[str] = None                          # enum dai_ly/chu_xuong/...
 
-    brand_name_short: Optional[str] = None                     # LLM rút gọn
-    initials_full: Optional[str] = None
-    initial_single: Optional[str] = None
     contact_name: Optional[str] = None                         # default = owner_name
     contact_role: str = "Chủ cửa hàng"                         # fix default
     hotline: Optional[str] = None                              # default = phone_or_zalo
-    slogan_options: list[str] = Field(default_factory=list)    # LLM gen 5 phương án
 
 
 # ============================================================

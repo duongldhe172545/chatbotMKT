@@ -1,16 +1,16 @@
-"""Address parser — auto-derive province + district từ raw address.
+"""Address parser — auto-derive province + ward từ raw address.
 
 Layer 1: regex match với whitelist 63 tỉnh VN (LUẬT enum).
-Layer 2 LLM fallback: defer Phase 3.
+Layer 2: LLM fuzzy fallback (app/llm/address_llm.py) khi Layer 1 fail.
 
 Refer:
 - F2B.6 (LUAT_2B_llm) — address parser
-- LUAT_2A § F2A.3 Scope 2 — province + district auto-derive
+- LUAT_2A § F2A.3 Scope 2 — province + ward auto-derive
 
 Nguyên tắc "không khoá case":
 - Province match từ whitelist 63 tỉnh (LUẬT validation).
-- District: extract pattern "Quận X" / "Huyện Y" / "Thành phố Z" / "Thị xã W".
-- KHÔNG hard-code mapping quận-tỉnh (cho phép quận Hoàn Kiếm ở HN, quận 1 ở TP.HCM, etc.)
+- Ward: extract phường/xã/thị trấn.
+- KHÔNG hard-code mapping (cho phép mọi tổ hợp ward-tỉnh).
 """
 from __future__ import annotations
 
@@ -123,7 +123,7 @@ def parse_address(
     if province is None and client is not None:
         try:
             from app.llm.address_llm import llm_parse_address
-            llm_province, _, llm_ward = llm_parse_address(address, client)
+            llm_province, llm_ward = llm_parse_address(address, client)
             if llm_province:
                 province = llm_province
             if ward is None and llm_ward:

@@ -291,71 +291,8 @@ def api_health(request: Request) -> dict[str, Any]:
 # ============================================================
 
 
-@router.get("/sessions/{session_id}/logos")
-def get_session_logos(
-    session_id: str,
-    request: Request,
-    authorization: Annotated[str | None, Header(alias="Authorization")] = None,
-) -> JSONResponse:
-    """Return generated local logo concepts for a confirmed dealer."""
-    auth = _authorize_request(request, session_id, authorization)
-    if isinstance(auth, JSONResponse):
-        return auth
-
-    from app.core.logo_jobs import get_logo_job, get_logo_variants
-    job = get_logo_job(session_id)
-    variants = get_logo_variants(session_id)
-    return api_json(
-        {
-            "session_id": session_id,
-            "logo_job": job,
-            "logo_variants": [v.model_dump() for v in variants],
-        },
-        request_id=request.headers.get("X-Request-Id"),
-    )
-
-
-@router.post("/sessions/{session_id}/logos/retry")
-def retry_session_logos(
-    session_id: str,
-    request: Request,
-    authorization: Annotated[str | None, Header(alias="Authorization")] = None,
-) -> JSONResponse:
-    """Retry a failed logo generation job explicitly."""
-    auth = _authorize_request(request, session_id, authorization)
-    if isinstance(auth, JSONResponse):
-        return auth
-
-    from app.services.profile_service import ProfileService
-    from app.models.schema import DealerProfileRaw
-    
-    store = request.app.state.store
-    settings = request.app.state.settings
-    
-    with store.database.transaction() as conn:
-        profile_service = ProfileService(store, settings)
-        snapshot = profile_service.get_profile_snapshot(conn, session_id)
-        
-        # Check if consent is yes and review_status is CONFIRMED
-        review_status = snapshot.get("review_status", "DRAFT")
-        consent = snapshot.get("design_fields", {}).get("brandkit_consent")
-        if review_status != "CONFIRMED" or consent != "yes":
-            return error_response(
-                "conflict",
-                "Hồ sơ chưa đủ điều kiện dựng logo",
-                409,
-                request_id=request.headers.get("X-Request-Id"),
-            )
-            
-        profile_dict = {}
-        for field_name in DealerProfileRaw.model_fields:
-            if field_name in snapshot.get("all_fields", {}):
-                profile_dict[field_name] = snapshot["all_fields"][field_name]
-        profile_raw = DealerProfileRaw(**profile_dict)
-
-    from app.core.logo_jobs import start_logo_job
-    job = start_logo_job(session_id, profile_raw, retry=True)
-    return api_json(job, request_id=request.headers.get("X-Request-Id"))
+# (2026-06-24) Endpoints /logos GET + retry đã bỏ — cụm tự-gen-logo cũ (designer
+# làm logo thật, gửi qua Zalo; không gen logo máy nữa).
 
 
 # ============================================================

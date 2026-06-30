@@ -82,85 +82,60 @@ def test_workflow_engine():
     })
     assert state == "READY_FOR_REVIEW"
 
-    # Optional fields flow tests
-    # 1. Ask first missing optional field (est_team_size) if required are filled
-    obj_opt = engine.compute_objective(
-        profile_snapshot={
-            "missing_required_fields": [],
-            "blocking_flags": [],
-            "review_status": "DRAFT",
-            "logo_issued_status": "NONE",
-            "all_fields": {},
-            "skipped_fields": [],
-        },
-        observations={},
-    )
-    assert obj_opt["type"] == "collect_optional_field"
-    assert obj_opt["target_field"] == "est_team_size"
+    # Optional fields flow — thứ tự 9.4 BRANDKIT-FIRST:
+    # required → brandkit_consent → (yes) màu/phong cách/slogan → preview → C1-C9
+    _req = {
+        "missing_required_fields": [],
+        "blocking_flags": [],
+        "review_status": "DRAFT",
+        "logo_issued_status": "NONE",
+        "skipped_fields": [],
+    }
 
-    # 2. Skip est_team_size -> ask supplier_brands
-    obj_opt2 = engine.compute_objective(
-        profile_snapshot={
-            "missing_required_fields": [],
-            "blocking_flags": [],
-            "review_status": "DRAFT",
-            "logo_issued_status": "NONE",
-            "all_fields": {},
-            "skipped_fields": ["est_team_size"],
-        },
-        observations={},
-    )
-    assert obj_opt2["type"] == "collect_optional_field"
-    assert obj_opt2["target_field"] == "supplier_brands"
+    # 1. Required xong → hỏi brandkit_consent TRƯỚC (không phải C1-C9)
+    obj = engine.compute_objective(
+        profile_snapshot={**_req, "all_fields": {}}, observations={})
+    assert obj["type"] == "collect_required_field"
+    assert obj["target_field"] == "brandkit_consent"
 
-    # 3. All optional fields skipped/filled -> ask brandkit_consent
+    # 2. consent=yes → hỏi màu
+    obj = engine.compute_objective(
+        profile_snapshot={**_req, "all_fields": {"brandkit_consent": "yes"}},
+        observations={})
+    assert obj["target_field"] == "color_accent"
+
+    # 3. màu/phong cách/slogan xong, chưa show mẫu → bước preview
+    bk_done = {"brandkit_consent": "yes", "color_accent": "xanh",
+               "logo_style": "hiện đại", "slogan_preference": "x"}
+    obj = engine.compute_objective(
+        profile_snapshot={**_req, "all_fields": bk_done}, observations={})
+    assert obj["type"] == "show_brandkit_preview"
+
+    # 4. đã show mẫu → bắt đầu tư vấn C1-C9 (est_team_size)
+    obj = engine.compute_objective(
+        profile_snapshot={**_req, "all_fields": {**bk_done, "brandkit_preview_shown": "yes"}},
+        observations={})
+    assert obj["type"] == "collect_optional_field"
+    assert obj["target_field"] == "est_team_size"
+
+    # 5. consent=no → xuống thẳng tư vấn C1-C9 (KHÔNG review ngay)
+    obj = engine.compute_objective(
+        profile_snapshot={**_req, "all_fields": {"brandkit_consent": "no"}},
+        observations={})
+    assert obj["type"] == "collect_optional_field"
+    assert obj["target_field"] == "est_team_size"
+
+    # 6. consent=no + tất cả C1-C9 skipped → review
     all_opts = ["est_team_size", "supplier_brands", "primary_contact_channel", "facebook",
                 "customer_old_percentage", "local_dominance_signal", "customer_storage_method",
                 "customer_pain", "payment_terms_signal", "warranty_responsibility_signal"]
-    obj_consent = engine.compute_objective(
-        profile_snapshot={
-            "missing_required_fields": [],
-            "blocking_flags": [],
-            "review_status": "DRAFT",
-            "logo_issued_status": "NONE",
-            "all_fields": {},
-            "skipped_fields": all_opts,
-        },
-        observations={},
-    )
-    assert obj_consent["type"] == "collect_required_field"
-    assert obj_consent["target_field"] == "brandkit_consent"
+    obj = engine.compute_objective(
+        profile_snapshot={**_req, "all_fields": {"brandkit_consent": "no"},
+                          "skipped_fields": all_opts},
+        observations={})
+    assert obj["type"] == "show_profile_review"
 
-    # 4. brandkit_consent is yes -> ask color_accent
-    obj_color = engine.compute_objective(
-        profile_snapshot={
-            "missing_required_fields": [],
-            "blocking_flags": [],
-            "review_status": "DRAFT",
-            "logo_issued_status": "NONE",
-            "all_fields": {"brandkit_consent": "yes"},
-            "skipped_fields": all_opts,
-        },
-        observations={},
-    )
-    assert obj_color["type"] == "collect_optional_field"
-    assert obj_color["target_field"] == "color_accent"
-
-    # 5. brandkit_consent is no -> show review card immediately
-    obj_no_consent = engine.compute_objective(
-        profile_snapshot={
-            "missing_required_fields": [],
-            "blocking_flags": [],
-            "review_status": "DRAFT",
-            "logo_issued_status": "NONE",
-            "all_fields": {"brandkit_consent": "no"},
-            "skipped_fields": all_opts,
-        },
-        observations={},
-    )
-    assert obj_no_consent["type"] == "show_profile_review"
-
-    print("  [OK] workflow_engine (4 objectives + 2 workflow states + optional fields flow)")
+    print("  [OK] workflow_engine (brandkit-first order + states)")
 
 
 def test_turn_processor():

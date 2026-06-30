@@ -269,20 +269,18 @@ async function viewSessionDirect(sessionId) {
 function renderSessionModal(detail) {
   const p = detail.profile || {};
   
-  // 1. Basic Info Fields
+  // 1. Thông tin cơ bản — LUÔN hiện đủ (rỗng → "(chưa có)") để admin biết còn THIẾU gì.
+  // Đã bỏ field RÁC: phone_secondary, zalo (số phụ), district (Quận/Huyện), category_stack,
+  // customer_segment_signal — bot không thu, đã xoá khỏi schema.
   const basicFields = [
     { label: "Chủ cửa hàng (Owner)", value: p.owner_name },
     { label: "Tên cửa hàng (Dealer)", value: p.dealer_name },
     { label: "Số điện thoại / Zalo", value: p.phone_or_zalo },
-    { label: "Số điện thoại phụ", value: p.phone_secondary },
     { label: "Địa chỉ", value: p.address },
     { label: "Tỉnh / Xã chuẩn hóa", value: p.province && p.ward ? `${p.ward}, ${p.province}` : (p.province || p.ward) },
-    { label: "Quận / Huyện", value: p.district },
     { label: "Mô hình kinh doanh", value: p.business_model_signal || p.dealer_type },
     { label: "Sản phẩm chính", value: p.main_product },
-    { label: "Danh mục sản phẩm", value: Array.isArray(p.category_stack) ? p.category_stack.join(", ") : p.category_stack },
-    { label: "Kênh liên hệ chính", value: p.primary_contact_channel },
-    { label: "Số Zalo phụ", value: p.zalo }
+    { label: "Kênh liên hệ chính", value: p.primary_contact_channel }
   ];
   
   // 2. 9 Criteria Fields (C1-C9) — `keys` = field(s) để tra status (SKIPPED = khách không cung cấp)
@@ -298,16 +296,16 @@ function renderSessionModal(detail) {
     { label: "C9. Mạng lưới & sức ảnh hưởng", value: [p.facebook ? `Facebook: ${p.facebook} ${p.fb_marketing_status ? '(' + p.fb_marketing_status + ')' : ''}` : null, p.community_network_signal ? `Mạng lưới: ${p.community_network_signal}` : null].filter(Boolean).join(" — "), keys: ["community_network_signal", "facebook"] }
   ];
   
-  // 3. Logo/Brandkit Details
+  // 3. Logo/Brandkit — LUÔN hiện đủ (rỗng → "(chưa có)").
+  const _logoIntentVi = { unclarified: "Chưa rõ", upgrade: "Nâng cấp logo cũ", redesign: "Thiết kế lại", new: "Làm mới hoàn toàn" };
   const brandkitFields = [
     { label: "Đồng ý nhận bộ thương hiệu", value: p.brandkit_consent === "yes" ? "Có ✓" : (p.brandkit_consent === "no" ? "Không ✗" : null) },
+    { label: "Nhu cầu logo hiện có", value: p.logo_existing_intent ? (_logoIntentVi[p.logo_existing_intent] || p.logo_existing_intent) : null },
     { label: "Màu chủ đạo & Phong thủy", value: p.color_accent ? `${p.color_accent} ${p.feng_shui_signal ? '(' + p.feng_shui_signal + ')' : ''}` : p.feng_shui_signal },
-    { label: "Viết tắt logo", value: p.logo_initials },
-    { label: "Tên rút gọn", value: p.brand_name_short },
-    { label: "Viết tắt đầy đủ", value: p.initials_full },
-    { label: "Gu slogan / slogan lựa chọn", value: p.slogan_preference },
     { label: "Gu logo / phong cách", value: p.logo_style },
-    { label: "Slogan gợi ý", value: Array.isArray(p.slogan_options) ? p.slogan_options.map((s, i) => `${i+1}. ${s}`).join("<br>") : p.slogan_options }
+    { label: "Slogan", value: p.slogan_preference }
+    // Đã bỏ: logo_initials / brand_name_short / initials_full / slogan_options
+    // (tàn dư luồng tự-gen-logo cũ — _conv_derive không chạy ở runtime gemini → luôn rỗng).
   ];
 
   // showEmpty=true: LUÔN hiện đủ field (rỗng → "(chưa có)") — dùng cho trường cơ bản
@@ -315,9 +313,7 @@ function renderSessionModal(detail) {
   const isEmptyVal = (v) => v === null || v === undefined || v === "" || (Array.isArray(v) && v.length === 0);
   const renderFormFields = (fields, showEmpty = false) => {
     const rows = showEmpty ? fields : fields.filter(f => !isEmptyVal(f.value));
-    if (rows.length === 0) {
-      return '<div class="kv-value" style="grid-column:span 2;color:#a0aec0;padding:4px 0">(Trống)</div>';
-    }
+    if (rows.length === 0) return "";  // nhóm phụ rỗng → không chèn gì (ghép sau lõi)
     return rows.map(f => {
       const valHtml = isEmptyVal(f.value)
         ? '<span style="color:#a0aec0">(chưa có)</span>'
@@ -358,7 +354,7 @@ function renderSessionModal(detail) {
 
   const basicHtml = renderFormFields(basicFields, true);
   const criteriaHtml = renderCriteriaFields(criteriaFields);
-  const brandkitHtml = renderFormFields(brandkitFields);
+  const brandkitHtml = renderFormFields(brandkitFields, true);
 
   const historyHtml = (detail.history || [])
     .map(
