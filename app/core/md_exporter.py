@@ -175,8 +175,8 @@ def render_profile_md(
     lines.append("")
     # Feedback 2026-06-10: chỉ cam kết bộ nhận diện (+ hồ sơ số, báo giá nếu cần)
     if profile.brandkit_consent == "yes":
-        lines.append("- Gửi bộ thương hiệu (logo + danh thiếp + video) trong ứng dụng nhỏ Zalo")
-        lines.append("- Gửi kèm hồ sơ số + mẫu báo giá nếu đại lý cần")
+        lines.append("- Gửi bộ thương hiệu (logo + danh thiếp) trong ứng dụng nhỏ Zalo")
+        lines.append("- Gửi kèm hồ sơ số, video giới thiệu, mẫu báo giá nếu đại lý cần")
         lines.append("- Giới thiệu nhóm Cộng Đồng Thợ 4.0 phù hợp khu vực + ngành")
     else:
         lines.append("- Gửi hồ sơ số + mẫu báo giá qua Zalo nếu đại lý cần")

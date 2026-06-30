@@ -182,7 +182,7 @@ def _task_from_objective(
         # THẺ HỒ SƠ do hệ thống TỰ ĐÍNH bên dưới → LLM KHÔNG được liệt kê lại (tránh lặp).
         return (
             f"Đã chốt xong phần bộ thương hiệu. Nói NGẮN (1-2 câu): đội thiết kế bên em sẽ "
-            f"gửi {address_form} vài MẪU tham khảo + bộ hoàn chỉnh (logo/danh thiếp/video) qua "
+            f"gửi {address_form} vài MẪU tham khảo + bộ hoàn chỉnh (logo + danh thiếp) qua "
             f"Zalo TRONG 3 NGÀY tới, rồi mời {address_form} xem THẺ HỒ SƠ bên dưới + xác nhận. "
             "TUYỆT ĐỐI KHÔNG tự liệt kê lại từng thông tin (tên / địa chỉ / sản phẩm / mô hình) "
             "trong câu trả lời — THẺ đã tự hiện bên dưới rồi. CHƯA gửi link Zalo, CHƯA chào kết thúc."

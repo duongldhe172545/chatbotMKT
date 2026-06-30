@@ -278,21 +278,20 @@ _SLOT_TEMPLATES: dict[str, SlotTemplate] = {
             "ạ 🌷. Như đã nói ở phần đầu, em xin phép gửi tặng anh món "
             "quà nhỏ — một bộ thương hiệu bao gồm:\n"
             "  🎨 Logo riêng cho cửa hàng mình\n"
-            "  📇 Danh thiếp cá nhân hoá\n"
-            "  🎬 Video giới thiệu thương hiệu (gen từ logo)\n\n"
+            "  📇 Danh thiếp cá nhân hoá\n\n"
             "Anh có đồng ý nhận quà của em không ạ?",
             "Em rất cảm ơn anh đã chia sẻ. Theo đúng lời hứa lúc đầu, "
             "em xin phép tặng anh bộ thương hiệu nhỏ gồm logo riêng + "
-            "danh thiếp + video giới thiệu cho cửa hàng mình. Anh đồng "
+            "danh thiếp cho cửa hàng mình. Anh đồng "
             "ý nhận chứ ạ?",
             "Dạ phần thu thập thông tin xong rồi anh ơi. Em xin phép "
-            "tặng anh bộ thương hiệu (logo + danh thiếp + video giới "
-            "thiệu thương hiệu) cho cửa hàng mình — đây là quà miễn phí "
+            "tặng anh bộ thương hiệu (logo + danh thiếp) cho cửa hàng "
+            "mình — đây là quà miễn phí "
             "em tặng để cảm ơn anh dành thời gian. Anh nhận không ạ?",
         ],
         retry_questions=[
             "Dạ em không ép đâu ạ. Em chỉ muốn hỗ trợ anh có thêm bộ logo, "
-            "danh thiếp và video nhìn chỉn chu hơn để khách dễ nhớ cửa hàng. "
+            "danh thiếp nhìn chỉn chu hơn để khách dễ nhớ cửa hàng. "
             "Em làm thử cho anh trước, anh xem hợp thì dùng nhé?",
             "Nếu anh ngại phiền em làm, em vẫn cứ làm rồi gửi link anh "
             "xem sau cũng OK ạ. Anh cứ nói có hay không thôi, em ghi nhận.",

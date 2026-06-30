@@ -190,8 +190,8 @@ def _render_section_5_trong_3_ngay(profile: DealerProfileRaw, af: str = "anh") -
     """
     lines = ["⏰ TRONG 3 NGÀY TỚI"]
     if profile.brandkit_consent == "yes":
-        lines.append(f"   • Bộ thương hiệu (logo + danh thiếp + video) gửi {af} trong ứng dụng nhỏ Zalo")
-        lines.append(f"   • Kèm hồ sơ số + mẫu báo giá nếu {af} cần")
+        lines.append(f"   • Bộ thương hiệu (logo + danh thiếp) gửi {af} trong ứng dụng nhỏ Zalo")
+        lines.append(f"   • Kèm hồ sơ số, video giới thiệu, mẫu báo giá nếu {af} cần")
         lines.append(f"   • Nhóm Cộng Đồng Thợ 4.0 phù hợp khu vực + ngành mình")
     else:
         lines.append(f"   • Em gửi {af} hồ sơ số + mẫu báo giá qua Zalo nếu {af} cần")
