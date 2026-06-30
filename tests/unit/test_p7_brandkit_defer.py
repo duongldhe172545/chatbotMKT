@@ -95,9 +95,9 @@ class TestBrandkitDeferStrip:
         assert "slogan_preference" not in result.extracted_fields  # đã strip
         assert result.workflow_state != "READY_FOR_REVIEW"
 
-    def test_concrete_slogan_kept_then_preview(self, monkeypatch):
+    def test_concrete_slogan_kept_then_review(self, monkeypatch):
         """ADVERSARIAL: khách CHỌN câu cụ thể (intent normal) → KHÔNG strip →
-        slogan lưu lại → brandkit đủ → nhảy SHOW MẪU THAM KHẢO (9.4b, trước review)."""
+        slogan lưu lại → brandkit đủ → đi thẳng THẺ CHỐT (FIX_GAP: bỏ preview)."""
         tp = _build_tp()
         monkeypatch.setattr(
             tp, "_extract_fields",
@@ -111,7 +111,7 @@ class TestBrandkitDeferStrip:
             turn_count=20,
         )
         assert result.extracted_fields.get("slogan_preference") == "Tận tâm trong từng công trình"
-        assert result.suggested_objective["type"] == "show_brandkit_preview"
+        assert result.suggested_objective["type"] == "show_profile_review"
 
     def test_defer_color_strips_feng_shui_too(self, monkeypatch):
         """Defer màu → strip cả color_accent lẫn feng_shui_signal."""

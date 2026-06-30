@@ -177,10 +177,13 @@ def _task_from_objective(
         )
 
     if obj_type == "show_profile_review":
+        # FIX_GAP 2026-06-30: chốt NGAY sau brandkit. Báo đội thiết kế sẽ GỬI MẪU + bộ
+        # hoàn chỉnh qua Zalo trong 3 ngày (thay cho việc show ảnh tại chỗ), rồi mời duyệt.
         return (
-            f"Du thong tin roi. Moi {address_form} xem lai ho so va xac nhan. "
-            "CHỈ mời xem lại + xác nhận — CHƯA gửi link Zalo, CHƯA nói 'đã xong/đủ "
-            f"thông tin', CHƯA chào kết thúc (việc đó để bước bàn giao SAU khi {address_form} đã duyệt)."
+            f"Đã chốt xong phần bộ thương hiệu. Nói NGẮN: đội thiết kế bên em sẽ gửi "
+            f"{address_form} vài MẪU tham khảo + bộ hoàn chỉnh (logo/danh thiếp/video) "
+            f"qua Zalo TRONG 3 NGÀY tới. Rồi mời {address_form} xem lại hồ sơ bên dưới + "
+            "xác nhận. CHỈ mời xem lại + xác nhận — CHƯA gửi link Zalo, CHƯA chào kết thúc."
         )
 
     if obj_type == "show_brandkit_preview":

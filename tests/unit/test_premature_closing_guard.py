@@ -94,7 +94,7 @@ class TestCollectionStatus:
         assert "tiếp tục hỏi" in status
 
     def test_pending_includes_optional_fields(self):
-        """Bug gốc: 3.2/3.4/3.5 chưa thu nhưng bot chốt — block phải liệt kê."""
+        """FIX_GAP: 9 tiêu chí là tư vấn SAU chốt → khi CONFIRMED, block phải liệt kê chúng."""
         snap = empty_profile_snapshot()
         snap["all_fields"] = {
             "owner_name": "Huyền",
@@ -103,12 +103,15 @@ class TestCollectionStatus:
             "phone_or_zalo": "0867098021",
             "main_product": "nhôm tủ bếp",
             "business_model_signal": "bán lẻ",
+            "brandkit_consent": "yes", "color_accent": "x",
+            "logo_style": "x", "slogan_preference": "x",
         }
         snap["missing_required_fields"] = []
         snap["skipped_fields"] = []
+        snap["review_status"] = "CONFIRMED"  # 9 tiêu chí chỉ chạy sau chốt
         status = _build_collection_status(snap)
         assert "Còn phải hỏi" in status
-        # các optional chưa thu phải xuất hiện (label mới sau Fix 1)
+        # các tiêu chí chưa thu phải xuất hiện (label mới sau Fix 1)
         assert "lưu thông tin khách" in status
         assert "ký gửi" in status  # C2 label = "tự chủ vốn (ký gửi / mua đứt)"
         assert "bảo hành" in status

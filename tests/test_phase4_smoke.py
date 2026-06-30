@@ -82,8 +82,7 @@ def test_workflow_engine():
     })
     assert state == "READY_FOR_REVIEW"
 
-    # Optional fields flow — thứ tự 9.4 BRANDKIT-FIRST:
-    # required → brandkit_consent → (yes) màu/phong cách/slogan → preview → C1-C9
+    # FIX_GAP CHỐT SỚM: required → brandkit → THẺ CHỐT → (CONFIRMED) → 9 tiêu chí → handoff
     _req = {
         "missing_required_fields": [],
         "blocking_flags": [],
@@ -91,51 +90,44 @@ def test_workflow_engine():
         "logo_issued_status": "NONE",
         "skipped_fields": [],
     }
+    bk_done = {"brandkit_consent": "yes", "color_accent": "xanh",
+               "logo_style": "hiện đại", "slogan_preference": "x"}
 
-    # 1. Required xong → hỏi brandkit_consent TRƯỚC (không phải C1-C9)
-    obj = engine.compute_objective(
-        profile_snapshot={**_req, "all_fields": {}}, observations={})
-    assert obj["type"] == "collect_required_field"
-    assert obj["target_field"] == "brandkit_consent"
+    # 1. Required xong → hỏi brandkit_consent
+    obj = engine.compute_objective(profile_snapshot={**_req, "all_fields": {}}, observations={})
+    assert obj["type"] == "collect_required_field" and obj["target_field"] == "brandkit_consent"
 
     # 2. consent=yes → hỏi màu
     obj = engine.compute_objective(
-        profile_snapshot={**_req, "all_fields": {"brandkit_consent": "yes"}},
-        observations={})
+        profile_snapshot={**_req, "all_fields": {"brandkit_consent": "yes"}}, observations={})
     assert obj["target_field"] == "color_accent"
 
-    # 3. màu/phong cách/slogan xong, chưa show mẫu → bước preview
-    bk_done = {"brandkit_consent": "yes", "color_accent": "xanh",
-               "logo_style": "hiện đại", "slogan_preference": "x"}
-    obj = engine.compute_objective(
-        profile_snapshot={**_req, "all_fields": bk_done}, observations={})
-    assert obj["type"] == "show_brandkit_preview"
+    # 3. brandkit xong (DRAFT) → THẲNG thẻ chốt (KHÔNG preview, KHÔNG C1-C9)
+    obj = engine.compute_objective(profile_snapshot={**_req, "all_fields": bk_done}, observations={})
+    assert obj["type"] == "show_profile_review"
 
-    # 4. đã show mẫu → bắt đầu tư vấn C1-C9 (est_team_size)
+    # 4. consent=no (DRAFT) → cũng đi thẳng thẻ chốt (C1-C9 chỉ sau chốt)
     obj = engine.compute_objective(
-        profile_snapshot={**_req, "all_fields": {**bk_done, "brandkit_preview_shown": "yes"}},
+        profile_snapshot={**_req, "all_fields": {"brandkit_consent": "no"}}, observations={})
+    assert obj["type"] == "show_profile_review"
+
+    # 5. CONFIRMED → mới hỏi 9 tiêu chí (est_team_size)
+    obj = engine.compute_objective(
+        profile_snapshot={**_req, "review_status": "CONFIRMED", "all_fields": bk_done},
         observations={})
-    assert obj["type"] == "collect_optional_field"
-    assert obj["target_field"] == "est_team_size"
+    assert obj["type"] == "collect_optional_field" and obj["target_field"] == "est_team_size"
 
-    # 5. consent=no → xuống thẳng tư vấn C1-C9 (KHÔNG review ngay)
-    obj = engine.compute_objective(
-        profile_snapshot={**_req, "all_fields": {"brandkit_consent": "no"}},
-        observations={})
-    assert obj["type"] == "collect_optional_field"
-    assert obj["target_field"] == "est_team_size"
-
-    # 6. consent=no + tất cả C1-C9 skipped → review
+    # 6. CONFIRMED + tất cả C1-C9 skipped → handoff
     all_opts = ["est_team_size", "supplier_brands", "primary_contact_channel", "facebook",
                 "customer_old_percentage", "local_dominance_signal", "customer_storage_method",
                 "customer_pain", "payment_terms_signal", "warranty_responsibility_signal"]
     obj = engine.compute_objective(
-        profile_snapshot={**_req, "all_fields": {"brandkit_consent": "no"},
+        profile_snapshot={**_req, "review_status": "CONFIRMED", "all_fields": bk_done,
                           "skipped_fields": all_opts},
         observations={})
-    assert obj["type"] == "show_profile_review"
+    assert obj["type"] == "zalo_handoff"
 
-    print("  [OK] workflow_engine (brandkit-first order + states)")
+    print("  [OK] workflow_engine (chốt sớm + 9 tiêu chí sau confirm)")
 
 
 def test_turn_processor():

@@ -162,14 +162,18 @@ def test_phase5_pipeline():
                 source_type="test",
                 confidence=1.0,
             )
-        # 9.4 brandkit-first: consent=no để luồng tụt xuống tư vấn C1-C9 (test skip optional)
+        # FIX_GAP: 9 tiêu chí chạy SAU chốt → set consent + review_status=CONFIRMED
         store.upsert_profile_field(
             conn, profile_id=pid, field_name="brandkit_consent",
             raw_value="no", normalized_value="no", status="PROVIDED",
             source_type="test", confidence=1.0,
         )
+        store.update_profile_status(
+            conn, profile_id=pid, review_status="CONFIRMED",
+            logo_issued_status=profile_row["logo_issued_status"],
+        )
 
-    # required + consent=no đã set → message bất kỳ → objective est_team_size (C1-C9)
+    # required + CONFIRMED → message bất kỳ → objective est_team_size (9 tiêu chí sau chốt)
     headers["Idempotency-Key"] = "idem-key-opt-ask-1"
     opt_res = client.post(
         f"/api/v1/sessions/{session_id}/messages",

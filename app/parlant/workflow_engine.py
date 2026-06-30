@@ -121,12 +121,11 @@ def iter_pending_steps(profile_snapshot: dict[str, Any]) -> list[PendingStep]:
     """NGUỒN DUY NHẤT cho thứ tự thu thập. KHÔNG gồm blocking flag (xử lý riêng,
     ưu tiên cao hơn).
 
-    Thứ tự (9.4 reorder 2026-06-17 — brandkit-first):
+    Thứ tự (FIX_GAP 2026-06-30 — chốt sớm):
       1. required (6 field cơ bản)
       2. BRANDKIT: brandkit_consent → (nếu yes) logo_existing_intent / màu / phong cách / slogan
-      3. TƯ VẤN (bonus, sau brandkit): 9 tiêu chí C1-C9 + 1 field PHỤ primary_contact_channel
-    consent=no/skip → khối brandkit không sinh step phụ → rơi thẳng xuống tư vấn (C1-C9).
-    Khách đổi ý (consent no→yes) → khối brandkit tự hiện lại (tính mỗi lượt từ snapshot)."""
+      → HẾT → thẻ chốt (review). 9 TIÊU CHÍ C1-C9 CHỈ chạy SAU khi review=CONFIRMED (tư vấn sau chốt).
+    (Không còn bước show_brandkit_preview — đội thiết kế gửi ảnh mẫu qua Zalo.)"""
     steps: list[PendingStep] = []
 
     # 1. Required fields (theo priority)
@@ -190,22 +189,16 @@ def iter_pending_steps(profile_snapshot: dict[str, Any]) -> list[PendingStep]:
                 ),
             ))
         steps.extend(brandkit_sub)
+        # (FIX_GAP 2026-06-30) BỎ bước show_brandkit_preview — không show ảnh trong chat
+        # nữa (đội thiết kế gửi mẫu qua Zalo). Sau brandkit → đi thẳng thẻ chốt.
 
-        # 9.4b — Sau khi xong màu/phong cách/slogan → SHOW MẪU THAM KHẢO (1 lần).
-        # Gate bằng marker brandkit_preview_shown (set sau khi đã show).
-        if not brandkit_sub and not (
-            "brandkit_preview_shown" in all_fields or "brandkit_preview_shown" in skipped
-        ):
-            steps.append(PendingStep(
-                "show_brandkit_preview", "brandkit_preview", "xem mẫu tham khảo",
-                "trình vài mẫu logo + danh thiếp tham khảo khớp phong cách/màu",
-                display_label="xem mẫu tham khảo",
-            ))
-
-    # 3. TƯ VẤN bonus (SAU brandkit): 9 tiêu chí C1-C9 + 1 field phụ — slot-level satisfied (A fix)
-    for field_name, label, hint in OPTIONAL_FIELDS_PRIORITY:
-        if not optional_satisfied(field_name, all_fields, skipped):
-            steps.append(PendingStep("collect_optional_field", field_name, label, hint))
+    # 3. TƯ VẤN 9 tiêu chí C1-C9 + field phụ — CHỈ chạy SAU KHI ĐÃ CHỐT (review CONFIRMED).
+    # FIX_GAP 2026-06-30: thẻ chốt (review) lên NGAY sau brandkit (thẻ chỉ có info cơ bản);
+    # 9 tiêu chí giữ nguyên nhưng chuyển XUỐNG thành tư vấn SAU chốt → handoff.
+    if profile_snapshot.get("review_status") == "CONFIRMED":
+        for field_name, label, hint in OPTIONAL_FIELDS_PRIORITY:
+            if not optional_satisfied(field_name, all_fields, skipped):
+                steps.append(PendingStep("collect_optional_field", field_name, label, hint))
 
     return steps
 
@@ -304,14 +297,17 @@ class WorkflowEngine:
         if logo_status == "BLOCKED_DUPLICATE":
             return "ESCALATED"
 
-        # Còn blocking flag HOẶC còn bước thu thập (required/optional/brandkit) → WAITING.
-        # Dùng chung iter_pending_steps với compute_objective để 2 bên không lệch.
         blocking = profile_snapshot.get("blocking_flags", [])
-        if blocking or iter_pending_steps(profile_snapshot):
+        if blocking:
             return "WAITING_REQUIRED_FIELD"
 
+        # FIX_GAP 2026-06-30: đã CHỐT → state = CONFIRMED, KHÔNG lật về WAITING dù còn
+        # 9 tiêu chí tư vấn (chúng là bonus SAU chốt, iter_pending_steps trả chúng khi CONFIRMED).
         review_status = profile_snapshot.get("review_status", "DRAFT")
-        if review_status == "DRAFT":
-            return "READY_FOR_REVIEW"
+        if review_status == "CONFIRMED":
+            return "CONFIRMED"
 
-        return "CONFIRMED"
+        # DRAFT: còn bước thu thập (required/brandkit) → WAITING; hết → READY_FOR_REVIEW.
+        if iter_pending_steps(profile_snapshot):
+            return "WAITING_REQUIRED_FIELD"
+        return "READY_FOR_REVIEW"
